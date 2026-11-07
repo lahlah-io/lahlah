@@ -1,0 +1,62 @@
+name: Pull request policy
+
+on:
+  pull_request:
+    branches:
+      - main
+      - test
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - edited
+      - ready_for_review
+
+permissions:
+  contents: read
+
+jobs:
+  branch-flow:
+    name: branch-flow
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check source branch
+        env:
+          BASE: ${{ github.base_ref }}
+          HEAD: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [[ "$HEAD_REPO" != "$REPO" ]]; then
+            echo "PR ke $BASE harus berasal dari branch dalam repo $REPO."
+            exit 1
+          fi
+
+          case "$BASE:$HEAD" in
+            main:test|test:dev)
+              echo "Alur branch valid: $HEAD -> $BASE"
+              ;;
+            *)
+              echo "Alur branch tidak valid: $HEAD -> $BASE. main hanya menerima test; test hanya menerima dev."
+              exit 1
+              ;;
+          esac
+
+  quality:
+    name: quality
+    needs: branch-flow
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.25.0
+          run_install: false
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm check-types
+      - run: pnpm build

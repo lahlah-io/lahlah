@@ -36,3 +36,9 @@ Hasil build berada di `dist/` setiap aplikasi. API dapat dijalankan setelah buil
 ## Aturan frontend
 
 `apps/app` dan `apps/admin` memakai shadcn/ui dan struktur `src/pages`, `src/feat`, `src/shared`. Aturan penempatan file, batas impor, dan pola `route.tsx` dijelaskan di [docs/frontend-architecture.md](docs/frontend-architecture.md). `pnpm lint` menegakkannya secara otomatis. AI yang bekerja di repo ini wajib membaca [AGENTS.md](AGENTS.md) dan skill lokal di `.agents/skills/`.
+
+## Alur branch dan PR
+
+Perubahan masuk lewat `dev` → `test` → `main`. PR ke `test` hanya boleh berasal dari `dev`; PR ke `main` hanya boleh berasal dari `test`. Workflow [pull-request.yml](.github/workflows/pull-request.yml) menjalankan check `branch-flow` dan `quality` (lint, pemeriksaan tipe, build) pada kedua tujuan.
+
+Proteksi branch yang mewajibkan PR, kedua check, dan berlaku juga untuk admin disimpan di [.github/branch-protection.json](.github/branch-protection.json). Terapkan dengan `scripts/apply-branch-protection.sh` setelah fitur branch protection tersedia untuk repo ini. Pada repo privat di GitHub Free, GitHub menolak pengaturan tersebut dengan HTTP 403; selama itu, workflow hanya memberi hasil pemeriksaan dan tidak dapat mencegah push langsung atau merge yang gagal.
