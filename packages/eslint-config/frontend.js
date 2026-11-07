@@ -11,6 +11,7 @@ export const frontendConfig = [
     rules: {
       "lahlah-architecture/boundaries": "error",
       "no-unused-vars": "off",
+      "no-undef": "off",
     },
   },
   {
