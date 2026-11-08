@@ -5,12 +5,14 @@ Monorepo pnpm dan Turborepo untuk tiga aplikasi:
 | Workspace | Stack | Port dev | Tujuan |
 | --- | --- | --- | --- |
 | `apps/app` | Vite + React + TypeScript | 5173 | Aplikasi pengguna |
-| `apps/api` | Hono + Node.js | 8787 | API (`/health`) |
+| `apps/api` | Hono + Node.js + Prisma + PostgreSQL | 8787 | API (`/api/v1`, `/health/*`) |
 | `apps/admin` | Vite + React + TypeScript | 5174 | Dasbor admin |
 
 ## Menjalankan
 
 Butuh Node.js 24+ dan pnpm 11.
+
+Backend memakai Prisma 7 dan PostgreSQL. Lihat [docs/api-architecture.md](docs/api-architecture.md) untuk struktur dan aturan kode API, serta [docs/api-development.md](docs/api-development.md) untuk cara menjalankan backend, perintah pnpm, dan alur migrasi database. Skill agent backend: [.agents/skills/lahlah-backend/SKILL.md](.agents/skills/lahlah-backend/SKILL.md).
 
 ```sh
 pnpm install
