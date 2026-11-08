@@ -1,0 +1,12 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servers": {
+      "peridot-id": {
+        "type": "remote",
+        "url": "https://mcp.peridot.id/mcp",
+        "oauth": false
+      }
+    }
+  }
+}

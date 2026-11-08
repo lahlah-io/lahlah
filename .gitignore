@@ -32,3 +32,6 @@ yarn-debug.log*
 
 # Local credentials
 *.pem
+
+# Generated Prisma client
+apps/api/src/generated/
