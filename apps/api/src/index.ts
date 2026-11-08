@@ -1,12 +1,17 @@
 import { serve } from "@hono/node-server";
-import { Hono } from "hono";
+import { app } from "./app.js";
+import { env } from "./env.js";
+import { prisma } from "./db/client.js";
 
-const app = new Hono();
-
-app.get("/", (c) => c.json({ name: "lahlah-api" }));
-app.get("/health", (c) => c.json({ status: "ok" }));
-
-const port = Number(process.env.PORT ?? 8787);
-serve({ fetch: app.fetch, port }, () => {
-  console.log(`API ready at http://localhost:${port}`);
+const server = serve({ fetch: app.fetch, port: env.PORT, hostname: env.HOST }, () => {
+  console.log(`API ready at http://${env.HOST}:${env.PORT}`);
 });
+
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.once(signal, () => {
+    server.close(async () => {
+      await prisma.$disconnect();
+      process.exit(0);
+    });
+  });
+}
