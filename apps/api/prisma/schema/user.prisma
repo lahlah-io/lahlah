@@ -1,0 +1,41 @@
+enum Role {
+  user
+  admin
+}
+
+model User {
+  id                     String                  @id @default(uuid()) @db.Uuid
+  pid                    String                  @unique @default(uuid())
+  name                   String                  @db.VarChar
+  email                  String                  @unique @db.VarChar
+  role                   Role                    @default(user)
+  isActive               Boolean                 @default(true) @map("is_active")
+  createdAt              DateTime                @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt              DateTime                @updatedAt @map("updated_at") @db.Timestamptz
+  subscriptions          UserSubscription[]
+  chatSessions           ChatSession[]
+  itineraries            Itinerary[]
+  createdDestinations    Destination[]           @relation("DestinationCreator")
+  destinationCheckpoints DestinationCheckpoint[]
+  activityLogs           ActivityLog[]
+
+  @@map("users")
+}
+
+model Model {
+  id               String             @id @default(uuid()) @db.Uuid
+  name             String             @db.VarChar
+  provider         String             @db.VarChar
+  modelIdentifier  String             @map("model_identifier") @db.VarChar
+  priceInputPer1m  Decimal            @default(0) @map("price_input_per_1m") @db.Decimal(12, 6)
+  priceOutputPer1m Decimal            @default(0) @map("price_output_per_1m") @db.Decimal(12, 6)
+  isActive         Boolean            @default(true) @map("is_active")
+  createdAt        DateTime           @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime           @updatedAt @map("updated_at") @db.Timestamptz
+  defaultForPlans  SubscriptionPlan[]
+  chatSessions     ChatSession[]
+  chatMessages     ChatMessage[]
+
+  @@unique([provider, modelIdentifier])
+  @@map("models")
+}
