@@ -1,0 +1,37 @@
+enum MessageRole {
+  system
+  user
+  assistant
+}
+
+model ChatSession {
+  id        String        @id @default(uuid()) @db.Uuid
+  userId    String        @map("user_id") @db.Uuid
+  modelId   String        @map("model_id") @db.Uuid
+  title     String        @db.VarChar
+  createdAt DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime      @updatedAt @map("updated_at") @db.Timestamptz
+  user      User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  model     Model         @relation(fields: [modelId], references: [id], onDelete: Restrict)
+  messages  ChatMessage[]
+  itinerary Itinerary?
+
+  @@map("chat_sessions")
+}
+
+model ChatMessage {
+  id           String      @id @default(uuid()) @db.Uuid
+  sessionId    String      @map("session_id") @db.Uuid
+  modelId      String?     @map("model_id") @db.Uuid
+  role         MessageRole
+  content      String      @db.Text
+  inputTokens  Int?        @map("input_tokens")
+  outputTokens Int?        @map("output_tokens")
+  metadata     Json        @default("{}")
+  createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  session      ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  model        Model?      @relation(fields: [modelId], references: [id], onDelete: SetNull)
+
+  @@index([sessionId, createdAt])
+  @@map("chat_messages")
+}
