@@ -1,4 +1,4 @@
-import { ChatBox } from "@/feat/home/components/chat-box"
+import { ChatBox } from "@/feat/chat/components/chat-box"
 
 export function HomePage() {
   return <ChatBox />
