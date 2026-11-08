@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Menu, Sparkles } from "lucide-react";
+import { Map, Menu, Sparkles } from "lucide-react";
 
 import { Button } from "@/shared/components/ui/button";
 import {
@@ -18,6 +18,7 @@ import {
 } from "@/shared/components/ui/sheet";
 
 import { ChatTurn, StreamingTurn } from "./chat-turn";
+import { ItineraryDrawer } from "./itinerary-drawer";
 import AIPromptInput from "./smoothui/ai-prompt-input";
 import { ThreadList } from "./thread-list";
 import { useChatThreads } from "../hooks/use-chat-threads";
@@ -46,6 +47,7 @@ export function ChatBox() {
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [itineraryOpen, setItineraryOpen] = useState(false);
 
   function handleNewThread() {
     cancel();
@@ -128,6 +130,14 @@ export function ChatBox() {
               {activeThread?.title ?? "Percakapan baru"}
             </h1>
           </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setItineraryOpen(true)}
+          >
+            <Map data-icon="inline-start" />
+            Open Itinerary
+          </Button>
         </header>
 
         <MessageScrollerProvider key={isDraft ? "draft" : activeThread?.id} autoScroll>
@@ -193,6 +203,8 @@ export function ChatBox() {
           </div>
         </div>
       </section>
+
+      <ItineraryDrawer open={itineraryOpen} onOpenChange={setItineraryOpen} />
     </div>
   );
 }
