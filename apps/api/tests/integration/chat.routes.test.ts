@@ -25,25 +25,27 @@ function buildApp(providerBaseUrl = "http://127.0.0.1:9/v1") {
       return u ? { id: u.id, isActive: u.isActive } : null;
     },
     searchDestinations: async (input) => {
+      const q = input.keywords?.trim();
+      const cats = input.categories?.filter(Boolean) ?? [];
       const rows = await prisma.destination.findMany({
-        where: { city: "Padang", isActive: true },
+        where: {
+          city: "Padang",
+          isActive: true,
+          ...(q ? { OR: [{ name: { contains: q, mode: "insensitive" } }, { description: { contains: q, mode: "insensitive" } }] } : {}),
+          ...(cats.length ? { categories: { some: { category: { slug: { in: cats } } } } } : {}),
+        },
         take: 10,
         select: {
           id: true, name: true, description: true, address: true, latitude: true, longitude: true, details: true, city: true, isActive: true,
           categories: { select: { category: { select: { slug: true } } } },
         },
       });
-      const q = input.keywords?.trim().toLowerCase();
-      const cats = new Set(input.categories ?? []);
-      return rows
-        .filter((r) => !q || `${r.name} ${r.description ?? ""}`.toLowerCase().includes(q))
-        .filter((r) => cats.size === 0 || r.categories.some((c) => cats.has(c.category.slug)))
-        .map((r) => ({
-          ...r,
-          latitude: r.latitude == null ? null : Number(r.latitude),
-          longitude: r.longitude == null ? null : Number(r.longitude),
-          categories: r.categories.map((c) => c.category),
-        }));
+      return rows.map((r) => ({
+        ...r,
+        latitude: r.latitude == null ? null : Number(r.latitude),
+        longitude: r.longitude == null ? null : Number(r.longitude),
+        categories: r.categories.map((c) => c.category),
+      }));
     },
     getDestinationDetails: async (input) => {
       const rows = await prisma.destination.findMany({

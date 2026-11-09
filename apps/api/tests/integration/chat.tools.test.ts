@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { prisma } from "../../src/db/client.js";
 import { completeChat, normalizeChatCompletionResponse } from "../../src/integrations/ai/chat-completions.js";
 import { createToolExecutor, toolDefinitions } from "../../src/modules/chat/services/tools.js";
 import * as destinationsRepository from "../../src/modules/destinations/repositories/destinations.repository.js";
@@ -21,29 +22,27 @@ function toNumber(value: { toNumber(): number } | null) {
 
 const executor = createToolExecutor({
   searchDestinations: async (input) => {
-    // composition-root style: query only Padang active rows via repo; tool passes validated filters.
-    const result = await destinationsRepository.findDestinations({
-      city: "Padang",
-      page: 1,
-      limit: 10,
-      ...(input.categories?.[0] ? { category: input.categories[0] } : {}),
+    const q = input.keywords?.trim();
+    const cats = input.categories?.filter(Boolean) ?? [];
+    const rows = await prisma.destination.findMany({
+      where: {
+        city: "Padang",
+        isActive: true,
+        ...(q ? { OR: [{ name: { contains: q, mode: "insensitive" } }, { description: { contains: q, mode: "insensitive" } }] } : {}),
+        ...(cats.length ? { categories: { some: { category: { slug: { in: cats } } } } } : {}),
+      },
+      take: 10,
+      select: {
+        id: true, name: true, description: true, address: true, latitude: true, longitude: true, details: true, city: true, isActive: true,
+        categories: { select: { category: { select: { id: true, name: true, slug: true } } } },
+      },
     });
-    const q = input.keywords?.trim().toLowerCase();
-    const rows = result.data
-      .filter((r) => !q || `${r.name} ${r.description ?? ""}`.toLowerCase().includes(q))
-      .map((r) => ({
-        id: r.id,
-        name: r.name,
-        description: r.description,
-        address: r.address,
-        latitude: toNumber(r.latitude),
-        longitude: toNumber(r.longitude),
-        details: r.details,
-        categories: r.categories.map((c) => c.category),
-        city: r.city,
-        isActive: r.isActive,
-      }));
-    return rows;
+    return rows.map((r) => ({
+      ...r,
+      latitude: toNumber(r.latitude),
+      longitude: toNumber(r.longitude),
+      categories: r.categories.map((c) => c.category),
+    }));
   },
   getDestinationDetails: async (input) => {
     const rows = await Promise.all(input.destinationIds.map((id) => destinationsRepository.findDestinationById(id)));

@@ -1,13 +1,18 @@
 import { Hono } from "hono";
+import { prisma } from "./db/client.js";
 import { createChatApi, createChatService } from "./modules/chat/index.js";
 import { destinationsApi } from "./modules/destinations/index.js";
 import { createItineraryApi, createItineraryService } from "./modules/itinerary/index.js";
 import { usersApi } from "./modules/users/index.js";
 import { getDraft } from "./modules/chat/services/draft-store.js";
 import * as usersRepository from "./modules/users/repositories/users.repository.js";
-import * as destinationsRepository from "./modules/destinations/repositories/destinations.repository.js";
 
-function toDestinationToolRow(row: NonNullable<Awaited<ReturnType<typeof destinationsRepository.findDestinationById>>>) {
+function toToolRow(row: {
+  id: string; name: string; description: string | null; address: string | null;
+  latitude: { toNumber(): number } | null; longitude: { toNumber(): number } | null;
+  details: unknown; city: string | null; isActive: boolean;
+  categories: Array<{ category: { id: string; name: string; slug: string } }>;
+}) {
   return {
     id: row.id,
     name: row.name,
@@ -22,23 +27,35 @@ function toDestinationToolRow(row: NonNullable<Awaited<ReturnType<typeof destina
   };
 }
 
+const toolSelect = {
+  id: true, name: true, description: true, address: true, latitude: true, longitude: true,
+  details: true, city: true, isActive: true,
+  categories: { select: { category: { select: { id: true, name: true, slug: true } } } },
+} as const;
+
 const chatService = createChatService({
   findUserById: (id) => usersRepository.findUserById(id).then((u) => (u ? { id: u.id, isActive: u.isActive } : null)),
   searchDestinations: async (input) => {
-    const result = await destinationsRepository.findDestinations({
-      city: "Padang",
-      page: 1,
-      limit: 10,
-      ...(input.categories?.[0] ? { category: input.categories[0] } : {}),
+    const q = input.keywords?.trim();
+    const cats = input.categories?.filter(Boolean) ?? [];
+    const rows = await prisma.destination.findMany({
+      where: {
+        city: "Padang",
+        isActive: true,
+        ...(q ? { OR: [{ name: { contains: q, mode: "insensitive" } }, { description: { contains: q, mode: "insensitive" } }] } : {}),
+        ...(cats.length ? { categories: { some: { category: { slug: { in: cats } } } } } : {}),
+      },
+      take: 10,
+      select: toolSelect,
     });
-    const q = input.keywords?.trim().toLowerCase();
-    return result.data
-      .filter((r) => !q || `${r.name} ${r.description ?? ""}`.toLowerCase().includes(q))
-      .map(toDestinationToolRow);
+    return rows.map(toToolRow);
   },
   getDestinationDetails: async (input) => {
-    const rows = await Promise.all(input.destinationIds.map((id) => destinationsRepository.findDestinationById(id)));
-    return rows.filter((r): r is NonNullable<typeof r> => r != null).map(toDestinationToolRow);
+    const rows = await prisma.destination.findMany({
+      where: { id: { in: input.destinationIds }, city: "Padang", isActive: true },
+      select: toolSelect,
+    });
+    return rows.map(toToolRow);
   },
 });
 
