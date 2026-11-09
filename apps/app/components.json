@@ -23,6 +23,12 @@
   "menuAccent": "subtle",
   "registries": {
     "@react-bits": "https://reactbits.dev/r/{name}.json",
-    "@smoothui": "https://smoothui.dev/r/{name}.json"
+    "@smoothui": "https://smoothui.dev/r/{name}.json",
+    "@reactbits-pro": {
+      "url": "https://pro.reactbits.dev/api/r/pro/{name}.json",
+      "headers": {
+        "Authorization": "Bearer ${REACTBITS_PRO_LICENSE_KEY}"
+      }
+    }
   }
 }
