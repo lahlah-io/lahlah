@@ -2,9 +2,11 @@ import type { ErrorHandler } from "hono";
 import { Prisma } from "../../generated/prisma/client.js";
 import { ZodError } from "zod";
 
+export type HttpStatus = 400 | 401 | 403 | 404 | 409 | 422 | 429 | 502 | 503 | 504;
+
 export class HttpError extends Error {
   constructor(
-    public readonly status: 400 | 404 | 409,
+    public readonly status: HttpStatus,
     public readonly code: string,
     message: string,
   ) {
