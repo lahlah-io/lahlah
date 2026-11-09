@@ -37,3 +37,5 @@ yarn-debug.log*
 # Husky hooks and commitlint config stay local-only
 .husky/
 commitlint.config.cjs
+
+docs/superpowers

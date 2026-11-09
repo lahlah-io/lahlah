@@ -2,6 +2,48 @@
 
 Monorepo pnpm dan Turborepo untuk tiga aplikasi:
 
+## Architecture — Lahlah Chatbot
+
+### End-to-end flow (BPMN-style)
+
+```mermaid
+flowchart LR
+    A[User] -->|1. pesan| B[chat-test.html / FE]
+    B -->|2. POST /chat/sessions/:id/messages<br/>userId + content| C[Hono routes.ts]
+    C -->|3. classify intent| D[Classifier Service]
+    E[Tools + Draft Store] -->|context destinasi + draft| F[Chat Service]
+    D -->|intent label| F
+    F -->|4. JSON message + intent + draft| B
+    B -->|5. confirm + rute + render peta| A
+```
+
+### Backend
+
+- Runtime: Node.js 24 + Hono + Prisma 7 + PostgreSQL
+- Entry: `apps/api/src/index.ts` → `apps/api/src/routes.ts`
+- Key services:
+  - `classifier.ts` → klasifikasi intent
+  - `chat.service.ts` + `conversation-context.ts` → orkestrasi pesan + riwayat
+  - `tools.ts` + `destinations` → `search_destinations`, `get_destination_details` (filter Padang)
+  - `itinerary-generator.ts` + `draft-store.ts` → jadwal + draft memori TTL
+  - `itinerary.service.ts` → confirm idempoten 201/200
+  - `routing/` → proxy OSRM + cache LRU + fallback garis lurus
+- Middleware: `requestId`, `logger`, `secureHeaders`, `bodyLimit`, `errorHandler`, `productionGate` (chat mati di production sampai auth ada)
+
+### Frontend
+
+- Stack: Vite + React + TypeScript + MapLibre GL JS (client uji statis dulu)
+- Entry: `apps/app/public/chat-test.html`
+- Components:
+  - `tabs/sessions` → session persisten `localStorage`
+  - `chat panel` → pesan user + assistant + metadata intent/draftId
+  - `itinerary panel + map` → draft aktif, marker bernomor, garis OSRM teal / fallback orange
+- Service: `fetch` langsung ke `/api/v1` (`request()`, `sendMessage()`, `confirmDraft()`, `loadRoute()`), cache rute di `sessionStorage`
+
+Detail lengkap (sequence, flowchart routing, ER): [`docs/chatbot-architecture.md`](docs/chatbot-architecture.md), panduan pakai API: [`docs/chat-api-untuk-fe.md`](docs/chat-api-untuk-fe.md).
+
+## Workspace
+
 | Workspace | Stack | Port dev | Tujuan |
 | --- | --- | --- | --- |
 | `apps/app` | Vite + React + TypeScript | 5173 | Aplikasi pengguna |
