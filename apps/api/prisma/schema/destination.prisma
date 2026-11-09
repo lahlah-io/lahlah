@@ -1,0 +1,50 @@
+enum DestinationSource {
+  geoapify
+  admin
+  user
+}
+
+model Destination {
+  id                    String                 @id @default(uuid()) @db.Uuid
+  name                  String                 @db.VarChar
+  description           String?                @db.Text
+  latitude              Decimal?               @db.Decimal(10, 7)
+  longitude             Decimal?               @db.Decimal(10, 7)
+  address               String?                @db.VarChar
+  source                DestinationSource
+  sourcePlaceId         String?                @map("source_place_id") @db.VarChar
+  createdBy             String?                @map("created_by") @db.Uuid
+  isActive              Boolean                @default(true) @map("is_active")
+  imageUrl              String?                @map("image_url") @db.VarChar
+  details               Json                   @default("{}")
+  lastSyncedAt          DateTime?              @map("last_synced_at") @db.Timestamptz
+  createdAt             DateTime               @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime               @updatedAt @map("updated_at") @db.Timestamptz
+  creator               User?                  @relation("DestinationCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  categories            DestinationCategory[]
+  itineraryDestinations ItineraryDestination[]
+
+  @@unique([source, sourcePlaceId])
+  @@map("destinations")
+}
+
+model Category {
+  id           String                @id @default(uuid()) @db.Uuid
+  name         String                @db.VarChar
+  slug         String                @unique @db.VarChar
+  createdAt    DateTime              @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime              @updatedAt @map("updated_at") @db.Timestamptz
+  destinations DestinationCategory[]
+
+  @@map("categories")
+}
+
+model DestinationCategory {
+  destinationId String      @map("destination_id") @db.Uuid
+  categoryId    String      @map("category_id") @db.Uuid
+  destination   Destination @relation(fields: [destinationId], references: [id], onDelete: Cascade)
+  category      Category    @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([destinationId, categoryId])
+  @@map("destination_categories")
+}

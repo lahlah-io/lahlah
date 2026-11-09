@@ -1,16 +1,8 @@
-import { existsSync } from "node:fs";
-import { defineConfig } from "prisma/config";
-
-// Node 24 can read .env without a dotenv dependency. CLI commands run from this
-// package, so a missing file just means "use the real environment".
-if (existsSync(".env")) {
-  process.loadEnvFile(".env");
-}
-
-const databaseUrl = process.env.DATABASE_URL;
+import "dotenv/config";
+import { defineConfig, env } from "prisma/config";
 
 export default defineConfig({
-  schema: "prisma/schema.prisma",
-  // Omitted when unset so `prisma generate` works in CI without a database.
-  ...(databaseUrl ? { datasource: { url: databaseUrl } } : {}),
+  schema: "prisma/schema",
+  migrations: { path: "prisma/migrations" },
+  datasource: { url: env("DATABASE_URL", "postgres://postgres:123@localhost:5432/lahlah_db") },
 });

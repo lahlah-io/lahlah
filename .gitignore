@@ -4,6 +4,7 @@ node_modules/
 .pnp.*
 
 # Build outputs and caches (all workspaces)
+apps/api/src/generated/
 dist/
 build/
 out/
@@ -33,5 +34,6 @@ yarn-debug.log*
 # Local credentials
 *.pem
 
-# Generated Prisma client
-apps/api/src/generated/
+# Husky hooks and commitlint config stay local-only
+.husky/
+commitlint.config.cjs

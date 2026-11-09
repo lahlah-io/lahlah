@@ -1,0 +1,52 @@
+enum ItineraryStatus {
+  draft
+  final
+}
+
+model Itinerary {
+  id           String                 @id @default(uuid()) @db.Uuid
+  userId       String                 @map("user_id") @db.Uuid
+  sessionId    String?                @unique @map("session_id") @db.Uuid
+  title        String                 @db.VarChar
+  content      String                 @db.Text
+  status       ItineraryStatus        @default(draft)
+  isPublic     Boolean                @default(false) @map("is_public")
+  shareSlug    String?                @unique @map("share_slug") @db.VarChar
+  metadata     Json                   @default("{}")
+  createdAt    DateTime               @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime               @updatedAt @map("updated_at") @db.Timestamptz
+  user         User                   @relation(fields: [userId], references: [id], onDelete: Restrict)
+  session      ChatSession?           @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  destinations ItineraryDestination[]
+
+  @@map("itinerary")
+}
+
+model ItineraryDestination {
+  id            String                  @id @default(uuid()) @db.Uuid
+  itineraryId   String                  @map("itinerary_id") @db.Uuid
+  destinationId String                  @map("destination_id") @db.Uuid
+  visitAt       DateTime?               @map("visit_at") @db.Timestamptz
+  estimatedCost Float?                  @map("estimated_cost")
+  notes         String?                 @db.Text
+  createdAt     DateTime                @default(now()) @map("created_at") @db.Timestamptz
+  itinerary     Itinerary               @relation(fields: [itineraryId], references: [id], onDelete: Cascade)
+  destination   Destination             @relation(fields: [destinationId], references: [id], onDelete: Restrict)
+  checkpoints   DestinationCheckpoint[]
+
+  @@index([itineraryId, visitAt])
+  @@map("itinerary_destinations")
+}
+
+model DestinationCheckpoint {
+  id                     String               @id @default(uuid()) @db.Uuid
+  itineraryDestinationId String               @map("itinerary_destination_id") @db.Uuid
+  userId                 String               @map("user_id") @db.Uuid
+  imageUrl               String               @map("image_url") @db.VarChar
+  metadata               Json                 @default("{}")
+  createdAt              DateTime             @default(now()) @map("created_at") @db.Timestamptz
+  itineraryDestination   ItineraryDestination @relation(fields: [itineraryDestinationId], references: [id], onDelete: Cascade)
+  user                   User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@map("destination_checkpoints")
+}
