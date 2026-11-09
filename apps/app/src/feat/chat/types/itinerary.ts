@@ -3,6 +3,7 @@ import type { LucideIcon } from "lucide-react";
 export interface ItineraryDestination {
   id: string;
   name: string;
+  photo: string;
   rating: string;
   timeRange: string;
 }

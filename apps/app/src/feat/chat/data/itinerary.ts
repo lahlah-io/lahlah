@@ -22,12 +22,16 @@ export const ITINERARY_DAYS: ItineraryDay[] = [
       {
         id: "day-1-kopkit",
         name: "Caffe Kopkit",
+        photo:
+          "https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=400&q=80",
         rating: "4.5 Stars",
         timeRange: "08.00 - 10.00",
       },
       {
         id: "day-1-pantai",
         name: "Pantai Padang",
+        photo:
+          "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400&q=80",
         rating: "4.8 Stars",
         timeRange: "10.30 - 12.30",
       },
@@ -45,12 +49,16 @@ export const ITINERARY_DAYS: ItineraryDay[] = [
       {
         id: "day-2-jam-gadang",
         name: "Jam Gadang",
+        photo:
+          "https://images.unsplash.com/photo-1544644181-1484b3fdfc62?w=400&q=80",
         rating: "4.7 Stars",
         timeRange: "08.00 - 10.30",
       },
       {
         id: "day-2-sianok",
         name: "Ngarai Sianok",
+        photo:
+          "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400&q=80",
         rating: "4.9 Stars",
         timeRange: "11.00 - 13.00",
       },
@@ -68,12 +76,16 @@ export const ITINERARY_DAYS: ItineraryDay[] = [
       {
         id: "day-3-pasar",
         name: "Pasar Raya Padang",
+        photo:
+          "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=400&q=80",
         rating: "4.3 Stars",
         timeRange: "08.00 - 09.30",
       },
       {
         id: "day-3-bandara",
         name: "Bandara Minangkabau",
+        photo:
+          "https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=400&q=80",
         rating: "4.4 Stars",
         timeRange: "10.00 - 12.00",
       },

@@ -6,6 +6,8 @@ import {
   SheetTitle,
 } from "@/shared/components/ui/sheet";
 
+import { ItineraryActions } from "./itinerary-actions";
+import { ItineraryHero } from "./itinerary-hero";
 import { ItineraryStepper } from "./itinerary-stepper";
 import { RouteMap } from "./route-map";
 
@@ -25,10 +27,12 @@ export function ItineraryDrawer({ onOpenChange, open }: ItineraryDrawerProps) {
           <SheetTitle>Itinerary</SheetTitle>
           <SheetDescription>Rencana perjalananmu, tersusun per hari.</SheetDescription>
         </SheetHeader>
-        <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto pt-6 pb-8">
+        <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-x-clip overflow-y-auto pt-6 pb-8">
+          <ItineraryHero />
           <RouteMap />
           <ItineraryStepper />
         </div>
+        <ItineraryActions />
       </SheetContent>
     </Sheet>
   );

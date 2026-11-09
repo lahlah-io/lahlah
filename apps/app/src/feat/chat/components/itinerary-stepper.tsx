@@ -5,8 +5,8 @@ import { ITINERARY_DAYS } from "../data/itinerary";
 export function ItineraryStepper() {
   return (
     <ol
-      className="flex flex-col gap-8 px-4 sm:px-6"
       aria-label="Langkah itinerary"
+      className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-4 sm:px-6"
     >
       {ITINERARY_DAYS.map((day, index) => {
         const isLast = index === ITINERARY_DAYS.length - 1;

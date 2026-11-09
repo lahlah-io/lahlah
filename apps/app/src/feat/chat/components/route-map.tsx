@@ -1,21 +1,24 @@
 import { motion } from "motion/react";
 
 const ROUTE_PATH =
-  "M56 236 C 132 214, 168 186, 232 172 S 330 150, 386 112 S 470 78, 512 44";
+  "M60 156 C 170 150, 240 120, 330 112 S 470 96, 560 70 S 740 46, 840 44";
 
 const NODES = [
-  { cx: 56, cy: 236 },
-  { cx: 232, cy: 172 },
-  { cx: 386, cy: 112 },
-  { cx: 512, cy: 44 },
+  { cx: 60, cy: 156 },
+  { cx: 330, cy: 112 },
+  { cx: 560, cy: 70 },
+  { cx: 840, cy: 44 },
 ];
 
 export function RouteMap() {
   return (
-    <section aria-label="Peta rute" className="px-4 sm:px-6">
-      <div className="relative aspect-16/9 w-full overflow-hidden rounded-xl border bg-muted/40">
+    <section
+      aria-label="Peta rute"
+      className="mx-auto w-full max-w-4xl px-4 sm:px-6"
+    >
+      <div className="relative h-[200px] w-full overflow-hidden rounded-xl border bg-muted/40">
         <svg
-          viewBox="0 0 568 280"
+          viewBox="0 0 900 200"
           preserveAspectRatio="xMidYMid slice"
           role="img"
           aria-label="Peta rute perjalanan"
@@ -27,11 +30,11 @@ export function RouteMap() {
             strokeWidth={1}
             opacity={0.5}
           >
-            <path d="M0 92 H568" />
-            <path d="M0 188 H568" />
-            <path d="M148 0 V280" />
-            <path d="M300 0 V280" />
-            <path d="M444 0 V280" />
+            <path d="M0 66 H900" />
+            <path d="M0 134 H900" />
+            <path d="M225 0 V200" />
+            <path d="M450 0 V200" />
+            <path d="M675 0 V200" />
           </g>
 
           <path

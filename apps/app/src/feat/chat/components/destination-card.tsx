@@ -1,16 +1,16 @@
-import { ImageIcon, Star } from "lucide-react";
+import { Star } from "lucide-react";
 
 import type { ItineraryDestination } from "../types/itinerary";
 
 function DestinationCard({ destination }: { destination: ItineraryDestination }) {
   return (
     <div className="flex items-center gap-3 rounded-xl border bg-card p-2">
-      <div
-        aria-hidden="true"
-        className="grid size-14 shrink-0 place-items-center overflow-hidden rounded-lg bg-muted text-muted-foreground"
-      >
-        <ImageIcon className="size-4" />
-      </div>
+      <img
+        src={destination.photo}
+        alt=""
+        loading="lazy"
+        className="size-14 shrink-0 rounded-lg object-cover"
+      />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <time className="tabular-nums">{destination.timeRange}</time>
