@@ -11,6 +11,7 @@ model Destination {
   latitude              Decimal?               @db.Decimal(10, 7)
   longitude             Decimal?               @db.Decimal(10, 7)
   address               String?                @db.VarChar
+  city                  String?                @map("city") @db.VarChar(100)
   source                DestinationSource
   sourcePlaceId         String?                @map("source_place_id") @db.VarChar
   createdBy             String?                @map("created_by") @db.Uuid
@@ -25,6 +26,7 @@ model Destination {
   itineraryDestinations ItineraryDestination[]
 
   @@unique([source, sourcePlaceId])
+  @@index([city, isActive])
   @@map("destinations")
 }
 
