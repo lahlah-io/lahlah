@@ -4,7 +4,9 @@ import { createChatApi, createChatService } from "./modules/chat/index.js";
 import { destinationsApi } from "./modules/destinations/index.js";
 import { createItineraryApi, createItineraryService } from "./modules/itinerary/index.js";
 import { usersApi } from "./modules/users/index.js";
-import { getDraft } from "./modules/chat/services/draft-store.js";
+import { createDraftStore } from "./modules/chat/services/draft-store.js";
+import { createRouteCache, createRoutingApi, createRoutingService } from "./modules/routing/index.js";
+import { env } from "./env.js";
 import * as usersRepository from "./modules/users/repositories/users.repository.js";
 
 function toToolRow(row: {
@@ -33,7 +35,10 @@ const toolSelect = {
   categories: { select: { category: { select: { id: true, name: true, slug: true } } } },
 } as const;
 
+const draftStore = createDraftStore();
+
 const chatService = createChatService({
+  draftStore,
   findUserById: (id) => usersRepository.findUserById(id).then((u) => (u ? { id: u.id, isActive: u.isActive } : null)),
   searchDestinations: async (input) => {
     const q = input.keywords?.trim();
@@ -60,8 +65,15 @@ const chatService = createChatService({
 });
 
 const itineraryService = createItineraryService({
-  getDraft,
+  getDraft: (input) => draftStore.getDraft(input),
   findUserById: (id) => usersRepository.findUserById(id).then((u) => (u ? { id: u.id, isActive: u.isActive } : null)),
+});
+
+const routeCache = createRouteCache({ ttlMs: env.OSRM_CACHE_TTL_HOURS * 3_600_000 });
+const routingService = createRoutingService({
+  osrmBaseUrl: env.OSRM_BASE_URL,
+  timeoutMs: env.OSRM_TIMEOUT_MS,
+  cache: routeCache,
 });
 
 const apiV1 = new Hono();
@@ -69,6 +81,7 @@ apiV1.route("/users", usersApi);
 apiV1.route("/destinations", destinationsApi);
 apiV1.route("/chat", createChatApi(chatService));
 apiV1.route("/itineraries", createItineraryApi(itineraryService));
+apiV1.route("/routes", createRoutingApi(routingService));
 
 const routes = new Hono();
 routes.route("/api/v1", apiV1);

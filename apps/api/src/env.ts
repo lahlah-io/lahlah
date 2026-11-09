@@ -34,5 +34,8 @@ export const env = z
     AI_TOOL_PROVIDER: z.string().default(""),
     AI_TOOL_MAX_ROUNDS: z.coerce.number().int().min(1).max(10).default(3),
     DRAFT_TTL_SECONDS: z.coerce.number().int().min(60).max(86_400).default(1800),
+    OSRM_BASE_URL: z.string().default("https://router.project-osrm.org"),
+    OSRM_TIMEOUT_MS: z.coerce.number().int().min(1000).max(30000).default(8000),
+    OSRM_CACHE_TTL_HOURS: z.coerce.number().int().min(1).max(168).default(24),
   })
   .parse(process.env);
