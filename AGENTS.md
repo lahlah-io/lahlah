@@ -34,7 +34,7 @@ API memakai `/api/v1`. Fitur di `src/modules/<fitur>/` mengikuti lapisan `api/`,
 
 Tes API dipisah di `apps/api/tests/unit/` dan `apps/api/tests/integration/`; buat `tests/fixtures/` hanya saat fixture bersama pertama memang diperlukan. Tes integrasi PostgreSQL memakai data unik dan membersihkan data uji tanpa menghapus data pengguna lain. `pnpm --filter api test:unit` tidak membutuhkan DB; `pnpm --filter api test:integration` membutuhkan DB lokal yang sudah dimigrasikan; `pnpm --filter api test` menjalankan keduanya.
 
-Untuk skema DB, ikuti panduan migrasi di `docs/api-development.md`: ubah `prisma/schema/`, generate client, buat dan tinjau migrasi baru, lalu terapkan lokal. Jangan mengedit migrasi yang sudah diterapkan ke lingkungan bersama, jangan memakai `db push` untuk lingkungan bersama, dan jangan mereset DB berisi data tanpa persetujuan. Endpoint CRUD user belum memiliki autentikasi dan harus tetap dinonaktifkan di production sampai auth/authorization tersedia.
+Untuk skema DB, ikuti panduan migrasi di `docs/api-development.md`: ubah `prisma/schema/`, generate client, buat dan tinjau migrasi baru, lalu terapkan lokal. Jangan mengedit migrasi yang sudah diterapkan ke lingkungan bersama, jangan memakai `db push` untuk lingkungan bersama, dan jangan mereset DB berisi data tanpa persetujuan. Endpoint CRUD user, model, dan plan sekarang wajib memakai `requireAdmin`; jangan melonggarkan guard auth tanpa kebutuhan yang jelas.
 
 ## Alur branch
 

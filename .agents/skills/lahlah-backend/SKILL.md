@@ -17,7 +17,8 @@ Ikuti [`docs/api-architecture.md`](../../../docs/api-architecture.md) sebagai su
 - Baca konfigurasi dari `src/env.ts`. Simpan rahasia hanya pada `.env` lokal yang diabaikan Git; jangan menaruh kredensial nyata di kode atau dokumentasi.
 - Ubah skema pada `prisma/schema/`, generate client, buat/tinjau migrasi, lalu terapkan lokal. Jangan mengedit `src/generated/prisma` atau migrasi yang sudah diterapkan ke lingkungan bersama.
 - Jangan gunakan `db push` untuk database bersama dan jangan reset DB berisi data tanpa persetujuan.
-- Auth, R2, dan API key/provider ditunda. Route users tanpa auth hanya contoh pengembangan dan harus tetap nonaktif di production.
+- Auth memakai PeridotID (`pid_code` → exchange) dan sesi internal di tabel `sessions`; jangan menyimpan password atau token PeridotID. Route admin wajib memakai `requireAdmin`, dan user nonaktif ditolak `requireAuth`.
+- R2 dan API key/provider model belum dibuat. Jangan menambahkan integrasi sebelum ada pemakai nyata.
 - Jangan membuat folder kosong atau lapisan generik tanpa pemakai saat ini.
 
 ## Pengujian dan serah-terima

@@ -30,11 +30,19 @@ apps/api/
     │   ├── schemas/             # Kontrak Zod
     │   ├── services/            # Aturan bisnis
     │   └── repositories/        # Query Prisma
-    ├── integrations/            # Klien layanan eksternal (saat digunakan)
+    ├── integrations/
+    │   └── peridot/             # Klien PeridotID (exchange pid_code)
     └── shared/
+        ├── audit/               # Helper activity_logs lintas fitur
+        ├── auth/                # Token, sesi, cookie, middleware role
+        ├── billing/             # Langganan, limit plan, pengecekan kuota
         ├── http/                # Error HTTP dan validator
         └── schemas/             # Skema lintas fitur, misalnya pagination
 ```
+
+Modul yang ada: `auth`, `users`, `models`, `subscription-plans`, dan `subscriptions`. Fitur `chat`, `itinerary`, dan `destination` belum dibuat.
+
+Session, billing, dan audit ditaruh di `shared/` karena dipakai beberapa modul sekaligus dan modul tidak boleh saling mengimpor. `shared/` boleh mengakses Prisma melalui repository-nya sendiri, tetapi tidak boleh mengimpor `modules/`.
 
 Jangan membuat direktori kosong atau menyiapkan lapisan untuk fitur yang belum ada. Tambahkan file/folder ketika ada implementasi nyata. Route tidak boleh menjalankan query Prisma. Fitur hanya boleh mengimpor dirinya sendiri dan `shared/`; `shared/` tidak boleh mengimpor fitur.
 
@@ -45,6 +53,8 @@ Jangan membuat direktori kosong atau menyiapkan lapisan untuk fitur yang belum a
 - Middleware global memasang request ID, log JSON (matikan dengan `LOG_LEVEL=silent`), security headers, CORS, dan batas body API 1 MiB.
 - Error memakai bentuk `{ "error": { "code": "...", "message": "..." } }`. Jangan bocorkan detail database atau exception internal.
 - Konfigurasi runtime dibaca dan divalidasi sekali melalui `src/env.ts`. Simpan rahasia di `apps/api/.env` lokal; hanya contoh tanpa rahasia boleh masuk `.env.example`.
+- Variabel auth: `PERIDOT_CLIENT_ID` (wajib), `PERIDOT_CLIENT_SECRET` (opsional), `SESSION_TTL_DAYS`, `SESSION_TOKEN_PEPPER` (wajib), dan `ADMIN_EMAILS`.
+- CORS mengizinkan kredensial (`credentials: true`) karena sesi browser dikirim sebagai cookie. Header `X-Session-Mode` dan `Authorization` diterima.
 - Prisma 7 CLI memakai `apps/api/prisma.config.ts`. File tersebut memuat `dotenv/config` karena Prisma config tidak memuat `.env` otomatis.
 - Client hasil generate berada di `src/generated/prisma`; jangan mengedit atau commit folder itu.
 - Impor relatif TypeScript menggunakan akhiran `.js` (NodeNext).
@@ -56,22 +66,47 @@ File di `prisma/schema/` mencakup seluruh 14 tabel ERD: users, models, subscript
 - Nama field Prisma memakai camelCase; nama kolom dan tabel database dipetakan dengan `@map`/`@@map`.
 - ID menggunakan PostgreSQL UUID; nilai uang memakai `Decimal`; JSONB memakai Prisma `Json`; waktu memakai `timestamptz`.
 - Pertahankan unique constraint dan foreign key ERD. Nyatakan perilaku penghapusan relasi secara eksplisit dan telaah dampak data sebelum mengubahnya.
-- `User.pid` unik dan dibuat sebagai UUID string. Field auth/password belum ditambahkan.
+- `User.pid` unik dan menjadi kunci identitas PeridotID. Tidak ada kolom password; autentikasi sepenuhnya lewat PeridotID.
+- `User.email` opsional karena identitas PeridotID bisa tidak punya email (passkey-only), tetapi tetap unik bila terisi. User yang dibuat admin boleh punya email lebih dulu; saat login pertama dengan email yang sama, `pid` PeridotID ditautkan ke baris tersebut.
+- Tabel `sessions` menyimpan hash token (bukan token asli), masa berlaku, dan waktu pencabutan.
 - `DestinationSource` saat ini mencakup `geoapify`, `admin`, dan `user`; unique place ID dibatasi per sumber.
 - Jangan gunakan `prisma db push` pada lingkungan bersama/terpasang. Gunakan migrasi yang ditinjau dan `migrate deploy` untuk penerapan.
 
-## Fitur contoh: users
+## Autentikasi dan sesi
 
-`src/modules/users/` adalah contoh CRUD berlapis:
+- Login berjalan lewat `POST /api/v1/auth/peridot/exchange`: browser memperoleh `pid_code` dari SDK PeridotID, lalu backend menukarnya ke `https://api.peridot.id/v1/auth/exchange`. Kode bersifat sekali pakai dan tidak boleh dicatat di log.
+- Backend tidak menyimpan token PeridotID. Backend membuat sesinya sendiri: token acak 32 byte, disimpan sebagai `sha256(pepper:token)` di tabel `sessions`, dan dikirim ke browser sebagai cookie `lahlah_session` (`httpOnly`, `SameSite=Lax`, `Secure` di production).
+- Untuk klien non-browser, kirim header `X-Session-Mode: bearer` saat exchange agar token juga dikembalikan di body, lalu gunakan `Authorization: Bearer <token>`.
+- `GET /api/v1/auth/me` mengembalikan user aktif; `POST /api/v1/auth/logout` mencabut sesi dan menghapus cookie.
+- Middleware `requireAuth` dan `requireAdmin` berada di `src/shared/auth/middleware.ts`. Middleware menolak sesi tidak valid (401) dan user dengan `isActive=false` (403). Semua route admin memakai `requireAdmin`.
+- Admin pertama dibuat lewat `ADMIN_EMAILS`: email yang terdaftar otomatis menjadi `admin` saat login. Role hanya pernah dinaikkan otomatis, tidak pernah diturunkan saat email dihapus dari daftar.
+- Admin tidak dapat menurunkan role atau menonaktifkan akunnya sendiri (409 `CANNOT_MODIFY_SELF`).
 
-- `api/users.ts`: `GET /`, `GET /:id`, `POST /`, `PATCH /:id`, dan `DELETE /:id`.
-- `schemas/user.schema.ts`: validasi Zod untuk body, query, dan UUID path; pagination umum berada di `src/shared/schemas/pagination.schema.ts`.
-- `services/users.service.ts`: memetakan email duplikat dan data yang tidak ditemukan ke error HTTP; penghapusan bersifat soft (`isActive=false`).
-- `repositories/users.repository.ts`: semua query Prisma fitur users.
-- `tests/unit/features/users/`: uji kontrak input; `tests/integration/users.crud.test.ts`: uji CRUD nyata melalui PostgreSQL.
+## Fitur users
 
-List dibatasi hingga 1–100 data per halaman. Respons hanya memilih field yang boleh terlihat oleh API; jangan pernah mengekspos password atau secret. CRUD user belum memiliki autentikasi dan dikunci dengan status 503 di production. Jangan hapus pengaman itu sebelum autentikasi dan otorisasi tersedia.
+- `api/users.ts`: `GET /`, `GET /:id`, `POST /`, `PATCH /:id`, `PATCH /:id/role`, `PATCH /:id/status`, dan `DELETE /:id` (soft delete). Semua route memakai `requireAdmin`.
+- `schemas/user.schema.ts`: validasi Zod untuk body, query (role, isActive, pencarian `q`), dan UUID path; pagination umum berada di `src/shared/schemas/pagination.schema.ts`.
+- `services/users.service.ts`: membuat user beserta langganan free dalam satu transaksi, memetakan email duplikat/data tidak ditemukan ke error HTTP, dan mencatat `activity_logs`.
+- `repositories/users.repository.ts`: semua query Prisma fitur users, termasuk transaksi pembuatan user + langganan free.
+- `tests/integration/users.crud.test.ts` dan `admin-users.test.ts` menguji CRUD nyata melalui PostgreSQL.
+
+List dibatasi hingga 1–100 data per halaman. Respons hanya memilih field yang boleh terlihat oleh API; jangan pernah mengekspos token atau rahasia.
+
+## Billing, plan, dan kuota
+
+- `subscription_plans.details` (JSONB) menyimpan batas plan: `chatMessagesPerMonth`, `maxChatSessions`, `maxItineraries`, dan `allowedModelIds`. `null` berarti tanpa batas, dan key lain dipertahankan untuk kompatibilitas. Validasi ada di `src/shared/billing/plan-limits.schema.ts`.
+- Migrasi data menyisipkan plan `free` (30 pesan/bulan, 10 sesi chat, 3 itinerary). Plan `free` tidak bisa dihapus; plan yang masih dipakai langganan juga tidak bisa dihapus (409).
+- Setiap user baru otomatis mendapat langganan `free` aktif, baik saat dibuat admin maupun saat login pertama. Fungsi idempotent ada di `src/shared/billing/subscription.service.ts`.
+- `GET /api/v1/subscriptions/me` mengembalikan plan aktif, masa berlaku, limit, dan pemakaian. `GET /api/v1/subscriptions/me/history` mengembalikan riwayat langganan.
+- `GET /api/v1/subscriptions/me/quota` dan `POST /api/v1/subscriptions/me/quota/check` memakai jendela bulan kalender UTC. Modul `chat` nanti memanggil `checkQuota(userId, metric, amount)` langsung dari `shared/billing`, bukan lewat HTTP internal.
+- CRUD model (`/api/v1/models`) dan plan (`/api/v1/subscription-plans`) hanya untuk admin. `defaultModelId` pada plan harus menunjuk model yang aktif.
+
+## Catatan pengujian
+
+- `tests/unit/` tidak memerlukan koneksi DB; `tests/integration/` memerlukan PostgreSQL bermigrasi.
+- Tes integrasi membuat user dan sesi langsung lewat Prisma (`tests/integration/helpers/session.ts`) sehingga tidak memanggil PeridotID. Alur exchange diuji dengan `fetch` yang di-stub.
+- Data uji memakai email/UUID unik dan dibersihkan di blok `finally` tanpa menghapus data pengguna lain.
 
 ## Belum termasuk
 
-Autentikasi/otorisasi, klien model OpenAI-compatible dan API key provider, Cloudflare R2, integrasi pembayaran, seed data, serta deployment production belum dibuat. Tambahkan masing-masing ketika perilaku dan kredensialnya memang dibutuhkan.
+Klien model OpenAI-compatible dan API key provider, Cloudflare R2, integrasi pembayaran, endpoint chat/itinerary/destination, serta deployment production belum dibuat. Tambahkan masing-masing ketika perilaku dan kredensialnya memang dibutuhkan.

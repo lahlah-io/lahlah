@@ -1,10 +1,11 @@
 import type { ErrorHandler } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { Prisma } from "../../generated/prisma/client.js";
 import { ZodError } from "zod";
 
 export class HttpError extends Error {
   constructor(
-    public readonly status: 400 | 404 | 409,
+    public readonly status: ContentfulStatusCode,
     public readonly code: string,
     message: string,
   ) {

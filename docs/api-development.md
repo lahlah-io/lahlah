@@ -15,7 +15,7 @@ Dokumen ini berisi langkah kerja pengembangan API Lahlah: setup lokal, perintah 
 
 ## Kebutuhan lokal
 
-Gunakan Node.js 24+ dan pnpm 11. Pastikan PostgreSQL berjalan dan buat database lokal `lahlah_db`. Contoh koneksi dalam `apps/api/.env.example` adalah `postgres://postgres:123@localhost:5432/lahlah_db`; sesuaikan dengan role, kata sandi, host, atau port lokal.
+Gunakan Node.js 24+ dan pnpm 11. Pastikan PostgreSQL berjalan dan buat database lokal `lahlah_db`. Contoh koneksi dalam `apps/api/.env.example` adalah `postgres://postgres:CHANGE_ME@localhost:5432/lahlah_db`; ganti `CHANGE_ME` dengan kata sandi role Anda dan sesuaikan role, host, atau port lokal. `DATABASE_URL` wajib diisi; API dan Prisma CLI akan gagal dengan pesan jelas bila variabel ini kosong.
 
 Dari root repository, salin file contoh konfigurasi:
 
@@ -30,6 +30,49 @@ cp apps/api/.env.example apps/api/.env
 ```
 
 Edit `DATABASE_URL` di `apps/api/.env` bila konfigurasi PostgreSQL berbeda. `.env` berisi konfigurasi lokal/rahasia dan tidak boleh masuk Git.
+
+Isi juga variabel autentikasi berikut di `apps/api/.env`:
+
+| Variabel | Wajib | Keterangan |
+| --- | --- | --- |
+| `PERIDOT_CLIENT_ID` | ya | Client id aplikasi PeridotID (`pidapp_...`). |
+| `SESSION_TOKEN_PEPPER` | ya | String acak minimal 16 karakter untuk meng-hash token sesi. Jangan diganti setelah ada sesi aktif karena semua sesi lama menjadi tidak valid. |
+| `SESSION_TTL_DAYS` | tidak | Umur sesi dalam hari, default 30. |
+| `ADMIN_EMAILS` | tidak | Daftar email dipisah koma yang otomatis menjadi admin saat login. |
+| `PERIDOT_CLIENT_SECRET` | tidak | Hanya untuk aplikasi PeridotID confidential client. |
+
+## Login, sesi, dan admin pertama
+
+Login hanya lewat PeridotID; API tidak menyimpan password.
+
+1. Frontend memanggil SDK PeridotID (`peridot.auth.loginPopup()`) dan menerima `pidCode`.
+2. Frontend mengirim `POST /api/v1/auth/peridot/exchange` dengan body `{ "code": "..." }` dan `credentials: "include"`.
+3. Backend menukar kode ke PeridotID, membuat/menautkan user berdasarkan `pid`, memberi langganan `free`, lalu mengirim cookie `lahlah_session`.
+4. Frontend memakai `GET /api/v1/auth/me` untuk membaca user aktif dan `POST /api/v1/auth/logout` untuk keluar.
+
+Untuk klien non-browser, tambahkan header `X-Session-Mode: bearer` saat exchange. Token akan dikembalikan sekali di body dan dapat dipakai sebagai `Authorization: Bearer <token>`.
+
+Admin pertama tidak dibuat lewat seed. Daftarkan emailnya di `ADMIN_EMAILS`, login sekali, lalu role otomatis menjadi `admin`. Setelah itu admin dapat mengelola user lain lewat `/api/v1/users`.
+
+Contoh memakai Bearer di PowerShell:
+
+```powershell
+$body = @{ code = "<pid_code>" } | ConvertTo-Json
+$login = Invoke-RestMethod -Method Post `
+  -Uri http://localhost:8787/api/v1/auth/peridot/exchange `
+  -ContentType "application/json" `
+  -Headers @{ "X-Session-Mode" = "bearer" } `
+  -Body $body
+$headers = @{ Authorization = "Bearer $($login.data.token)" }
+Invoke-RestMethod -Uri http://localhost:8787/api/v1/auth/me -Headers $headers
+```
+
+## Endpoint admin dan kuota
+
+- Admin: `/api/v1/users`, `/api/v1/models`, `/api/v1/subscription-plans`.
+- User login: `/api/v1/subscriptions/me`, `/api/v1/subscriptions/me/quota`, `/api/v1/subscriptions/me/quota/check`.
+- Plan `free` disisipkan oleh migrasi data (`30` pesan/bulan, `10` sesi chat, `3` itinerary) dan tidak bisa dihapus. Batas plan lain diatur lewat `details` pada CRUD plan.
+- `GET /api/v1/health` dan `/health/ready` tetap publik.
 
 ## Instalasi dan menjalankan API
 
@@ -105,9 +148,9 @@ pnpm --filter api db:deploy
 
 Jangan mengedit SQL migrasi yang telah diterapkan ke lingkungan bersama. Jika status migrasi berbeda, hentikan dan selidiki; jangan menjalankan reset pada database berisi data tanpa persetujuan eksplisit.
 
-## Menguji CRUD user
+## Menguji auth, admin, dan kuota
 
-Tes integrasi CRUD mengirim request melalui API dan menyimpan perubahan ke PostgreSQL lokal. Tes membuat email acak, memeriksa create/read/list/update/soft-delete, lalu membersihkan record menggunakan soft-delete. Jalankan dengan:
+Tes integrasi mengirim request melalui API dan menyimpan perubahan ke PostgreSQL lokal. Tes membuat user dan sesi langsung lewat Prisma dengan email/UUID unik, memeriksa auth, CRUD admin, plan, model, dan kuota, lalu menghapus data uji di blok `finally`. Alur `pid_code` diuji dengan `fetch` PeridotID yang di-stub sehingga tidak memerlukan kredensial nyata. Jalankan dengan:
 
 ```sh
 pnpm --filter api test:integration
@@ -119,4 +162,6 @@ Tes ini memerlukan database hidup dan semua migrasi sudah diterapkan. Untuk tes 
 pnpm --filter api test:unit
 ```
 
-Endpoint users tidak memiliki auth dan sengaja mengembalikan 503 saat `NODE_ENV=production` sampai autentikasi dan otorisasi tersedia.
+Tes unit tetap membaca `DATABASE_URL` dari `.env` karena modul dimuat bersama `src/env.ts`, tetapi tidak membuka koneksi atau query ke database.
+
+Route users, models, dan subscription-plans mewajibkan sesi admin (`401` tanpa sesi, `403` untuk role `user`). Tidak ada lagi pengaman `503` di production karena autentikasi dan otorisasi sudah tersedia.

@@ -19,8 +19,9 @@ app.use("/api/*", bodyLimit({
 }));
 app.use("*", cors({
   origin: env.CORS_ORIGINS,
+  credentials: true,
   allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-  allowHeaders: ["Content-Type", "Authorization", "X-Request-Id"],
+  allowHeaders: ["Content-Type", "Authorization", "X-Request-Id", "X-Session-Mode"],
 }));
 app.onError(errorHandler);
 app.notFound((c) => c.json({ error: { code: "NOT_FOUND", message: "Route not found" } }, 404));

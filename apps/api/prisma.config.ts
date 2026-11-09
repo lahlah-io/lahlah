@@ -4,5 +4,5 @@ import { defineConfig, env } from "prisma/config";
 export default defineConfig({
   schema: "prisma/schema",
   migrations: { path: "prisma/migrations" },
-  datasource: { url: env("DATABASE_URL", "postgres://postgres:123@localhost:5432/lahlah_db") },
+  datasource: { url: env("DATABASE_URL") },
 });

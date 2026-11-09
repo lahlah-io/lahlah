@@ -17,30 +17,23 @@ test("unknown routes use the API error envelope", async () => {
   });
 });
 
-test("user CRUD is disabled in production until auth is configured", async () => {
-  const originalNodeEnv = process.env.NODE_ENV;
-  process.env.NODE_ENV = "production";
-  try {
-    const response = await app.request("/api/v1/users");
-    assert.equal(response.status, 503);
-    assert.deepEqual(await response.json(), {
-      error: { code: "AUTH_NOT_CONFIGURED", message: "User API is disabled until authentication is configured" },
-    });
-  } finally {
-    if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
-    else process.env.NODE_ENV = originalNodeEnv;
-  }
+test("user CRUD requires authentication", async () => {
+  const response = await app.request("/api/v1/users");
+  assert.equal(response.status, 401);
+  assert.deepEqual(await response.json(), {
+    error: { code: "UNAUTHENTICATED", message: "Authentication required" },
+  });
 });
 
-test("invalid user body is rejected before database access", async () => {
+test("autentikasi diperiksa sebelum validasi body", async () => {
   const response = await app.request("/api/v1/users", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ name: "", email: "invalid" }),
   });
-  assert.equal(response.status, 400);
+  assert.equal(response.status, 401);
   assert.deepEqual(await response.json(), {
-    error: { code: "VALIDATION_ERROR", message: "Request validation failed" },
+    error: { code: "UNAUTHENTICATED", message: "Authentication required" },
   });
 });
 
