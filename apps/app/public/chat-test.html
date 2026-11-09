@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lahlah Chat Test</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f6f4ef;
+        --panel: #ffffff;
+        --text: #1f2937;
+        --muted: #4b5563;
+        --border: #cbd5e1;
+        --primary: #0f766e;
+        --primary-text: #ffffff;
+        --danger: #b91c1c;
+        --focus: #1d4ed8;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font: 16px/1.5 system-ui, -apple-system, Segoe UI, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+      }
+      main {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 16px;
+        display: grid;
+        gap: 16px;
+      }
+      h1 { margin: 0; font-size: 1.5rem; }
+      p { margin: 0; color: var(--muted); }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 16px;
+      }
+      .grid { display: grid; gap: 12px; }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: end;
+      }
+      .field {
+        display: grid;
+        gap: 4px;
+        min-width: 0;
+        flex: 1 1 220px;
+      }
+      label { font-weight: 600; }
+      input, textarea, select, button {
+        font: inherit;
+      }
+      input, textarea, select {
+        width: 100%;
+        min-height: 44px;
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #fff;
+        color: var(--text);
+      }
+      textarea { min-height: 96px; resize: vertical; }
+      button {
+        min-height: 44px;
+        min-width: 44px;
+        padding: 10px 14px;
+        border: 1px solid var(--primary);
+        border-radius: 8px;
+        background: var(--primary);
+        color: var(--primary-text);
+        cursor: pointer;
+      }
+      button.secondary {
+        background: #fff;
+        color: var(--text);
+        border-color: var(--border);
+      }
+      button:disabled { opacity: 0.6; cursor: not-allowed; }
+      :focus-visible {
+        outline: 3px solid var(--focus);
+        outline-offset: 2px;
+      }
+      pre {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        background: #111827;
+        color: #f9fafb;
+        padding: 12px;
+        border-radius: 8px;
+        min-height: 88px;
+        overflow: auto;
+      }
+      .status { min-height: 1.5em; }
+      .error { color: var(--danger); font-weight: 600; }
+      .hidden { display: none; }
+      .muted { color: var(--muted); }
+      @media (max-width: 480px) {
+        main { padding: 12px; }
+        .row { flex-direction: column; align-items: stretch; }
+        button { width: 100%; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header class="panel grid">
+        <h1>Lahlah Chat Test (MVP)</h1>
+        <p>Alat uji manual. Draft disimpan sementara; konfirmasi hanya mengirim <code>draftId</code>. Rute GeoJSON adalah garis lurus (bukan rute jalan).</p>
+      </header>
+
+      <section class="panel grid" aria-labelledby="config-title">
+        <h2 id="config-title">Konfigurasi</h2>
+        <div class="row">
+          <div class="field">
+            <label for="baseUrl">API base URL</label>
+            <input id="baseUrl" name="baseUrl" type="url" value="http://localhost:8787" autocomplete="url" />
+          </div>
+          <div class="field">
+            <label for="userId">User ID (dev placeholder)</label>
+            <input id="userId" name="userId" type="text" placeholder="UUID user aktif" autocomplete="off" />
+          </div>
+        </div>
+      </section>
+
+      <section class="panel grid" aria-labelledby="session-title">
+        <h2 id="session-title">Session</h2>
+        <div class="row">
+          <button id="createSessionBtn" type="button">Buat session</button>
+          <button id="loadSessionsBtn" type="button" class="secondary">Muat session</button>
+          <div class="field">
+            <label for="sessionSelect">Session aktif</label>
+            <select id="sessionSelect" aria-describedby="session-help">
+              <option value="">(belum ada)</option>
+            </select>
+          </div>
+        </div>
+        <p id="session-help" class="muted">Pilih session sebelum mengirim pesan atau memuat riwayat.</p>
+        <div class="row">
+          <button id="loadMessagesBtn" type="button" class="secondary">Muat riwayat</button>
+        </div>
+        <p id="sessionStatus" class="status" aria-live="polite"></p>
+      </section>
+
+      <section class="panel grid" aria-labelledby="chat-title">
+        <h2 id="chat-title">Kirim pesan</h2>
+        <div class="field">
+          <label for="message">Pesan</label>
+          <textarea id="message" name="message" placeholder="Contoh: Buat itinerary 2026-11-20 jam 08:00-16:00 untuk kategori pantai dan budaya di Padang"></textarea>
+        </div>
+        <div class="row">
+          <button id="sendBtn" type="button">Kirim pesan</button>
+          <button id="confirmBtn" type="button" class="hidden">Konfirmasi draft</button>
+        </div>
+        <p id="chatStatus" class="status" aria-live="polite"></p>
+      </section>
+
+      <section class="panel grid" aria-labelledby="output-title">
+        <h2 id="output-title">Output</h2>
+        <div class="grid">
+          <div class="field">
+            <label for="responseOut">Respons / draft JSON</label>
+            <pre id="responseOut" aria-live="polite">(belum ada respons)</pre>
+          </div>
+          <div class="field">
+            <label for="historyOut">Riwayat session</label>
+            <pre id="historyOut" aria-live="polite">(belum dimuat)</pre>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const els = {
+        baseUrl: document.getElementById("baseUrl"),
+        userId: document.getElementById("userId"),
+        createSessionBtn: document.getElementById("createSessionBtn"),
+        loadSessionsBtn: document.getElementById("loadSessionsBtn"),
+        sessionSelect: document.getElementById("sessionSelect"),
+        loadMessagesBtn: document.getElementById("loadMessagesBtn"),
+        message: document.getElementById("message"),
+        sendBtn: document.getElementById("sendBtn"),
+        confirmBtn: document.getElementById("confirmBtn"),
+        sessionStatus: document.getElementById("sessionStatus"),
+        chatStatus: document.getElementById("chatStatus"),
+        responseOut: document.getElementById("responseOut"),
+        historyOut: document.getElementById("historyOut"),
+      };
+
+      let currentDraft = null;
+
+      function base() {
+        return String(els.baseUrl.value || "").replace(/\/+$/, "");
+      }
+      function uid() {
+        return String(els.userId.value || "").trim();
+      }
+      function sid() {
+        return String(els.sessionSelect.value || "").trim();
+      }
+      function setStatus(el, text, isError) {
+        el.textContent = text || "";
+        el.className = "status" + (isError ? " error" : "");
+      }
+      function showJson(pre, value) {
+        pre.textContent = value == null ? "(kosong)" : JSON.stringify(value, null, 2);
+      }
+      function setDraft(draft) {
+        currentDraft = draft && draft.draftId ? draft : null;
+        els.confirmBtn.classList.toggle("hidden", !currentDraft);
+      }
+
+      async function request(path, options) {
+        const res = await fetch(base() + path, {
+          headers: { "content-type": "application/json", ...(options && options.headers) },
+          ...options,
+        });
+        const text = await res.text();
+        let body = null;
+        try { body = text ? JSON.parse(text) : null; } catch { body = { raw: text }; }
+        if (!res.ok) {
+          const err = body && body.error ? `${body.error.code || "ERROR"}: ${body.error.message || res.status}` : `HTTP ${res.status}`;
+          throw new Error(err);
+        }
+        return body;
+      }
+
+      function requireUser() {
+        const userId = uid();
+        if (!userId) throw new Error("User ID wajib diisi (dev placeholder).");
+        return userId;
+      }
+      function requireSession() {
+        const sessionId = sid();
+        if (!sessionId) throw new Error("Pilih atau buat session terlebih dahulu.");
+        return sessionId;
+      }
+
+      async function withBusy(btn, statusEl, fn) {
+        btn.disabled = true;
+        setStatus(statusEl, "Memproses...");
+        try {
+          await fn();
+        } catch (e) {
+          setStatus(statusEl, e && e.message ? e.message : "Terjadi kesalahan.", true);
+          throw e;
+        } finally {
+          btn.disabled = false;
+        }
+      }
+
+      els.createSessionBtn.addEventListener("click", () => withBusy(els.createSessionBtn, els.sessionStatus, async () => {
+        const userId = requireUser();
+        const body = await request("/api/v1/chat/sessions", {
+          method: "POST",
+          body: JSON.stringify({ userId, title: "Chat test" }),
+        });
+        const session = body && body.data ? body.data : null;
+        if (session && session.id) {
+          const opt = document.createElement("option");
+          opt.value = session.id;
+          opt.textContent = `${session.title || "Session"} (${session.id})`;
+          els.sessionSelect.appendChild(opt);
+          els.sessionSelect.value = session.id;
+        }
+        showJson(els.responseOut, body);
+        setStatus(els.sessionStatus, "Session dibuat.");
+      }).catch(() => {}));
+
+      els.loadSessionsBtn.addEventListener("click", () => withBusy(els.loadSessionsBtn, els.sessionStatus, async () => {
+        const userId = requireUser();
+        const body = await request(`/api/v1/chat/sessions?userId=${encodeURIComponent(userId)}&page=1&limit=20`);
+        const rows = body && body.data ? body.data : [];
+        els.sessionSelect.textContent = "";
+        const empty = document.createElement("option");
+        empty.value = "";
+        empty.textContent = rows.length ? "(pilih session)" : "(belum ada)";
+        els.sessionSelect.appendChild(empty);
+        rows.forEach((s) => {
+          const opt = document.createElement("option");
+          opt.value = s.id;
+          opt.textContent = `${s.title || "Session"} (${s.id})`;
+          els.sessionSelect.appendChild(opt);
+        });
+        showJson(els.responseOut, body);
+        setStatus(els.sessionStatus, rows.length ? "Session dimuat." : "Belum ada session.");
+      }).catch(() => {}));
+
+      els.loadMessagesBtn.addEventListener("click", () => withBusy(els.loadMessagesBtn, els.sessionStatus, async () => {
+        const userId = requireUser();
+        const sessionId = requireSession();
+        const body = await request(`/api/v1/chat/sessions/${encodeURIComponent(sessionId)}/messages?userId=${encodeURIComponent(userId)}&page=1&limit=50`);
+        showJson(els.historyOut, body);
+        setStatus(els.sessionStatus, "Riwayat dimuat.");
+      }).catch(() => {}));
+
+      els.sendBtn.addEventListener("click", () => withBusy(els.sendBtn, els.chatStatus, async () => {
+        const userId = requireUser();
+        const sessionId = requireSession();
+        const content = String(els.message.value || "").trim();
+        if (!content) throw new Error("Pesan tidak boleh kosong.");
+        setDraft(null);
+        const body = await request(`/api/v1/chat/sessions/${encodeURIComponent(sessionId)}/messages`, {
+          method: "POST",
+          body: JSON.stringify({ userId, content }),
+        });
+        const draft = body && body.data && body.data.draft ? body.data.draft : null;
+        setDraft(draft);
+        showJson(els.responseOut, body);
+        setStatus(els.chatStatus, draft ? "Draft diterima. Anda bisa konfirmasi draft ini." : "Respons diterima.");
+      }).catch(() => {}));
+
+      els.confirmBtn.addEventListener("click", () => withBusy(els.confirmBtn, els.chatStatus, async () => {
+        const userId = requireUser();
+        const sessionId = requireSession();
+        if (!currentDraft || !currentDraft.draftId) throw new Error("Tidak ada draft aktif.");
+        const body = await request("/api/v1/itineraries/confirm", {
+          method: "POST",
+          body: JSON.stringify({ draftId: currentDraft.draftId, userId, sessionId }),
+        });
+        showJson(els.responseOut, body);
+        setDraft(null);
+        setStatus(els.chatStatus, "Draft dikonfirmasi/disimpan.");
+      }).catch(() => {}));
+
+      els.sessionSelect.addEventListener("change", () => {
+        setDraft(null);
+        setStatus(els.chatStatus, "");
+      });
+    </script>
+  </body>
+</html>
