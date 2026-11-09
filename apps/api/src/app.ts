@@ -6,6 +6,7 @@ import { secureHeaders } from "hono/secure-headers";
 import { Hono } from "hono";
 import { env } from "./env.js";
 import { prisma } from "./db/client.js";
+import { apiDocsHtml, openApiDocument } from "./openapi.js";
 import { errorHandler } from "./shared/http/errors.js";
 import { routes } from "./routes.js";
 
@@ -17,8 +18,23 @@ app.use("/api/*", bodyLimit({
   maxSize: 1024 * 1024,
   onError: (c) => c.json({ error: { code: "PAYLOAD_TOO_LARGE", message: "Request body exceeds 1 MiB" } }, 413),
 }));
+function isLocalDevOrigin(origin: string): boolean {
+  try {
+    const u = new URL(origin);
+    const h = u.hostname;
+    return h === "localhost" || h === "127.0.0.1" || h === "::1" || /^192\.168\./.test(h) || /^10\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h);
+  } catch {
+    return false;
+  }
+}
+
 app.use("*", cors({
-  origin: env.CORS_ORIGINS,
+  origin(origin) {
+    if (!origin) return undefined;
+    if (env.CORS_ORIGINS.includes(origin)) return origin;
+    if (env.NODE_ENV !== "production" && isLocalDevOrigin(origin)) return origin;
+    return undefined;
+  },
   allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
   allowHeaders: ["Content-Type", "Authorization", "X-Request-Id"],
 }));
@@ -36,6 +52,11 @@ app.get("/health/ready", async (c) => {
     return c.json({ status: "not_ready", dependencies: { database: "unavailable" }, requestId: c.get("requestId") }, 503);
   }
 });
+if (env.NODE_ENV !== "production") {
+  app.get("/openapi.json", (c) => c.json(openApiDocument));
+  app.get("/docs", (c) => c.html(apiDocsHtml));
+}
+
 app.route("/", routes);
 
 export { app };
