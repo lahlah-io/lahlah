@@ -1,11 +1,16 @@
 enum DestinationSource {
   geoapify
+  firecrawl
+  overpass
+  wikidata
+  manual
   admin
   user
 }
 
 model Destination {
   id                    String                 @id @default(uuid()) @db.Uuid
+  canonicalKey          String?                @unique @map("canonical_key") @db.VarChar
   name                  String                 @db.VarChar
   description           String?                @db.Text
   latitude              Decimal?               @db.Decimal(10, 7)
