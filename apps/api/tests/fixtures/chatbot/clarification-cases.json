@@ -1,0 +1,60 @@
+{
+  "datasetVersion": "chatbot-matrix-1.0",
+  "promptVersion": "clarification-v1",
+  "referenceDate": "2026-11-09",
+  "timezone": "Asia/Jakarta",
+  "cases": [
+    {
+      "id": "CLA-001",
+      "input": "Saya mau liburan",
+      "expectedKind": "general_time",
+      "expectedDateHint": null,
+      "priority": "high"
+    },
+    {
+      "id": "CLA-002",
+      "input": "Buat itinerary Padang",
+      "expectedKind": "general_time",
+      "expectedDateHint": null,
+      "priority": "critical"
+    },
+    {
+      "id": "CLA-003",
+      "input": "Saya mulai jam 10 pagi",
+      "expectedKind": "general_time",
+      "expectedDateHint": null,
+      "priority": "high",
+      "note": "Balasan memakai acuan jam mulai-selesai; belum ada pertanyaan khusus jam selesai."
+    },
+    {
+      "id": "CLA-004",
+      "input": "Saya selesai jam 5 sore",
+      "expectedKind": "general_time",
+      "expectedDateHint": null,
+      "priority": "high"
+    },
+    {
+      "id": "CLA-005",
+      "input": "Saya mau jalan besok",
+      "expectedKind": "general_time",
+      "expectedDateHint": "2026-11-10",
+      "priority": "high"
+    },
+    {
+      "id": "CLA-006",
+      "input": "Saya mau liburan 2 hari",
+      "expectedKind": "out_of_scope",
+      "mode": "todo",
+      "note": "MVP hanya satu hari; validasi durasi multi-hari belum ada.",
+      "priority": "high"
+    },
+    {
+      "id": "CLA-007",
+      "input": "Saya mau jalan jam 20:00–23:00",
+      "expectedKind": "opening_hours",
+      "mode": "todo",
+      "note": "Jam operasional destinasi belum dimodelkan; tidak boleh diklaim buka.",
+      "priority": "high"
+    }
+  ]
+}

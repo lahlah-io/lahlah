@@ -1,7 +1,6 @@
-// apps/api/tests/integration/seed-idempotency.test.ts
 import assert from "node:assert/strict";
 import { execSync } from "node:child_process";
-import test from "node:test";
+import { test } from "vitest";
 import { prisma } from "../../src/db/client.js";
 
 function runSeed() {

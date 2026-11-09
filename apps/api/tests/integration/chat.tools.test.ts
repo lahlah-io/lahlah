@@ -1,5 +1,5 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+﻿import assert from "node:assert/strict";
+import { test } from "vitest";
 import { prisma } from "../../src/db/client.js";
 import { completeChat, normalizeChatCompletionResponse } from "../../src/integrations/ai/chat-completions.js";
 import { createToolExecutor, toolDefinitions } from "../../src/modules/chat/services/tools.js";

@@ -38,13 +38,18 @@ Jalankan dari root repository:
 ```sh
 pnpm install
 pnpm --filter api db:generate
+pnpm --filter api db:migrate
+pnpm --filter api db:seed
 pnpm --filter api dev
 ```
+
+`db:seed` memuat `prisma/seed-data/destinations.padang.json` (hasil ekspor scraper, ikut di repo) agar developer lain tidak perlu menjalankan scraper atau menerima salinan DB. Idempoten dan aman dijalankan berulang.
 
 API berjalan di `http://localhost:8787` secara default. Endpoint pemeriksaan:
 
 - `GET http://localhost:8787/health/live` — memastikan proses aktif.
 - `GET http://localhost:8787/health/ready` — memastikan proses dan PostgreSQL siap.
+- `GET http://localhost:8787/docs` — Swagger UI; dokumen mentah ada di `/openapi.json`. Hanya tersedia saat `NODE_ENV` bukan `production`.
 
 Untuk menjalankan semua aplikasi sekaligus gunakan `pnpm dev`. Port dan variabel lain dijelaskan dalam `.env.example` serta divalidasi oleh `apps/api/src/env.ts`.
 

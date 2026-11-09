@@ -1,0 +1,65 @@
+{
+  "datasetVersion": "chatbot-matrix-1.0",
+  "promptVersion": "conversation-v1",
+  "referenceDate": "2026-11-09",
+  "timezone": "Asia/Jakarta",
+  "initialMessage": "Saya mau itinerary Padang besok dari jam 12 sampai 5 sore. Saya suka pantai dan kuliner.",
+  "cases": [
+    {
+      "id": "CTX-001",
+      "followUp": "Ganti destinasi kedua",
+      "expected": "Mengubah destinasi kedua saja",
+      "mode": "todo",
+      "note": "Merge context belum ada; pesan follow-up tanpa parameter lengkap jatuh ke klarifikasi."
+    },
+    {
+      "id": "CTX-002",
+      "followUp": "Cari yang lebih dekat",
+      "expected": "Menyesuaikan urutan berdasarkan lokasi",
+      "mode": "todo",
+      "note": "Reorder by distance belum diekspos sebagai perintah percakapan."
+    },
+    {
+      "id": "CTX-003",
+      "followUp": "Buat lebih santai",
+      "expected": "Mengurangi kepadatan itinerary",
+      "mode": "todo",
+      "note": "Preferensi pace belum dimodelkan."
+    },
+    {
+      "id": "CTX-004",
+      "followUp": "Tambahkan kuliner",
+      "expected": "Menambahkan preferensi kuliner",
+      "mode": "todo",
+      "note": "Perubahan parsial preferensi belum di-merge dengan draft sebelumnya."
+    },
+    {
+      "id": "CTX-005",
+      "followUp": "Jangan masukkan pantai",
+      "expected": "Menghapus preferensi pantai",
+      "mode": "todo",
+      "note": "Exclude preference belum didukung."
+    },
+    {
+      "id": "CTX-006",
+      "followUp": "Mulai jam 10 saja",
+      "expected": "Mengubah waktu mulai",
+      "mode": "todo",
+      "note": "Jam mulai saja tanpa rentang/kategori/tanggal belum di-merge."
+    },
+    {
+      "id": "CTX-007",
+      "followUp": "Saya setuju",
+      "expected": "Mengonfirmasi draft aktif",
+      "mode": "todo",
+      "note": "Konfirmasi MVP memakai endpoint POST /itineraries/confirm, bukan pesan chat."
+    },
+    {
+      "id": "CTX-008",
+      "followUp": "Buat ulang",
+      "expected": "Membuat draft pengganti",
+      "mode": "todo",
+      "note": "Regenerasi MVP hanya berjalan bila pesan menyebut parameter lengkap."
+    }
+  ]
+}

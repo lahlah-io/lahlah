@@ -14,6 +14,8 @@ const KNOWN_CATEGORY_SLUGS = new Set([
   "sejarah",
   "alam",
   "kuliner",
+  "santai",
+  "belanja",
 ]);
 
 const searchArgsSchema = z
@@ -38,7 +40,6 @@ const detailArgsSchema = z
   });
 
 export type ToolDeps = {
-  // composition root injects queries that are always scoped to Padang + active rows.
   searchDestinations: (input: { keywords?: string; categories?: string[] }) => Promise<unknown[]>;
   getDestinationDetails: (input: { destinationIds: string[] }) => Promise<unknown[]>;
 };

@@ -1,5 +1,5 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+﻿import assert from "node:assert/strict";
+import { test } from "vitest";
 import { createUserSchema, listUsersQuerySchema } from "../../../../src/modules/users/schemas/user.schema.js";
 
 test("skema user menerima input valid dan menolak email atau nama tidak valid", () => {

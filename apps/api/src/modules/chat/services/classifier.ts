@@ -27,7 +27,7 @@ const classifierOutputSchema = z.object({
   confidence: z.number().min(0).max(1),
 });
 
-const CLASSIFIER_SYSTEM_PROMPT =
+export const CLASSIFIER_SYSTEM_PROMPT =
   'Classify the user message into exactly one intent. Respond with ONLY a JSON object in the form {"intent":"<label>","confidence":<0..1>}. Labels: general_chat, generate_itinerary, modify_itinerary, regenerate_itinerary, confirm_itinerary, missing_information.';
 
 const GREETINGS = ["halo", "hai", "hi", "hello", "assalamualaikum", "selamat pagi", "selamat siang", "selamat sore", "selamat malam"];

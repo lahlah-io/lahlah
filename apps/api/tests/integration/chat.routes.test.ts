@@ -1,5 +1,5 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+﻿import assert from "node:assert/strict";
+import { afterAll, test } from "vitest";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { Hono } from "hono";
@@ -103,7 +103,7 @@ function toolCallResponse(name: string, args: Record<string, unknown>) {
   return { json: { choices: [{ message: { tool_calls: [{ id: "call_1", type: "function", function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] } };
 }
 
-test.after(() => {
+afterAll(() => {
   if (PREV_NODE_ENV === undefined) delete process.env.NODE_ENV;
   else process.env.NODE_ENV = PREV_NODE_ENV;
 });

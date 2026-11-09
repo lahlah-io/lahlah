@@ -1,5 +1,5 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+﻿import assert from "node:assert/strict";
+import { test } from "vitest";
 import { classify } from "../../../../src/modules/chat/services/classifier.js";
 
 const env = {

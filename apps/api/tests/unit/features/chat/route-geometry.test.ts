@@ -1,5 +1,5 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+﻿import assert from "node:assert/strict";
+import { test } from "vitest";
 
 type RouteGeometry = {
   isValidCoordinate: (lat: unknown, lng: unknown) => boolean;
@@ -31,7 +31,7 @@ test("isValidCoordinate accepts only in-range latitude/longitude", async () => {
 
 test("haversineMeters returns straight-line distance in meters", async () => {
   const { haversineMeters } = await loadRouteGeometry();
-  // One degree of latitude ≈ 111,195 m.
+  // One degree of latitude â‰ˆ 111,195 m.
   const m = haversineMeters({ latitude: 0, longitude: 100 }, { latitude: 1, longitude: 100 });
   assert.ok(typeof m === "number");
   assert.ok(Math.abs(m - 111_195) < 2_000, `expected ~111195, got ${m}`);

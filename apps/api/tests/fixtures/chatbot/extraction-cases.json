@@ -1,0 +1,66 @@
+{
+  "datasetVersion": "chatbot-matrix-1.0",
+  "promptVersion": "extraction-v1",
+  "referenceDate": "2026-11-09",
+  "timezone": "Asia/Jakarta",
+  "cases": [
+    {
+      "id": "PAR-001",
+      "input": "Saya mau jalan dari jam 12 sampai 5 sore",
+      "expected": { "startTime": "12:00", "endTime": "17:00" },
+      "mode": "ready",
+      "priority": "high"
+    },
+    {
+      "id": "PAR-002",
+      "input": "Dari jam 8 pagi sampai 3 sore",
+      "expected": { "startTime": "08:00", "endTime": "15:00" },
+      "mode": "ready",
+      "priority": "high"
+    },
+    {
+      "id": "PAR-003",
+      "input": "Saya suka pantai dan kuliner",
+      "expected": { "categories": ["seed-pantai", "seed-kuliner"] },
+      "mode": "ready",
+      "priority": "high"
+    },
+    {
+      "id": "PAR-004",
+      "input": "Saya hanya suka wisata sejarah",
+      "expected": { "categories": ["seed-sejarah"] },
+      "mode": "ready",
+      "priority": "high"
+    },
+    {
+      "id": "PAR-005",
+      "input": "Besok siang",
+      "expected": { "date": "2026-11-10" },
+      "mode": "date-only",
+      "priority": "high"
+    },
+    {
+      "id": "PAR-006",
+      "input": "Saya punya waktu 5 jam",
+      "expected": { "durationMinutes": 300 },
+      "mode": "todo",
+      "note": "Parsing durasi saja belum ada; pengguna harus menyebut jam mulai-selesai.",
+      "priority": "high"
+    },
+    {
+      "id": "PAR-007",
+      "input": "Jam 13:30 sampai 16:45",
+      "expected": { "startTime": "13:30", "endTime": "16:45" },
+      "mode": "ready",
+      "priority": "high"
+    },
+    {
+      "id": "PAR-008",
+      "input": "Saya suka pantai, jangan kuliner",
+      "expected": { "include": ["seed-pantai"], "exclude": ["seed-kuliner"] },
+      "mode": "todo",
+      "note": "Preferensi negatif (exclude) belum didukung; extractCategories hanya membaca kategori positif.",
+      "priority": "high"
+    }
+  ]
+}

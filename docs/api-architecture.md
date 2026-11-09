@@ -42,6 +42,7 @@ Jangan membuat direktori kosong atau menyiapkan lapisan untuk fitur yang belum a
 
 - Endpoint fitur berada di bawah `/api/v1` dan dipasang melalui `src/routes.ts`.
 - `GET /health/live` memeriksa proses; `GET /health/ready` juga menguji koneksi PostgreSQL dan memberi status 503 bila DB tidak tersedia.
+- Dokumentasi OpenAPI disusun di `src/openapi.ts` dari skema Zod yang ada. Saat `NODE_ENV` bukan `production`, `GET /docs` menyajikan Swagger UI dan `GET /openapi.json` menyajikan dokumennya; di production keduanya 404. Tes `tests/unit/openapi.test.ts` menjaga setiap rute `/api/v1` terdaftar di dokumen; `tests/integration/openapi.contract.test.ts` memvalidasi bentuk respons nyata ke DB terhadap `responseShapes` yang diekspor `src/openapi.ts`. Skema respons tetap ditulis manual (service mengembalikan hasil select Prisma), jadi perbarui `responseSchemas`/`responseShapes` di `src/openapi.ts` saat bentuk respons berubah.
 - Middleware global memasang request ID, log JSON (matikan dengan `LOG_LEVEL=silent`), security headers, CORS, dan batas body API 1 MiB.
 - Error memakai bentuk `{ "error": { "code": "...", "message": "..." } }`. Jangan bocorkan detail database atau exception internal.
 - Konfigurasi runtime dibaca dan divalidasi sekali melalui `src/env.ts`. Simpan rahasia di `apps/api/.env` lokal; hanya contoh tanpa rahasia boleh masuk `.env.example`.
@@ -57,7 +58,7 @@ File di `prisma/schema/` mencakup seluruh 14 tabel ERD: users, models, subscript
 - ID menggunakan PostgreSQL UUID; nilai uang memakai `Decimal`; JSONB memakai Prisma `Json`; waktu memakai `timestamptz`.
 - Pertahankan unique constraint dan foreign key ERD. Nyatakan perilaku penghapusan relasi secara eksplisit dan telaah dampak data sebelum mengubahnya.
 - `User.pid` unik dan dibuat sebagai UUID string. Field auth/password belum ditambahkan.
-- `DestinationSource` saat ini mencakup `geoapify`, `admin`, dan `user`; unique place ID dibatasi per sumber.
+- `DestinationSource` mencakup `geoapify`, `firecrawl`, `overpass`, `wikidata`, `manual`, `admin`, dan `user`. Unique place ID dibatasi per sumber. `canonical_key` (nama ternormalisasi, unik) mencegah baris ganda saat sumber pemenang berubah.
 - Jangan gunakan `prisma db push` pada lingkungan bersama/terpasang. Gunakan migrasi yang ditinjau dan `migrate deploy` untuk penerapan.
 
 ## Fitur contoh: users
@@ -71,6 +72,15 @@ File di `prisma/schema/` mencakup seluruh 14 tabel ERD: users, models, subscript
 - `tests/unit/features/users/`: uji kontrak input; `tests/integration/users.crud.test.ts`: uji CRUD nyata melalui PostgreSQL.
 
 List dibatasi hingga 1–100 data per halaman. Respons hanya memilih field yang boleh terlihat oleh API; jangan pernah mengekspos password atau secret. CRUD user belum memiliki autentikasi dan dikunci dengan status 503 di production. Jangan hapus pengaman itu sebelum autentikasi dan otorisasi tersedia.
+
+## Skrip data destinasi
+
+`src/scripts/scrape-destinations.ts` mengisi tabel `destinations` dari Geoapify, Firecrawl, Overpass, Wikidata, dan daftar manual.
+
+- Jalankan `pnpm --filter api scrape:destinations`. Tambahkan `--dry-run` untuk melihat hasil tanpa menulis, atau `--source=<nama>` untuk satu sumber.
+- Sumber tanpa API key dilewati, bukan dianggap gagal.
+- Asal data disimpan di `destinations.source` dan `details.mergedSources`.
+- Skrip tidak dijalankan otomatis dan tidak diekspos sebagai endpoint.
 
 ## Belum termasuk
 

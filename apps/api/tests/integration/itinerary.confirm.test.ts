@@ -1,5 +1,5 @@
 ﻿import assert from "node:assert/strict";
-import test from "node:test";
+import { afterAll, test } from "vitest";
 import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import { prisma } from "../../src/db/client.js";
@@ -87,7 +87,7 @@ async function cleanup(userIds: string[]) {
   }
 }
 
-test.after(() => {
+afterAll(() => {
   if (PREV_NODE_ENV === undefined) delete process.env.NODE_ENV;
   else process.env.NODE_ENV = PREV_NODE_ENV;
 });

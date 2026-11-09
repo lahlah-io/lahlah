@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "mapcn": {
+      "source": "AnmolSaini16/mapcn",
+      "sourceType": "github",
+      "skillPath": "skills/mapcn/SKILL.md",
+      "computedHash": "e64adc9efc04b529f9e7d2c9472c412d64bb84417a432f4fb5940b8b065fa935"
+    }
+  }
+}

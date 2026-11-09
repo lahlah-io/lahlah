@@ -1,5 +1,5 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+﻿import assert from "node:assert/strict";
+import { test } from "vitest";
 import { randomUUID } from "node:crypto";
 import { HttpError } from "../../../../src/shared/http/errors.js";
 
