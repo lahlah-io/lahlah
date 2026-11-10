@@ -88,7 +88,7 @@ export function createDraftStore(input: { ttlSeconds?: number; now?: () => numbe
     if (!row) throw new HttpError(404, "DRAFT_NOT_FOUND", "Draft not found or expired");
     if (row.expiresAt && row.expiresAt.getTime() <= at) {
       await prisma.itineraryDraft.deleteMany({ where: { id: draftId } });
-      throw new HttpError(404, "DRAFT_EXPIRED", "Draft expired");
+      throw new HttpError(404, "DRAFT_NOT_FOUND", "Draft not found or expired");
     }
     if (row.userId !== userId || row.sessionId !== sessionId) {
       throw new HttpError(403, "FORBIDDEN", "Draft access denied");
