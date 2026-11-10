@@ -1,23 +1,32 @@
 enum ItineraryStatus {
   draft
-  final
+  confirmed
+  archived
+  cancelled
 }
 
 model Itinerary {
-  id           String                 @id @default(uuid()) @db.Uuid
-  userId       String                 @map("user_id") @db.Uuid
-  sessionId    String?                @unique @map("session_id") @db.Uuid
-  title        String                 @db.VarChar
-  content      String                 @db.Text
-  status       ItineraryStatus        @default(draft)
-  isPublic     Boolean                @default(false) @map("is_public")
-  shareSlug    String?                @unique @map("share_slug") @db.VarChar
-  metadata     Json                   @default("{}")
-  createdAt    DateTime               @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt    DateTime               @updatedAt @map("updated_at") @db.Timestamptz
-  user         User                   @relation(fields: [userId], references: [id], onDelete: Restrict)
-  session      ChatSession?           @relation(fields: [sessionId], references: [id], onDelete: SetNull)
-  destinations ItineraryDestination[]
+  id             String                 @id @default(uuid()) @db.Uuid
+  userId         String                 @map("user_id") @db.Uuid
+  sessionId      String?                @unique @map("session_id") @db.Uuid // keep 1:1
+  currentVersion Int                    @default(1) @map("current_version")
+  tripDate       DateTime?              @map("trip_date") @db.Date
+  durationDays   Int                    @default(1) @map("duration_days")
+  city           String                 @default("Padang") @db.VarChar(100)
+  transportMode  String?                @map("transport_mode") @db.VarChar
+  title          String                 @db.VarChar
+  content        String                 @db.Text
+  status         ItineraryStatus        @default(draft)
+  isPublic       Boolean                @default(false) @map("is_public")
+  shareSlug      String?                @unique @map("share_slug") @db.VarChar
+  metadata       Json                   @default("{}")
+  createdAt      DateTime               @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime               @updatedAt @map("updated_at") @db.Timestamptz
+  user           User                   @relation(fields: [userId], references: [id], onDelete: Restrict)
+  session        ChatSession?           @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  destinations   ItineraryDestination[] // KEEP for legacy compat
+  versions       ItineraryVersion[]
+  drafts         ItineraryDraft[]
 
   @@map("itinerary")
 }
@@ -49,4 +58,87 @@ model DestinationCheckpoint {
   user                   User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
 
   @@map("destination_checkpoints")
+}
+
+model ItineraryVersion {
+  id                String           @id @default(uuid()) @db.Uuid
+  itineraryId       String           @map("itinerary_id") @db.Uuid
+  version           Int
+  basedOnVersion    Int?             @map("based_on_version")
+  changeInstruction String?          @map("change_instruction") @db.Text
+  changeType        String           @map("change_type") @db.VarChar
+  totalDistanceM    Int?             @map("total_distance_m")
+  totalDurationMin  Int?             @map("total_duration_min")
+  totalEstimatedMin Int?             @map("total_estimated_min")
+  status            String           @db.VarChar
+  createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  stops             ItineraryStop[]
+  routes            ItineraryRoute[]
+  itinerary         Itinerary        @relation(fields: [itineraryId], references: [id], onDelete: Cascade)
+
+  @@unique([itineraryId, version])
+  @@index([itineraryId, version])
+  @@map("itinerary_versions")
+}
+
+model ItineraryStop {
+  id                 String           @id @default(uuid()) @db.Uuid
+  itineraryVersionId String           @map("itinerary_version_id") @db.Uuid
+  destinationId      String?          @map("destination_id") @db.Uuid
+  position           Int
+  name               String           @db.VarChar
+  latitude           Decimal          @db.Decimal(10, 7)
+  longitude          Decimal          @db.Decimal(10, 7)
+  arrivalTime        String?          @map("arrival_time") @db.VarChar
+  departureTime      String?          @map("departure_time") @db.VarChar
+  visitDurationMin   Int?             @map("visit_duration_min")
+  travelDurationMin  Int?             @map("travel_duration_min")
+  notes              String?          @db.Text
+  category           String?          @db.VarChar
+  version            ItineraryVersion @relation(fields: [itineraryVersionId], references: [id], onDelete: Cascade)
+  destination        Destination?     @relation(fields: [destinationId], references: [id])
+  routeFrom          ItineraryRoute[] @relation("RouteFromStop")
+  routeTo            ItineraryRoute[] @relation("RouteToStop")
+
+  @@unique([itineraryVersionId, position])
+  @@index([itineraryVersionId, position])
+  @@map("itinerary_stops")
+}
+
+model ItineraryRoute {
+  id                 String           @id @default(uuid()) @db.Uuid
+  itineraryVersionId String           @map("itinerary_version_id") @db.Uuid
+  fromStopId         String           @map("from_stop_id") @db.Uuid
+  toStopId           String           @map("to_stop_id") @db.Uuid
+  transportMode      String           @map("transport_mode") @db.VarChar
+  distanceM          Int?             @map("distance_m")
+  durationSec        Int?             @map("duration_sec")
+  geometryJson       Json?            @map("geometry_json")
+  provider           String?          @db.VarChar
+  providerProfile    String?          @map("provider_profile") @db.VarChar
+  fallback           Boolean          @default(false)
+  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  version            ItineraryVersion @relation(fields: [itineraryVersionId], references: [id], onDelete: Cascade)
+  fromStop           ItineraryStop    @relation("RouteFromStop", fields: [fromStopId], references: [id], onDelete: Cascade)
+  toStop             ItineraryStop    @relation("RouteToStop", fields: [toStopId], references: [id], onDelete: Cascade)
+
+  @@map("itinerary_routes")
+}
+
+model ItineraryDraft {
+  id          String       @id @default(uuid()) @db.Uuid // exposed as draftId compat
+  sessionId   String       @unique @map("session_id") @db.Uuid
+  userId      String       @map("user_id") @db.Uuid
+  itineraryId String?      @map("itinerary_id") @db.Uuid
+  payload     Json
+  status      String       @default("pending_confirmation") @db.VarChar
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime     @updatedAt @map("updated_at") @db.Timestamptz
+  expiresAt   DateTime?    @map("expires_at") @db.Timestamptz
+  session     ChatSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  itinerary   Itinerary?   @relation(fields: [itineraryId], references: [id])
+  user        User         @relation(fields: [userId], references: [id])
+
+  @@index([sessionId])
+  @@map("itinerary_drafts")
 }
