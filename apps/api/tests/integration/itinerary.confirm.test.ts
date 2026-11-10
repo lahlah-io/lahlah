@@ -98,7 +98,7 @@ test("confirm persists itinerary+destinations atomically from valid draft", asyn
   const session = await createSession(user.id);
   const rows = await padangDestinations(2);
   const store = createDraftStore();
-  const draftId = store.replaceSessionDraft({ userId: user.id, sessionId: session.id, itinerary: draftFor(rows) });
+  const draftId = await store.replaceSessionDraft({ userId: user.id, sessionId: session.id, itinerary: draftFor(rows) });
   const app = buildApp(store);
   try {
     const res = await app.request("/api/v1/itineraries/confirm", {
@@ -131,13 +131,13 @@ test("confirm handles expired, wrong user/session, duplicate, and inactive desti
   const store = createDraftStore({ ttlSeconds: 30, now: () => now });
   const app = buildApp(store);
   try {
-    const expiredId = store.replaceSessionDraft({ userId: user.id, sessionId: session.id, itinerary: draftFor(rows) });
+    const expiredId = await store.replaceSessionDraft({ userId: user.id, sessionId: session.id, itinerary: draftFor(rows) });
     now += 31_000;
     let res = await app.request("/api/v1/itineraries/confirm", { method: "POST", headers: json, body: JSON.stringify({ draftId: expiredId, userId: user.id, sessionId: session.id }) });
     assert.equal(res.status, 404);
 
     now = 2_000_000;
-    const draftId = store.replaceSessionDraft({ userId: user.id, sessionId: session.id, itinerary: draftFor(rows) });
+    const draftId = await store.replaceSessionDraft({ userId: user.id, sessionId: session.id, itinerary: draftFor(rows) });
     res = await app.request("/api/v1/itineraries/confirm", { method: "POST", headers: json, body: JSON.stringify({ draftId, userId: user2.id, sessionId: session.id }) });
     assert.equal(res.status, 403);
     res = await app.request("/api/v1/itineraries/confirm", { method: "POST", headers: json, body: JSON.stringify({ draftId, userId: user.id, sessionId: session2.id }) });
@@ -146,7 +146,7 @@ test("confirm handles expired, wrong user/session, duplicate, and inactive desti
     res = await app.request("/api/v1/itineraries/confirm", { method: "POST", headers: json, body: JSON.stringify({ draftId, userId: user.id, sessionId: session.id }) });
     assert.equal(res.status, 201);
     const first = await res.json() as { data: { id: string } };
-    const draftId2 = store.replaceSessionDraft({ userId: user.id, sessionId: session.id, itinerary: draftFor(rows) });
+    const draftId2 = await store.replaceSessionDraft({ userId: user.id, sessionId: session.id, itinerary: draftFor(rows) });
     res = await app.request("/api/v1/itineraries/confirm", { method: "POST", headers: json, body: JSON.stringify({ draftId: draftId2, userId: user.id, sessionId: session.id }) });
     assert.equal(res.status, 200);
     const second = await res.json() as { data: { id: string } };
@@ -159,7 +159,7 @@ test("confirm handles expired, wrong user/session, duplicate, and inactive desti
     });
     const session3 = await createSession(user2.id);
     const badDraft = draftFor([{ ...rows[0]!, id: inactiveDest.id, name: inactiveDest.name, latitude: Number(inactiveDest.latitude), longitude: Number(inactiveDest.longitude) }, rows[1]!]);
-    const badId = store.replaceSessionDraft({ userId: user2.id, sessionId: session3.id, itinerary: badDraft });
+    const badId = await store.replaceSessionDraft({ userId: user2.id, sessionId: session3.id, itinerary: badDraft });
     res = await app.request("/api/v1/itineraries/confirm", { method: "POST", headers: json, body: JSON.stringify({ draftId: badId, userId: user2.id, sessionId: session3.id }) });
     assert.equal(res.status, 422);
     await prisma.destination.delete({ where: { id: inactiveDest.id } }).catch(() => undefined);
