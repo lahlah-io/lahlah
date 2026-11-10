@@ -11,3 +11,12 @@ export const confirmItinerarySchema = z.object({
 
 export const itineraryIdParamSchema = z.object({ id });
 export const itineraryOwnerQuerySchema = z.object({ userId });
+export const itinerarySessionParamSchema = z.object({ sessionId: id });
+export const itineraryVersionParamSchema = z.object({
+  id,
+  version: z.coerce.number().int().min(1),
+});
+export const restoreItineraryVersionSchema = z.object({
+  userId,
+  expectedVersion: z.number().int().min(1).optional(),
+});
