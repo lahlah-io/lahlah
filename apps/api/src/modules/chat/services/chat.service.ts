@@ -281,10 +281,49 @@ export function createChatService(deps: ChatDeps) {
       return chatRepository.listSessions(input);
     },
 
-    async listMessages(input: { userId: string; sessionId: string; page: number; limit: number }) {
+    async getSession(input: { userId: string; sessionId: string }) {
+      productionGate();
+      await requireActiveUser(deps, input.userId);
+      const session = await requireOwnedSession(input.userId, input.sessionId);
+      return { data: session };
+    },
+
+    async updateSession(input: { userId: string; sessionId: string; title?: string; summary?: string | null; status?: string }) {
       productionGate();
       await requireActiveUser(deps, input.userId);
       await requireOwnedSession(input.userId, input.sessionId);
+      const updated = await chatRepository.updateSession({
+        id: input.sessionId,
+        ...(input.title !== undefined ? { title: input.title.trim() } : {}),
+        ...(input.summary !== undefined ? { summary: input.summary } : {}),
+        ...(input.status !== undefined ? { status: input.status } : {}),
+      });
+      return { data: updated };
+    },
+
+    async deleteSession(input: { userId: string; sessionId: string }) {
+      productionGate();
+      await requireActiveUser(deps, input.userId);
+      await requireOwnedSession(input.userId, input.sessionId);
+      await chatRepository.deleteSession(input.sessionId);
+      return { data: { deleted: true } };
+    },
+
+    async listMessages(input: {
+      userId: string;
+      sessionId: string;
+      page: number;
+      limit: number;
+      after_position?: number;
+      afterPosition?: number;
+    }) {
+      productionGate();
+      await requireActiveUser(deps, input.userId);
+      await requireOwnedSession(input.userId, input.sessionId);
+      const afterPosition = input.after_position ?? input.afterPosition;
+      if (afterPosition !== undefined) {
+        return chatRepository.listMessagesKeyset({ sessionId: input.sessionId, afterPosition, limit: input.limit });
+      }
       return chatRepository.listMessages({ sessionId: input.sessionId, page: input.page, limit: input.limit });
     },
 
