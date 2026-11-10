@@ -3,6 +3,10 @@ import { paginationQuerySchema } from "../../../shared/schemas/pagination.schema
 
 const id = z.uuid();
 const userId = z.string().trim().min(1).max(255);
+const keysetPosition = z.preprocess(
+  (value) => (value === "" || value === undefined ? undefined : value),
+  z.coerce.number().int().min(0).optional(),
+);
 
 export const createSessionSchema = z.object({
   userId,
@@ -12,7 +16,11 @@ export const createSessionSchema = z.object({
 export const sessionIdParamSchema = z.object({ id });
 
 export const listSessionsQuerySchema = paginationQuerySchema.extend({ userId });
-export const listMessagesQuerySchema = paginationQuerySchema.extend({ userId });
+export const listMessagesQuerySchema = paginationQuerySchema.extend({
+  userId,
+  after_position: keysetPosition,
+  afterPosition: keysetPosition,
+});
 
 export const getSessionQuerySchema = z.object({ userId });
 export const deleteSessionQuerySchema = z.object({ userId });
