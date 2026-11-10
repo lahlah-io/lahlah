@@ -164,9 +164,14 @@ test("greeting returns general_chat without provider answer call and persists hi
     assert.ok(body.data.message.length > 0);
 
     const history = await app.request(`/api/v1/chat/sessions/${session.id}/messages?userId=${user.id}&limit=20`);
-    const rows = (await history.json() as { data: Array<{ role: string; content: string }> }).data;
+    const historyBody = await history.json() as { data: Array<{ role: string; content: string; position?: number }>; meta: { page?: number; limit: number; total?: number } };
+    const rows = historyBody.data;
     assert.deepEqual(rows.map((r) => r.role), ["user", "assistant"]);
     assert.equal(rows[0]?.content, "halo");
+    assert.equal(historyBody.meta.page, 1);
+    assert.equal(historyBody.meta.limit, 20);
+    assert.equal(historyBody.meta.total, 2);
+    assert.deepEqual(rows.map((r) => r.position), [1, 2]);
   } finally {
     await provider.close();
     await cleanupUser(user.id);
