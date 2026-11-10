@@ -146,15 +146,23 @@ async function appendMessageTx(tx: DbClient, input: AppendMessageInput) {
   const status = input.status ?? "completed";
   const activeVersion = input.activeVersion ?? 1;
   const schemaVersion = input.schemaVersion ?? 1;
+  const createdAtIso = new Date().toISOString();
   const versionsJson =
     input.versionsJson ??
     ([
       {
         version: activeVersion,
         content: input.content,
+        status,
+        createdAt: createdAtIso,
+        ...(input.model ? { model: input.model } : {}),
+        ...(input.latencyMs != null ? { latencyMs: input.latencyMs } : {}),
+        ...(input.toolCallsJson != null ? { toolCalls: input.toolCallsJson } : {}),
+        ...(input.errorJson != null ? { errorJson: input.errorJson } : {}),
+        metadata,
+        usage: { promptTokens: inputTokens, completionTokens: outputTokens, totalTokens: inputTokens + outputTokens },
         inputTokens,
         outputTokens,
-        metadata,
       },
     ] as Prisma.InputJsonValue);
 
@@ -199,17 +207,22 @@ export async function appendMessage(input: AppendMessageInput) {
   return prisma.$transaction((tx) => appendMessageTx(tx, input));
 }
 
-export async function insertMessage(input: {
-  sessionId: string;
-  modelId?: string | null;
-  role: "user" | "assistant" | "system" | "tool";
-  content: string;
-  inputTokens?: number | null;
-  outputTokens?: number | null;
-  metadata?: Prisma.InputJsonValue;
-}) {
+export async function insertMessage(input: AppendMessageInput) {
   const row = await appendMessage(input);
-  const { position: _position, toolCallsJson: _tc, toolCallId: _tci, mode: _mode, model: _model, latencyMs: _lm, status: _status, errorJson: _ej, versionsJson: _vj, activeVersion: _av, schemaVersion: _sv, ...compat } = row as any;
+  const {
+    position: _position,
+    toolCallsJson: _tc,
+    toolCallId: _tci,
+    mode: _mode,
+    model: _model,
+    latencyMs: _lm,
+    status: _status,
+    errorJson: _ej,
+    versionsJson: _vj,
+    activeVersion: _av,
+    schemaVersion: _sv,
+    ...compat
+  } = row as any;
   return compat as {
     id: string;
     sessionId: string;

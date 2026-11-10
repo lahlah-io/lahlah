@@ -31,8 +31,8 @@ function mapUsage(raw: unknown): { inputTokens?: number; outputTokens?: number }
   return {};
 }
 
-function asAiHistory(rows: Array<{ role: "user" | "assistant" | "system"; content: string }>) {
-  return rows.filter((r): r is { role: "user" | "assistant"; content: string } => r.role !== "system");
+function asAiHistory(rows: Array<{ role: "user" | "assistant" | "system" | "tool"; content: string }>) {
+  return rows.filter((r): r is { role: "user" | "assistant"; content: string } => r.role === "user" || r.role === "assistant");
 }
 
 async function requireActiveUser(deps: ChatDeps, userId: string) {
@@ -238,16 +238,82 @@ async function runItineraryToolFlow(input: {
   let last: Awaited<ReturnType<typeof run>> | null = null;
 
   for (let round = 0; round < maxRounds; round++) {
-    last = await run({ role: "tool", config, messages, tools, toolChoice: "required" });
-    if (last.toolCalls.length === 0) throw new HttpError(422, "TOOL_CALL_REQUIRED", "Tool model did not return required tool calls");
+    const providerStarted = Date.now();
+    try {
+      last = await run({ role: "tool", config, messages, tools, toolChoice: "required" });
+    } catch (err) {
+      await chatRepository.appendMessage({
+        sessionId: input.sessionId,
+        role: "tool",
+        content: JSON.stringify({ round, error: err instanceof Error ? err.message : String(err) }),
+        mode: "tool",
+        model: config.model,
+        latencyMs: Date.now() - providerStarted,
+        status: "failed",
+        errorJson: { message: err instanceof Error ? err.message : String(err) } as any,
+        metadata: { round, kind: "provider" },
+      });
+      throw err;
+    }
+    const providerLatencyMs = Date.now() - providerStarted;
+    if (last.toolCalls.length === 0) {
+      await chatRepository.appendMessage({
+        sessionId: input.sessionId,
+        role: "tool",
+        content: JSON.stringify({ round, error: "TOOL_CALL_REQUIRED" }),
+        mode: "tool",
+        model: config.model,
+        latencyMs: providerLatencyMs,
+        status: "failed",
+        errorJson: { code: "TOOL_CALL_REQUIRED" } as any,
+        metadata: { round, kind: "provider" },
+      });
+      throw new HttpError(422, "TOOL_CALL_REQUIRED", "Tool model did not return required tool calls");
+    }
+    // provider tool-call response (assistant in provider thread); not persisted as DB assistant to keep compat.
     messages.push({
       role: "assistant",
       content: JSON.stringify(last.toolCalls.map((c) => ({ id: c.id, name: c.name, arguments: c.arguments }))),
     } as unknown as AiMessage);
+
     for (const call of last.toolCalls) {
-      const result = await executeTool(call.name, call.arguments);
-      if (call.name === "search_destinations" || call.name === "get_destination_details") structured = Array.isArray(result) ? result : structured;
-      messages.push({ role: "tool", toolCallId: call.id, name: call.name, content: JSON.stringify(result) });
+      const toolStarted = Date.now();
+      try {
+        const result = await executeTool(call.name, call.arguments);
+        const toolLatencyMs = Date.now() - toolStarted;
+        if (call.name === "search_destinations" || call.name === "get_destination_details") {
+          structured = Array.isArray(result) ? result : structured;
+        }
+        await chatRepository.appendMessage({
+          sessionId: input.sessionId,
+          role: "tool",
+          toolCallId: call.id,
+          content: JSON.stringify(result),
+          mode: "tool",
+          model: config.model,
+          latencyMs: toolLatencyMs,
+          status: "completed",
+          toolCallsJson: [{ id: call.id, name: call.name, arguments: call.arguments }] as any,
+          metadata: { name: call.name, arguments: call.arguments, round, kind: "tool_result" },
+        });
+        messages.push({ role: "tool", toolCallId: call.id, name: call.name, content: JSON.stringify(result) });
+      } catch (err) {
+        const toolLatencyMs = Date.now() - toolStarted;
+        await chatRepository.appendMessage({
+          sessionId: input.sessionId,
+          role: "tool",
+          toolCallId: call.id,
+          content: JSON.stringify({ name: call.name, arguments: call.arguments, error: err instanceof Error ? err.message : String(err) }),
+          mode: "tool",
+          model: config.model,
+          latencyMs: toolLatencyMs,
+          status: "failed",
+          toolCallsJson: [{ id: call.id, name: call.name, arguments: call.arguments }] as any,
+          errorJson: { message: err instanceof Error ? err.message : String(err) } as any,
+          metadata: { name: call.name, arguments: call.arguments, round, kind: "tool_result" },
+        });
+        throw err;
+      }
     }
     break;
   }
@@ -331,7 +397,7 @@ export function createChatService(deps: ChatDeps) {
       productionGate();
       await requireActiveUser(deps, input.userId);
       const session = await requireOwnedSession(input.userId, input.sessionId);
-      await chatRepository.insertMessage({ sessionId: session.id, role: "user", content: input.content, metadata: {} });
+      await chatRepository.insertMessage({ sessionId: session.id, role: "user", content: input.content, metadata: {}, status: "completed" });
       const historyRows = await chatRepository.findRecentMessages(session.id, HISTORY_LIMIT);
       const history = buildConversationContext({ systemPrompt: SYSTEM_PROMPT, history: asAiHistory(historyRows) });
 
@@ -342,7 +408,7 @@ export function createChatService(deps: ChatDeps) {
       let usage: { inputTokens?: number; outputTokens?: number } = {};
 
       if (intent === "general_chat" || intent === "confirm_itinerary") {
-        // greeting/general chat: no provider answer call required; 
+        // greeting/general chat: no provider answer call required;
         message = intent === "confirm_itinerary"
           ? "Untuk menyimpan itinerary, gunakan aksi konfirmasi draft yang tersedia."
           : "Halo! Saya bisa bantu buat itinerary satu hari di Kota Padang. Sebutkan tanggal, jam mulai-selesai, dan kategori (misalnya pantai atau kuliner).";
@@ -399,14 +465,16 @@ export function createChatService(deps: ChatDeps) {
         }
       }
 
-      const saved = await chatRepository.insertMessage({
+      const saved = await chatRepository.appendMessage({
         sessionId: session.id,
         modelId: session.modelId,
         role: "assistant",
         content: message,
-        inputTokens: usage.inputTokens ?? null,
-        outputTokens: usage.outputTokens ?? null,
+        inputTokens: usage.inputTokens ?? 0,
+        outputTokens: usage.outputTokens ?? 0,
         metadata: { intent, draftId: draft?.draftId ?? null },
+        status: "completed",
+        mode: "chat",
       });
 
       return {

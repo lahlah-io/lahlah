@@ -1,4 +1,4 @@
-type ChatMessageRow = { role: "user" | "assistant" | "system"; content: string };
+type ChatMessageRow = { role: "user" | "assistant" | "system" | "tool"; content: string };
 type AiMessage = { role: "system" | "user" | "assistant"; content: string };
 
 export function buildConversationContext(input: {
@@ -10,7 +10,7 @@ export function buildConversationContext(input: {
   const messages: AiMessage[] = [{ role: "system", content: input.systemPrompt }];
   if (input.draftContext) messages.push({ role: "system", content: `Current draft context:\n${input.draftContext}` });
   for (const row of input.history) {
-    if (row.role === "system") continue;
+    if (row.role !== "user" && row.role !== "assistant") continue;
     messages.push({ role: row.role, content: row.content });
   }
   if (input.currentUserMessage) messages.push({ role: "user", content: input.currentUserMessage });
