@@ -158,6 +158,18 @@ test("health and openapi docs return their documented shapes", async () => {
   assert.equal(specBody.openapi, "3.1.0");
   assert.ok(specBody.paths?.["/api/v1/users"]);
   assert.ok(specBody.paths?.["/api/v1/routes/driving"]);
+  for (const path of [
+    "/api/v1/chat/sessions/{id}",
+    "/api/v1/chat/messages/{id}/regenerate",
+    "/api/v1/chat/messages/{id}/versions",
+    "/api/v1/chat/messages/{id}/versions/{version}/activate",
+    "/api/v1/itineraries/by-session/{sessionId}",
+    "/api/v1/itineraries/{id}/versions",
+    "/api/v1/itineraries/{id}/versions/{version}",
+    "/api/v1/itineraries/{id}/restore/{version}",
+  ]) {
+    assert.ok(specBody.paths?.[path], `missing OpenAPI path ${path}`);
+  }
 });
 
 test("users API response shapes match the OpenAPI contract", async () => {
@@ -338,8 +350,192 @@ test("chat and itinerary response shapes match the OpenAPI contract", async () =
   }
 });
 
-test("routing API response and error shapes match the OpenAPI contract", async () => {
-  const fetchFn: typeof fetch = async () =>
+test("new chat session, message version, and itinerary version endpoints match the OpenAPI contract", async () => {
+  process.env.NODE_ENV = "test";
+  const rows = await prisma.destination.findMany({
+    where: { city: "Padang", isActive: true, latitude: { not: null }, longitude: { not: null } },
+    take: 2,
+    select: { id: true, name: true, latitude: true, longitude: true },
+    orderBy: { createdAt: "asc" },
+  });
+  assert.ok(rows.length >= 2, "need >=2 active Padang destinations (run seed)");
+
+  const provider = createServer((_req, res) => {
+    res.statusCode = 404;
+    res.end("unused");
+  });
+  await new Promise<void>((resolve) => provider.listen(0, "127.0.0.1", resolve));
+  const address = provider.address();
+  assert.ok(address && typeof address === "object");
+  const chatApp = buildChatApp(`http://127.0.0.1:${address.port}/v1`);
+
+  const user = await prisma.user.create({
+    data: { name: "OpenAPI Versions", email: `openapi-v-${randomUUID()}@example.test` },
+    select: { id: true },
+  });
+  const userId = user.id;
+  try {
+    const sessionRes = await chatApp.request("/api/v1/chat/sessions", {
+      method: "POST",
+      headers: json,
+      body: JSON.stringify({ userId, title: "Shape Versions" }),
+    });
+    assert.equal(sessionRes.status, 201);
+    const sessionBody = expectShape(responseShapes.chatSession, await sessionRes.json(), "session create");
+    const sessionId = sessionBody.data.id;
+
+    const getSessionRes = await chatApp.request(`/api/v1/chat/sessions/${sessionId}?userId=${userId}`);
+    assert.equal(getSessionRes.status, 200);
+    expectShape(responseShapes.chatSession, await getSessionRes.json(), "session get");
+
+    const patchSessionRes = await chatApp.request(`/api/v1/chat/sessions/${sessionId}`, {
+      method: "PATCH",
+      headers: json,
+      body: JSON.stringify({ userId, title: "Renamed", summary: "ringkas" }),
+    });
+    assert.equal(patchSessionRes.status, 200);
+    const patched = expectShape(responseShapes.chatSession, await patchSessionRes.json(), "session patch");
+    assert.equal(patched.data.title, "Renamed");
+
+    const sendRes = await chatApp.request(`/api/v1/chat/sessions/${sessionId}/messages`, {
+      method: "POST",
+      headers: json,
+      body: JSON.stringify({ userId, content: "Halo" }),
+    });
+    assert.equal(sendRes.status, 200);
+    const sendBody = expectShape(responseShapes.chatReply, await sendRes.json(), "send");
+    const assistantId = sendBody.data.assistantMessageId;
+
+    const keysetRes = await chatApp.request(
+      `/api/v1/chat/sessions/${sessionId}/messages?userId=${userId}&after_position=0&limit=10`,
+    );
+    assert.equal(keysetRes.status, 200);
+    const keysetBody = expectShape(responseShapes.chatMessageKeysetList, await keysetRes.json(), "messages keyset");
+    assert.ok(keysetBody.data.length >= 2);
+    assert.ok(keysetBody.data.every((message) => typeof message.activeVersion === "number"));
+
+    const versionsRes = await chatApp.request(`/api/v1/chat/messages/${assistantId}/versions?userId=${userId}`);
+    assert.equal(versionsRes.status, 200);
+    const versionsBody = expectShape(responseShapes.chatVersionList, await versionsRes.json(), "message versions");
+    assert.equal(versionsBody.data.activeVersion, 1);
+    assert.equal(versionsBody.data.versions.length, 1);
+
+    const regenRes = await chatApp.request(`/api/v1/chat/messages/${assistantId}/regenerate`, {
+      method: "POST",
+      headers: json,
+      body: JSON.stringify({ userId }),
+    });
+    assert.equal(regenRes.status, 200);
+    const regenBody = expectShape(responseShapes.chatRegenerate, await regenRes.json(), "message regenerate");
+    assert.equal(regenBody.data.activeVersion, 2);
+
+    const activateRes = await chatApp.request(
+      `/api/v1/chat/messages/${assistantId}/versions/1/activate`,
+      { method: "PATCH", headers: json, body: JSON.stringify({ userId }) },
+    );
+    assert.equal(activateRes.status, 200);
+    const activateBody = expectShape(responseShapes.chatVersionActivation, await activateRes.json(), "message activate");
+    assert.equal(activateBody.data.activeVersion, 1);
+
+    const draftStore = createDraftStore();
+    const draft: ItineraryDraftResponse = {
+      draftId: "pending",
+      status: "pending_confirmation",
+      travelDate: "2026-12-01",
+      startTime: "08:00",
+      endTime: "17:00",
+      destinations: rows.map((row, index) => ({
+        order: index + 1,
+        destinationId: row.id,
+        name: row.name,
+        latitude: Number(row.latitude),
+        longitude: Number(row.longitude),
+        visitAt: index === 0 ? "08:00" : "09:30",
+        durationMinutes: 60,
+      })),
+      route: {
+        type: "LineString",
+        coordinates: rows.map((row) => [Number(row.longitude), Number(row.latitude)] as [number, number]),
+      },
+    };
+    const draftId = await draftStore.saveDraft({ userId, sessionId, itinerary: draft });
+
+    const itineraryApp = new Hono();
+    itineraryApp.onError(errorHandler);
+    itineraryApp.route("/api/v1/itineraries", createItineraryApi(createItineraryService({
+      getDraft: (input) => draftStore.getDraft(input),
+      findUserById: (id) => prisma.user.findUnique({ where: { id }, select: { id: true, isActive: true } }),
+    })));
+
+    const confirmRes = await itineraryApp.request("/api/v1/itineraries/confirm", {
+      method: "POST",
+      headers: json,
+      body: JSON.stringify({ draftId, userId, sessionId }),
+    });
+    assert.equal(confirmRes.status, 201);
+    const confirmBody = expectShape(responseShapes.itinerary, await confirmRes.json(), "itinerary confirm");
+    const itineraryId = confirmBody.data.id;
+
+    const bySessionRes = await itineraryApp.request(
+      `/api/v1/itineraries/by-session/${sessionId}?userId=${userId}`,
+    );
+    assert.equal(bySessionRes.status, 200);
+    const bySessionBody = expectShape(responseShapes.itineraryDetail, await bySessionRes.json(), "itinerary by session");
+    assert.equal(bySessionBody.data.version?.version, 1);
+    assert.equal(bySessionBody.data.version?.stops.length, 2);
+
+    const versionsListRes = await itineraryApp.request(
+      `/api/v1/itineraries/${itineraryId}/versions?userId=${userId}`,
+    );
+    assert.equal(versionsListRes.status, 200);
+    const versionsListBody = expectShape(
+      responseShapes.itineraryVersionList,
+      await versionsListRes.json(),
+      "itinerary versions",
+    );
+    assert.deepEqual(versionsListBody.data.map((version) => version.version), [1]);
+
+    const versionDetailRes = await itineraryApp.request(
+      `/api/v1/itineraries/${itineraryId}/versions/1?userId=${userId}`,
+    );
+    assert.equal(versionDetailRes.status, 200);
+    const versionDetailBody = expectShape(
+      responseShapes.itineraryVersion,
+      await versionDetailRes.json(),
+      "itinerary version detail",
+    );
+    assert.equal(versionDetailBody.data.version, 1);
+    assert.equal(versionDetailBody.data.routes.length, 1);
+
+    const restoreRes = await itineraryApp.request(
+      `/api/v1/itineraries/${itineraryId}/restore/1`,
+      { method: "POST", headers: json, body: JSON.stringify({ userId, expectedVersion: 1 }) },
+    );
+    assert.equal(restoreRes.status, 200);
+    const restoreBody = expectShape(responseShapes.itineraryDetail, await restoreRes.json(), "itinerary restore");
+    assert.equal(restoreBody.data.currentVersion, 2);
+    assert.equal(restoreBody.data.version?.version, 2);
+
+    const staleRestoreRes = await itineraryApp.request(
+      `/api/v1/itineraries/${itineraryId}/restore/1`,
+      { method: "POST", headers: json, body: JSON.stringify({ userId, expectedVersion: 1 }) },
+    );
+    assert.equal(staleRestoreRes.status, 409);
+    expectShape(responseShapes.error, await staleRestoreRes.json(), "stale restore error");
+
+    const deleteRes = await chatApp.request(`/api/v1/chat/sessions/${sessionId}?userId=${userId}`, {
+      method: "DELETE",
+    });
+    assert.equal(deleteRes.status, 200);
+    const deleteBody = expectShape(responseShapes.sessionDelete, await deleteRes.json(), "session delete");
+    assert.equal(deleteBody.data.deleted, true);
+  } finally {
+    await new Promise<void>((resolve, reject) => provider.close((err) => (err ? reject(err) : resolve())));
+    await cleanupUser(userId);
+  }
+});
+
+test("routing API response and error shapes match the OpenAPI contract", async () => {  const fetchFn: typeof fetch = async () =>
     new Response(
       JSON.stringify({
         routes: [{ distance: 1234, duration: 456, geometry: { coordinates: [[100.36, -0.95], [100.37, -0.94]] } }],

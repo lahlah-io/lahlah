@@ -1,16 +1,27 @@
 import { z } from "zod";
 import {
+  activateVersionSchema,
   createSessionSchema,
+  deleteSessionQuerySchema,
+  getSessionQuerySchema,
   listMessagesQuerySchema,
   listSessionsQuerySchema,
+  listVersionsQuerySchema,
+  messageIdParamSchema,
+  messageVersionParamSchema,
+  regenerateMessageSchema,
   sendMessageSchema,
   sessionIdParamSchema,
+  updateSessionSchema,
 } from "./modules/chat/schemas/chat.schema.js";
 import { destinationIdSchema, listDestinationsQuerySchema } from "./modules/destinations/schemas/destination.schema.js";
 import {
   confirmItinerarySchema,
   itineraryIdParamSchema,
   itineraryOwnerQuerySchema,
+  itinerarySessionParamSchema,
+  itineraryVersionParamSchema,
+  restoreItineraryVersionSchema,
 } from "./modules/itinerary/schemas/itinerary.schema.js";
 import { routeRequestSchema } from "./modules/routing/schemas/routing.schema.js";
 import {
@@ -57,6 +68,16 @@ const listEnvelope = (name: string) => ({
   required: ["data", "meta"],
   properties: { data: { type: "array", items: ref(name) }, meta: ref("PaginationMeta") },
 });
+const keysetEnvelope = (name: string) => ({
+  type: "object",
+  required: ["data", "meta"],
+  properties: { data: { type: "array", items: ref(name) }, meta: ref("KeysetMeta") },
+});
+const dataArrayEnvelope = (name: string) => ({
+  type: "object",
+  required: ["data"],
+  properties: { data: { type: "array", items: ref(name) } },
+});
 const response = (description: string, schema?: object) =>
   schema ? { description, content: { "application/json": { schema } } } : { description };
 const errorResponse = (description: string) => response(description, ref("ErrorEnvelope"));
@@ -71,6 +92,11 @@ const paginationMeta = z.object({
   page: z.number().int(),
   limit: z.number().int(),
   total: z.number().int(),
+});
+
+const keysetMeta = z.object({
+  limit: z.number().int(),
+  nextAfterPosition: z.number().int().nullable(),
 });
 
 const user = z.object({
@@ -107,6 +133,15 @@ const chatSession = z.object({
   userId: z.uuid(),
   modelId: z.uuid(),
   title: z.string(),
+  status: z.string(),
+  summary: z.string().nullable(),
+  contextJson: jsonObject,
+  metadata: jsonObject,
+  promptTokens: z.number().int(),
+  completionTokens: z.number().int(),
+  totalTokens: z.number().int(),
+  lastMessageAt: z.iso.datetime().nullable(),
+  schemaVersion: z.number().int(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 });
@@ -115,12 +150,64 @@ const chatMessage = z.object({
   id: z.uuid(),
   sessionId: z.uuid(),
   modelId: z.uuid().nullable(),
-  role: z.enum(["system", "user", "assistant"]),
+  role: z.enum(["system", "user", "assistant", "tool"]),
   content: z.string(),
-  inputTokens: z.number().int().nullable(),
-  outputTokens: z.number().int().nullable(),
+  position: z.number().int(),
+  inputTokens: z.number().int(),
+  outputTokens: z.number().int(),
   metadata: jsonObject,
   createdAt: z.iso.datetime(),
+});
+
+const messageVersion = z.object({
+  version: z.number().int(),
+  content: z.string(),
+  status: z.string(),
+  createdAt: z.iso.datetime(),
+  model: z.string().optional(),
+  latencyMs: z.number().int().optional(),
+  toolCalls: z.array(z.unknown()).optional(),
+  usage: z
+    .object({
+      promptTokens: z.number().int(),
+      completionTokens: z.number().int(),
+      totalTokens: z.number().int(),
+    })
+    .optional(),
+  editInstruction: z.string().optional(),
+  errorJson: z.unknown().optional(),
+  inputTokens: z.number().int().optional(),
+  outputTokens: z.number().int().optional(),
+  metadata: z.unknown().optional(),
+});
+
+const chatMessageDetailed = chatMessage.extend({
+  toolCallsJson: z.unknown().nullable(),
+  toolCallId: z.string().nullable(),
+  mode: z.string().nullable(),
+  model: z.string().nullable(),
+  latencyMs: z.number().int().nullable(),
+  status: z.string(),
+  errorJson: z.unknown().nullable(),
+  versionsJson: z.array(messageVersion),
+  activeVersion: z.number().int(),
+  schemaVersion: z.number().int(),
+});
+
+const messageVersionList = z.object({
+  messageId: z.uuid(),
+  sessionId: z.uuid(),
+  activeVersion: z.number().int(),
+  versions: z.array(messageVersion),
+  versionsJson: z.array(messageVersion),
+});
+
+const chatVersionActivation = z.object({
+  messageId: z.uuid(),
+  sessionId: z.uuid(),
+  activeVersion: z.number().int(),
+  content: z.string(),
+  status: z.string(),
 });
 
 const lineString = z.object({
@@ -163,6 +250,24 @@ const chatReply = z.object({
   sessionId: z.uuid(),
 });
 
+const chatRegenerateResult = z.object({
+  assistantMessageId: z.uuid(),
+  sessionId: z.uuid(),
+  message: z.string(),
+  intent: z.enum([
+    "general_chat",
+    "generate_itinerary",
+    "modify_itinerary",
+    "regenerate_itinerary",
+    "confirm_itinerary",
+    "missing_information",
+  ]),
+  draft: itineraryDraft.nullable(),
+  activeVersion: z.number().int(),
+});
+
+const sessionDeleteResult = z.object({ deleted: z.literal(true) });
+
 const itineraryDestination = z.object({
   id: z.uuid(),
   itineraryId: z.uuid(),
@@ -177,6 +282,11 @@ const itinerary = z.object({
   id: z.uuid(),
   userId: z.uuid(),
   sessionId: z.uuid().nullable(),
+  currentVersion: z.number().int(),
+  tripDate: z.iso.datetime().nullable(),
+  durationDays: z.number().int(),
+  city: z.string(),
+  transportMode: z.string().nullable(),
   title: z.string(),
   content: z.string(),
   status: z.enum(["draft", "final"]),
@@ -186,6 +296,71 @@ const itinerary = z.object({
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
   destinations: z.array(itineraryDestination),
+});
+
+const itineraryStop = z.object({
+  id: z.uuid(),
+  itineraryVersionId: z.uuid(),
+  destinationId: z.uuid().nullable(),
+  position: z.number().int(),
+  name: z.string(),
+  latitude: z.union([z.number(), z.string()]),
+  longitude: z.union([z.number(), z.string()]),
+  arrivalTime: z.string().nullable(),
+  departureTime: z.string().nullable(),
+  visitDurationMin: z.number().int().nullable(),
+  travelDurationMin: z.number().int().nullable(),
+  notes: z.string().nullable(),
+  category: z.string().nullable(),
+});
+
+const itineraryRoute = z.object({
+  id: z.uuid(),
+  itineraryVersionId: z.uuid(),
+  fromStopId: z.uuid(),
+  toStopId: z.uuid(),
+  transportMode: z.string(),
+  distanceM: z.number().int().nullable(),
+  durationSec: z.number().int().nullable(),
+  geometryJson: lineString.nullable(),
+  provider: z.string().nullable(),
+  providerProfile: z.string().nullable(),
+  fallback: z.boolean(),
+  createdAt: z.iso.datetime(),
+});
+
+const itineraryVersion = z.object({
+  id: z.uuid(),
+  itineraryId: z.uuid(),
+  version: z.number().int(),
+  basedOnVersion: z.number().int().nullable(),
+  changeInstruction: z.string().nullable(),
+  changeType: z.string(),
+  totalDistanceM: z.number().int().nullable(),
+  totalDurationMin: z.number().int().nullable(),
+  totalEstimatedMin: z.number().int().nullable(),
+  status: z.string(),
+  createdAt: z.iso.datetime(),
+  stops: z.array(itineraryStop),
+  routes: z.array(itineraryRoute),
+});
+
+const itineraryVersionSummary = z.object({
+  version: z.number().int(),
+  basedOnVersion: z.number().int().nullable(),
+  changeType: z.string(),
+  changeInstruction: z.string().nullable(),
+  status: z.string(),
+  totalDistanceM: z.number().int().nullable(),
+  totalDurationMin: z.number().int().nullable(),
+  totalEstimatedMin: z.number().int().nullable(),
+  createdAt: z.iso.datetime(),
+  stopCount: z.number().int(),
+  routeCount: z.number().int(),
+});
+
+const itineraryDetail = itinerary.extend({
+  version: itineraryVersion.nullable(),
 });
 
 const routeResult = z.object({
@@ -210,28 +385,43 @@ const openApiDocument = {
       "sampai auth tersedia, dan `userId` dikirim langsung di body/query. Dokumentasi ini hanya " +
       "tersedia saat `NODE_ENV` bukan `production`.",
   },
-  servers: [{ url: "http://localhost:8787", description: "Lokal" }],
+  servers: [
+    { url: "http://localhost:8787", description: "Lokal (default env)" },
+    { url: "http://localhost:8989", description: "Lokal (contoh PORT di apps/api/.env)" },
+  ],
   tags: [
     { name: "health", description: "Pemeriksaan proses dan database." },
     { name: "users", description: "CRUD user (nonaktif di production)." },
     { name: "destinations", description: "Destinasi wisata Padang." },
-    { name: "chat", description: "Sesi chat dan generator itinerary (nonaktif di production)." },
-    { name: "itineraries", description: "Konfirmasi dan pengambilan itinerary (nonaktif di production)." },
+    { name: "chat", description: "Sesi chat, versioning pesan, dan generator itinerary (nonaktif di production)." },
+    { name: "itineraries", description: "Konfirmasi, versi, restore, dan pengambilan itinerary (nonaktif di production)." },
     { name: "routes", description: "Rute berkendara via OSRM dengan fallback garis lurus." },
   ],
   components: {
     schemas: {
       ErrorEnvelope: toJson(errorEnvelope),
       PaginationMeta: toJson(paginationMeta),
+      KeysetMeta: toJson(keysetMeta),
       User: toJson(user),
       Category: toJson(category),
       Destination: toJson(destination),
       ChatSession: toJson(chatSession),
       ChatMessage: toJson(chatMessage),
+      ChatMessageDetailed: toJson(chatMessageDetailed),
+      MessageVersion: toJson(messageVersion),
+      MessageVersionList: toJson(messageVersionList),
       ChatReply: toJson(chatReply),
+      ChatRegenerateResult: toJson(chatRegenerateResult),
+      ChatVersionActivation: toJson(chatVersionActivation),
+      SessionDeleteResult: toJson(sessionDeleteResult),
       ItineraryDraft: toJson(itineraryDraft),
       ItineraryDestination: toJson(itineraryDestination),
       Itinerary: toJson(itinerary),
+      ItineraryStop: toJson(itineraryStop),
+      ItineraryRoute: toJson(itineraryRoute),
+      ItineraryVersion: toJson(itineraryVersion),
+      ItineraryVersionSummary: toJson(itineraryVersionSummary),
+      ItineraryDetail: toJson(itineraryDetail),
       RouteResult: toJson(routeResult),
       Health: toJson(health),
     },
@@ -392,13 +582,58 @@ const openApiDocument = {
         },
       },
     },
+    "/api/v1/chat/sessions/{id}": {
+      get: {
+        tags: ["chat"],
+        summary: "Detail sesi chat",
+        parameters: [...params(sessionIdParamSchema, "path"), ...params(getSessionQuerySchema, "query")],
+        responses: {
+          "200": response("OK", envelope("ChatSession")),
+          "400": errorResponse("Validasi parameter gagal"),
+          "401": errorResponse("User tidak aktif"),
+          "404": errorResponse("Sesi tidak ditemukan untuk user tersebut"),
+          "503": errorResponse("Auth belum dikonfigurasi"),
+        },
+      },
+      patch: {
+        tags: ["chat"],
+        summary: "Ubah sesi chat",
+        description: "Minimal satu dari `title`, `summary`, atau `status` harus dikirim.",
+        parameters: params(sessionIdParamSchema, "path"),
+        requestBody: jsonBody(updateSessionSchema),
+        responses: {
+          "200": response("OK", envelope("ChatSession")),
+          "400": errorResponse("Validasi body gagal"),
+          "401": errorResponse("User tidak aktif"),
+          "404": errorResponse("Sesi tidak ditemukan untuk user tersebut"),
+          "503": errorResponse("Auth belum dikonfigurasi"),
+        },
+      },
+      delete: {
+        tags: ["chat"],
+        summary: "Hapus sesi chat",
+        parameters: [...params(sessionIdParamSchema, "path"), ...params(deleteSessionQuerySchema, "query")],
+        responses: {
+          "200": response("Sesi dihapus", envelope("SessionDeleteResult")),
+          "400": errorResponse("Validasi parameter gagal"),
+          "401": errorResponse("User tidak aktif"),
+          "404": errorResponse("Sesi tidak ditemukan untuk user tersebut"),
+          "503": errorResponse("Auth belum dikonfigurasi"),
+        },
+      },
+    },
     "/api/v1/chat/sessions/{id}/messages": {
       get: {
         tags: ["chat"],
         summary: "Daftar pesan sesi",
+        description:
+          "Tanpa `after_position`/`afterPosition`, respons memakai `page`/`limit` dan meta `PaginationMeta`. " +
+          "Dengan `after_position`/`afterPosition`, respons memakai keyset: item memuat field versioning dan meta `KeysetMeta`.",
         parameters: [...params(sessionIdParamSchema, "path"), ...params(listMessagesQuerySchema, "query")],
         responses: {
-          "200": response("OK", listEnvelope("ChatMessage")),
+          "200": response("OK", {
+            oneOf: [listEnvelope("ChatMessage"), keysetEnvelope("ChatMessageDetailed")],
+          }),
           "400": errorResponse("Validasi parameter gagal"),
           "401": errorResponse("User tidak aktif"),
           "403": errorResponse("Sesi milik user lain"),
@@ -424,13 +659,66 @@ const openApiDocument = {
         },
       },
     },
+    "/api/v1/chat/messages/{id}/regenerate": {
+      post: {
+        tags: ["chat"],
+        summary: "Regenerate pesan asisten",
+        description:
+          "Membuat versi baru pada pesan asisten yang sama. Bila provider gagal, versi gagal dicatat dan versi sukses sebelumnya tetap aktif.",
+        parameters: params(messageIdParamSchema, "path"),
+        requestBody: jsonBody(regenerateMessageSchema),
+        responses: {
+          "200": response("Versi baru dibuat", envelope("ChatRegenerateResult")),
+          "400": errorResponse("Validasi body gagal"),
+          "401": errorResponse("User tidak aktif"),
+          "403": errorResponse("Pesan milik user lain"),
+          "404": errorResponse("Pesan tidak ditemukan"),
+          "422": errorResponse("Pesan bukan assistant atau konteks user tidak ada"),
+          "502": errorResponse("Provider AI gagal"),
+          "503": errorResponse("Auth belum dikonfigurasi"),
+        },
+      },
+    },
+    "/api/v1/chat/messages/{id}/versions": {
+      get: {
+        tags: ["chat"],
+        summary: "Daftar versi pesan",
+        parameters: [...params(messageIdParamSchema, "path"), ...params(listVersionsQuerySchema, "query")],
+        responses: {
+          "200": response("OK", envelope("MessageVersionList")),
+          "400": errorResponse("Validasi parameter gagal"),
+          "401": errorResponse("User tidak aktif"),
+          "403": errorResponse("Pesan milik user lain"),
+          "404": errorResponse("Pesan tidak ditemukan"),
+          "503": errorResponse("Auth belum dikonfigurasi"),
+        },
+      },
+    },
+    "/api/v1/chat/messages/{id}/versions/{version}/activate": {
+      patch: {
+        tags: ["chat"],
+        summary: "Aktifkan versi pesan",
+        description: "Mengganti isi aktif pesan ke versi yang dipilih tanpa menghapus versi lain.",
+        parameters: params(messageVersionParamSchema, "path"),
+        requestBody: jsonBody(activateVersionSchema),
+        responses: {
+          "200": response("Versi diaktifkan", envelope("ChatVersionActivation")),
+          "400": errorResponse("Validasi parameter atau body gagal"),
+          "401": errorResponse("User tidak aktif"),
+          "403": errorResponse("Pesan milik user lain"),
+          "404": errorResponse("Pesan atau versi tidak ditemukan"),
+          "503": errorResponse("Auth belum dikonfigurasi"),
+        },
+      },
+    },
     "/api/v1/itineraries/confirm": {
       post: {
         tags: ["itineraries"],
         summary: "Konfirmasi draft itinerary",
         description:
-          "Menyimpan draft in-memory menjadi itinerary final. Idempoten per `sessionId`: konfirmasi ulang " +
-          "mengembalikan 200 dengan data yang sudah ada.",
+          "Menyimpan draft dari database menjadi itinerary berstatus `confirmed` dengan snapshot versi pertama " +
+          "(stops dan route legs). Idempoten per `sessionId`: konfirmasi ulang mengembalikan 200 dengan data " +
+          "yang sudah ada. Field `status` di respons memakai alias legacy `final`.",
         requestBody: jsonBody(confirmItinerarySchema),
         responses: {
           "200": response("Itinerary sudah ada", envelope("Itinerary")),
@@ -445,13 +733,77 @@ const openApiDocument = {
         },
       },
     },
+    "/api/v1/itineraries/by-session/{sessionId}": {
+      get: {
+        tags: ["itineraries"],
+        summary: "Detail itinerary berdasarkan sesi",
+        description: "Mengembalikan itinerary dan snapshot versi aktif milik sesi tersebut.",
+        parameters: [...params(itinerarySessionParamSchema, "path"), ...params(itineraryOwnerQuerySchema, "query")],
+        responses: {
+          "200": response("OK", envelope("ItineraryDetail")),
+          "400": errorResponse("Validasi parameter gagal"),
+          "401": errorResponse("User tidak aktif"),
+          "404": errorResponse("Itinerary tidak ditemukan untuk user tersebut"),
+          "503": errorResponse("Auth belum dikonfigurasi"),
+        },
+      },
+    },
+    "/api/v1/itineraries/{id}/versions": {
+      get: {
+        tags: ["itineraries"],
+        summary: "Riwayat versi itinerary",
+        parameters: [...params(itineraryIdParamSchema, "path"), ...params(itineraryOwnerQuerySchema, "query")],
+        responses: {
+          "200": response("OK", dataArrayEnvelope("ItineraryVersionSummary")),
+          "400": errorResponse("Validasi parameter gagal"),
+          "401": errorResponse("User tidak aktif"),
+          "404": errorResponse("Itinerary tidak ditemukan untuk user tersebut"),
+          "503": errorResponse("Auth belum dikonfigurasi"),
+        },
+      },
+    },
+    "/api/v1/itineraries/{id}/versions/{version}": {
+      get: {
+        tags: ["itineraries"],
+        summary: "Detail satu versi itinerary",
+        parameters: [...params(itineraryVersionParamSchema, "path"), ...params(itineraryOwnerQuerySchema, "query")],
+        responses: {
+          "200": response("OK", envelope("ItineraryVersion")),
+          "400": errorResponse("Validasi parameter gagal"),
+          "401": errorResponse("User tidak aktif"),
+          "404": errorResponse("Itinerary atau versi tidak ditemukan"),
+          "503": errorResponse("Auth belum dikonfigurasi"),
+        },
+      },
+    },
+    "/api/v1/itineraries/{id}/restore/{version}": {
+      post: {
+        tags: ["itineraries"],
+        summary: "Pulihkan versi itinerary",
+        description:
+          "Menyalin snapshot versi lama menjadi versi baru yang immutable. Versi lama tidak diubah. " +
+          "Kirim `expectedVersion` untuk optimistic concurrency; bila tidak cocok, respons 409 `VERSION_CONFLICT`.",
+        parameters: params(itineraryVersionParamSchema, "path"),
+        requestBody: jsonBody(restoreItineraryVersionSchema),
+        responses: {
+          "200": response("Versi baru dibuat dari snapshot", envelope("ItineraryDetail")),
+          "400": errorResponse("Validasi parameter atau body gagal"),
+          "401": errorResponse("User tidak aktif"),
+          "403": errorResponse("Itinerary milik user lain"),
+          "404": errorResponse("Itinerary atau versi tidak ditemukan"),
+          "409": errorResponse("Versi berubah (VERSION_CONFLICT)"),
+          "503": errorResponse("Auth belum dikonfigurasi"),
+        },
+      },
+    },
     "/api/v1/itineraries/{id}": {
       get: {
         tags: ["itineraries"],
         summary: "Detail itinerary milik user",
+        description: "Mengembalikan itinerary beserta snapshot versi aktif (stops dan route legs).",
         parameters: [...params(itineraryIdParamSchema, "path"), ...params(itineraryOwnerQuerySchema, "query")],
         responses: {
-          "200": response("OK", envelope("Itinerary")),
+          "200": response("OK", envelope("ItineraryDetail")),
           "400": errorResponse("Validasi parameter gagal"),
           "401": errorResponse("User tidak aktif"),
           "404": errorResponse("Itinerary tidak ditemukan untuk user tersebut"),
@@ -495,15 +847,27 @@ const apiDocsHtml = `<!doctype html>
 const responseSchemas = {
   ErrorEnvelope: errorEnvelope,
   PaginationMeta: paginationMeta,
+  KeysetMeta: keysetMeta,
   User: user,
   Category: category,
   Destination: destination,
   ChatSession: chatSession,
   ChatMessage: chatMessage,
+  ChatMessageDetailed: chatMessageDetailed,
+  MessageVersion: messageVersion,
+  MessageVersionList: messageVersionList,
   ChatReply: chatReply,
+  ChatRegenerateResult: chatRegenerateResult,
+  ChatVersionActivation: chatVersionActivation,
+  SessionDeleteResult: sessionDeleteResult,
   ItineraryDraft: itineraryDraft,
   ItineraryDestination: itineraryDestination,
   Itinerary: itinerary,
+  ItineraryStop: itineraryStop,
+  ItineraryRoute: itineraryRoute,
+  ItineraryVersion: itineraryVersion,
+  ItineraryVersionSummary: itineraryVersionSummary,
+  ItineraryDetail: itineraryDetail,
   RouteResult: routeResult,
   Health: health,
 };
@@ -523,8 +887,16 @@ const responseShapes = {
   chatSession: asEnvelope(chatSession),
   chatSessionList: asList(chatSession),
   chatMessageList: asList(chatMessage),
+  chatMessageKeysetList: z.object({ data: z.array(chatMessageDetailed), meta: keysetMeta }),
   chatReply: asEnvelope(chatReply),
+  chatRegenerate: asEnvelope(chatRegenerateResult),
+  chatVersionList: asEnvelope(messageVersionList),
+  chatVersionActivation: asEnvelope(chatVersionActivation),
+  sessionDelete: asEnvelope(sessionDeleteResult),
   itinerary: asEnvelope(itinerary),
+  itineraryDetail: asEnvelope(itineraryDetail),
+  itineraryVersion: asEnvelope(itineraryVersion),
+  itineraryVersionList: z.object({ data: z.array(itineraryVersionSummary) }),
   routeResult: asEnvelope(routeResult),
 };
 
