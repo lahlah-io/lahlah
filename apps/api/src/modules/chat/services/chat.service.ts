@@ -296,7 +296,7 @@ async function runItineraryToolFlow(input: {
           latencyMs: toolLatencyMs,
           status: "completed",
           toolCallsJson: [{ id: call.id, name: call.name, arguments: call.arguments }] as any,
-          metadata: { name: call.name, arguments: call.arguments, round, kind: "tool_result" },
+          metadata: { name: call.name, arguments: call.arguments, round, kind: "tool_result" } as Prisma.InputJsonValue,
         });
         messages.push({ role: "tool", toolCallId: call.id, name: call.name, content: JSON.stringify(result) });
       } catch (err) {
@@ -312,7 +312,7 @@ async function runItineraryToolFlow(input: {
           status: "failed",
           toolCallsJson: [{ id: call.id, name: call.name, arguments: call.arguments }] as any,
           errorJson: { message: err instanceof Error ? err.message : String(err) } as any,
-          metadata: { name: call.name, arguments: call.arguments, round, kind: "tool_result" },
+          metadata: { name: call.name, arguments: call.arguments, round, kind: "tool_result" } as Prisma.InputJsonValue,
         });
         throw err;
       }
