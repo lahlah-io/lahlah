@@ -309,13 +309,12 @@ test("chat and itinerary response shapes match the OpenAPI contract", async () =
         coordinates: rows.map((row) => [Number(row.longitude), Number(row.latitude)] as [number, number]),
       },
     };
-    const draftId = draftStore.saveDraft({ userId, sessionId: sessionBody.data.id, itinerary: draft });
-    const stored = draftStore.getDraft({ draftId, userId, sessionId: sessionBody.data.id });
+    const draftId = await draftStore.saveDraft({ userId, sessionId: sessionBody.data.id, itinerary: draft });
 
     const itineraryApp = new Hono();
     itineraryApp.onError(errorHandler);
     itineraryApp.route("/api/v1/itineraries", createItineraryApi(createItineraryService({
-      getDraft: () => stored,
+      getDraft: (input) => draftStore.getDraft(input),
       findUserById: (id) => prisma.user.findUnique({ where: { id }, select: { id: true, isActive: true } }),
     })));
 
