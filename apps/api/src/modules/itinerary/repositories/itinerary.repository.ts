@@ -15,6 +15,11 @@ const itinerarySelect = {
   id: true,
   userId: true,
   sessionId: true,
+  currentVersion: true,
+  tripDate: true,
+  durationDays: true,
+  city: true,
+  transportMode: true,
   title: true,
   content: true,
   status: true,
@@ -89,18 +94,32 @@ export async function findActivePadangDestinationIds(ids: string[]) {
   return new Set(rows.map((r) => r.id));
 }
 
-export async function createFinal(input: {
+export async function createConfirmed(input: {
   userId: string;
   sessionId: string;
   title: string;
   content: string;
   metadata: Prisma.InputJsonValue;
+  tripDate?: Date | null;
+  transportMode?: string | null;
   destinations: Array<{
     destinationId: string;
     visitAt: Date | null;
     estimatedCost: number | null;
     notes: string | null;
   }>;
+  version: {
+    version: number;
+    basedOnVersion?: number | null;
+    changeInstruction?: string | null;
+    changeType: string;
+    totalDistanceM?: number | null;
+    totalDurationMin?: number | null;
+    totalEstimatedMin?: number | null;
+    status: string;
+    stops: SnapshotStopInput[];
+    routes?: SnapshotRouteInput[];
+  };
 }) {
   return prisma.$transaction(async (tx) => {
     const itinerary = await tx.itinerary.create({
@@ -109,7 +128,10 @@ export async function createFinal(input: {
         sessionId: input.sessionId,
         title: input.title,
         content: input.content,
-        status: "final",
+        status: "confirmed",
+        currentVersion: input.version.version,
+        tripDate: input.tripDate ?? undefined,
+        transportMode: input.transportMode ?? undefined,
         metadata: input.metadata,
       },
       select: { id: true },
@@ -125,9 +147,74 @@ export async function createFinal(input: {
         })),
       });
     }
+
+    const version = await tx.itineraryVersion.create({
+      data: {
+        itineraryId: itinerary.id,
+        version: input.version.version,
+        basedOnVersion: input.version.basedOnVersion ?? undefined,
+        changeInstruction: input.version.changeInstruction ?? undefined,
+        changeType: input.version.changeType,
+        totalDistanceM: input.version.totalDistanceM ?? undefined,
+        totalDurationMin: input.version.totalDurationMin ?? undefined,
+        totalEstimatedMin: input.version.totalEstimatedMin ?? undefined,
+        status: input.version.status,
+      },
+      select: { id: true },
+    });
+
+    const createdStops = [] as Array<{ id: string; position: number }>;
+    for (const stop of [...input.version.stops].sort((a, b) => a.position - b.position)) {
+      const row = await tx.itineraryStop.create({
+        data: {
+          itineraryVersionId: version.id,
+          destinationId: stop.destinationId ?? undefined,
+          position: stop.position,
+          name: stop.name,
+          latitude: stop.latitude as any,
+          longitude: stop.longitude as any,
+          arrivalTime: stop.arrivalTime ?? undefined,
+          departureTime: stop.departureTime ?? undefined,
+          visitDurationMin: stop.visitDurationMin ?? undefined,
+          travelDurationMin: stop.travelDurationMin ?? undefined,
+          notes: stop.notes ?? undefined,
+          category: stop.category ?? undefined,
+        },
+        select: { id: true, position: true },
+      });
+      createdStops.push(row);
+    }
+
+    const stopIdByPosition = new Map(createdStops.map((s) => [s.position, s.id]));
+    if (input.version.routes?.length) {
+      for (const route of input.version.routes) {
+        const fromStopId = route.fromStopId ?? (route.fromPosition != null ? stopIdByPosition.get(route.fromPosition) : undefined);
+        const toStopId = route.toStopId ?? (route.toPosition != null ? stopIdByPosition.get(route.toPosition) : undefined);
+        if (!fromStopId || !toStopId) continue;
+        await tx.itineraryRoute.create({
+          data: {
+            itineraryVersionId: version.id,
+            fromStopId,
+            toStopId,
+            transportMode: route.transportMode,
+            distanceM: route.distanceM ?? undefined,
+            durationSec: route.durationSec ?? undefined,
+            geometryJson: route.geometryJson ?? undefined,
+            provider: route.provider ?? undefined,
+            providerProfile: route.providerProfile ?? undefined,
+            fallback: route.fallback ?? false,
+          },
+        });
+      }
+    }
+
+    await tx.itinerary.update({ where: { id: itinerary.id }, data: { currentVersion: input.version.version } });
     return tx.itinerary.findUniqueOrThrow({ where: { id: itinerary.id }, select: itinerarySelect });
   });
 }
+
+// compat alias: older callers/tests used createFinal (legacy "final" status) - now writes confirmed snapshot
+export const createFinal = createConfirmed;
 
 export type SnapshotStopInput = {
   position: number;
