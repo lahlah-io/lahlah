@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import type { Prisma } from "../../../generated/prisma/client.js";
+import { prisma } from "../../../db/client.js";
 import { env } from "../../../env.js";
 import { HttpError } from "../../../shared/http/errors.js";
 
@@ -24,90 +26,95 @@ export type ItineraryDraftResponse = {
 };
 
 type DraftInput = { userId: string; sessionId: string; itinerary: ItineraryDraftResponse };
-type Entry = DraftInput & { draftId: string; expiresAt: number };
 
 export interface DraftStore {
-  saveDraft(input: DraftInput): string;
-  getDraft(input: { draftId: string; userId: string; sessionId: string }): ItineraryDraftResponse;
-  replaceSessionDraft(input: DraftInput): string;
+  saveDraft(input: DraftInput): Promise<string> | string;
+  getDraft(input: { draftId: string; userId: string; sessionId: string }): Promise<ItineraryDraftResponse> | ItineraryDraftResponse;
+  replaceSessionDraft(input: DraftInput): Promise<string> | string;
 }
 
 function cloneDraft<T>(value: T): T {
   return structuredClone(value);
 }
 
+function toPayload(itinerary: ItineraryDraftResponse) {
+  const clone = cloneDraft(itinerary);
+  return clone as unknown as Prisma.InputJsonValue;
+}
+
+function fromPayload(payload: Prisma.JsonValue): ItineraryDraftResponse {
+  const clone = cloneDraft(payload as ItineraryDraftResponse);
+  return clone;
+}
+
 export function createDraftStore(input: { ttlSeconds?: number; now?: () => number } = {}): DraftStore {
-  const ttlMs = (input.ttlSeconds ?? env.DRAFT_TTL_SECONDS) * 1000;
+  const ttlSeconds = input.ttlSeconds ?? env.DRAFT_TTL_SECONDS;
   const now = input.now ?? Date.now;
-  const byId = new Map<string, Entry>();
-  const activeBySession = new Map<string, string>();
 
-  const sessionKey = (userId: string, sessionId: string) => `${userId}\0${sessionId}`;
-
-  function purgeExpired(at: number) {
-    for (const [id, entry] of byId) {
-      if (entry.expiresAt > at) continue;
-      byId.delete(id);
-      const sk = sessionKey(entry.userId, entry.sessionId);
-      if (activeBySession.get(sk) === id) activeBySession.delete(sk);
-    }
+  async function saveDraft(draftInput: DraftInput): Promise<string> {
+    return replaceSessionDraft(draftInput);
   }
 
-  function put(entryInput: DraftInput, at: number) {
-    purgeExpired(at);
+  async function replaceSessionDraft(draftInput: DraftInput): Promise<string> {
+    const at = now();
+    const expiresAt = new Date(at + ttlSeconds * 1000);
     const draftId = randomUUID();
-    const itinerary = cloneDraft(entryInput.itinerary);
+    const itinerary = cloneDraft(draftInput.itinerary);
     itinerary.draftId = draftId;
-    const entry: Entry = {
-      ...entryInput,
-      itinerary,
-      draftId,
-      expiresAt: at + ttlMs,
-    };
-    byId.set(draftId, entry);
-    activeBySession.set(sessionKey(entryInput.userId, entryInput.sessionId), draftId);
+    const payload = toPayload(itinerary);
+
+    await prisma.$transaction(async (tx) => {
+      await tx.itineraryDraft.deleteMany({ where: { sessionId: draftInput.sessionId } });
+      await tx.itineraryDraft.create({
+        data: {
+          id: draftId,
+          sessionId: draftInput.sessionId,
+          userId: draftInput.userId,
+          payload,
+          status: "pending_confirmation",
+          expiresAt,
+        },
+      });
+    });
     return draftId;
   }
 
+  async function getDraft({ draftId, userId, sessionId }: { draftId: string; userId: string; sessionId: string }): Promise<ItineraryDraftResponse> {
+    const at = now();
+    const row = await prisma.itineraryDraft.findUnique({
+      where: { id: draftId },
+      select: { id: true, userId: true, sessionId: true, payload: true, expiresAt: true },
+    });
+    if (!row) throw new HttpError(404, "DRAFT_NOT_FOUND", "Draft not found or expired");
+    if (row.expiresAt && row.expiresAt.getTime() <= at) {
+      await prisma.itineraryDraft.deleteMany({ where: { id: draftId } });
+      throw new HttpError(404, "DRAFT_EXPIRED", "Draft expired");
+    }
+    if (row.userId !== userId || row.sessionId !== sessionId) {
+      throw new HttpError(403, "FORBIDDEN", "Draft access denied");
+    }
+    const draft = fromPayload(row.payload);
+    draft.draftId = row.id;
+    return cloneDraft(draft);
+  }
+
   return {
-    saveDraft(draftInput) {
-      return put(draftInput, now());
-    },
-    replaceSessionDraft(draftInput) {
-      const at = now();
-      purgeExpired(at);
-      const sk = sessionKey(draftInput.userId, draftInput.sessionId);
-      const prev = activeBySession.get(sk);
-      if (prev) byId.delete(prev);
-      return put(draftInput, at);
-    },
-    getDraft({ draftId, userId, sessionId }) {
-      const at = now();
-      purgeExpired(at);
-      const entry = byId.get(draftId);
-      if (!entry) throw new HttpError(404, "DRAFT_NOT_FOUND", "Draft not found or expired");
-      if (entry.userId !== userId || entry.sessionId !== sessionId) {
-        throw new HttpError(403, "FORBIDDEN", "Draft access denied");
-      }
-      if (entry.expiresAt <= at) {
-        byId.delete(draftId);
-        throw new HttpError(404, "DRAFT_EXPIRED", "Draft expired");
-      }
-      return cloneDraft(entry.itinerary);
-    },
+    saveDraft,
+    replaceSessionDraft,
+    getDraft,
   };
 }
 
 const defaultStore = createDraftStore();
 
-export function saveDraft(input: DraftInput): string {
+export async function saveDraft(input: DraftInput): Promise<string> {
   return defaultStore.saveDraft(input);
 }
 
-export function getDraft(input: { draftId: string; userId: string; sessionId: string }): ItineraryDraftResponse {
+export async function getDraft(input: { draftId: string; userId: string; sessionId: string }): Promise<ItineraryDraftResponse> {
   return defaultStore.getDraft(input);
 }
 
-export function replaceSessionDraft(input: DraftInput): string {
+export async function replaceSessionDraft(input: DraftInput): Promise<string> {
   return defaultStore.replaceSessionDraft(input);
 }

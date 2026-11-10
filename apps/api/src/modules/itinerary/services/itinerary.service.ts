@@ -19,7 +19,7 @@ type Draft = {
 };
 type UserRow = { id: string; isActive: boolean };
 type ItineraryDeps = {
-  getDraft: (input: { draftId: string; userId: string; sessionId: string }) => Draft;
+  getDraft: (input: { draftId: string; userId: string; sessionId: string }) => Promise<Draft> | Draft;
   findUserById: (id: string) => Promise<UserRow | null>;
 };
 
@@ -51,7 +51,7 @@ export function createItineraryService(deps: ItineraryDeps) {
       if (existing && existing.userId !== input.userId) throw new HttpError(403, "FORBIDDEN", "Session access denied");
       if (existing) return { data: existing, created: false as const };
 
-      const draft = deps.getDraft(input); // checks not found/expired/ownership
+      const draft = await deps.getDraft(input); // checks not found/expired/ownership
 
       const uniqueIds = [...new Set(draft.destinations.map((d) => d.destinationId))];
       const valid = await itineraryRepository.findActivePadangDestinationIds(uniqueIds);

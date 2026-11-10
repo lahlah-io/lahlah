@@ -6,7 +6,7 @@ import type { AiMessage, AiToolDefinition } from "../../../integrations/ai/schem
 import { classify, type Intent } from "./classifier.js";
 import { buildConversationContext } from "./conversation-context.js";
 import { generateItinerary } from "./itinerary-generator.js";
-import { createDraftStore, type ItineraryDraftResponse } from "./draft-store.js";
+import { createDraftStore, type DraftStore, type ItineraryDraftResponse } from "./draft-store.js";
 import { createToolExecutor } from "./tools.js";
 import { activateVersion, appendVersion, type MessageVersion } from "./message-versioning.js";
 import * as chatRepository from "../repositories/chat.repository.js";
@@ -20,7 +20,7 @@ type ChatDeps = {
   findUserById: (id: string) => Promise<UserRow | null>;
   classifyMessage?: typeof classify;
   completeAiChat?: typeof completeChat;
-  draftStore?: ReturnType<typeof createDraftStore>;
+  draftStore?: DraftStore;
   searchDestinations: (input: { keywords?: string; categories?: string[] }) => Promise<unknown[]>;
   getDestinationDetails: (input: { destinationIds: string[] }) => Promise<unknown[]>;
 };
@@ -358,8 +358,8 @@ export function createChatService(deps: ChatDeps) {
         const result = await runItineraryToolFlow({ deps, history: input.history, userMessage: input.content, sessionId: input.sessionId, request: trip.trip });
         draft = result.draft;
         usage = result.usage;
-        const draftId = draftStore.replaceSessionDraft({ userId: input.userId, sessionId: input.sessionId, itinerary: draft });
-        draft = draftStore.getDraft({ draftId, userId: input.userId, sessionId: input.sessionId });
+        const draftId = await draftStore.replaceSessionDraft({ userId: input.userId, sessionId: input.sessionId, itinerary: draft });
+        draft = await draftStore.getDraft({ draftId, userId: input.userId, sessionId: input.sessionId });
         message = `Draft itinerary ${draft.travelDate} untuk ${draft.destinations.length} destinasi di Padang siap dikonfirmasi.`;
       } else if (trip.kind === "general_time") {
         intent = "missing_information";
