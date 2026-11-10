@@ -13,7 +13,7 @@
     "build": "prisma generate && tsc",
     "start": "node --env-file-if-exists=.env dist/index.js",
     "start:container": "node dist/index.js",
-    "lint": "eslint . --max-warnings 0",
+    "lint": "node ../../scripts/check-backend-structure.mjs && eslint . --max-warnings 0",
     "check-types": "tsc --noEmit",
     "test": "pnpm test:unit && pnpm test:integration",
     "test:unit": "vitest run tests/unit",
