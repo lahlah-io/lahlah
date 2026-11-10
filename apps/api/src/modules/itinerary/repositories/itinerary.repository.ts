@@ -82,6 +82,10 @@ export async function findByIdAndUser(id: string, userId: string) {
   return prisma.itinerary.findFirst({ where: { id, userId }, select: itinerarySelect });
 }
 
+export async function findById(id: string) {
+  return prisma.itinerary.findUnique({ where: { id }, select: itinerarySelect });
+}
+
 export async function findBySessionId(sessionId: string) {
   return prisma.itinerary.findUnique({ where: { sessionId }, select: itinerarySelect });
 }
@@ -358,5 +362,125 @@ export async function getVersionSnapshot(input: { itineraryId: string; version: 
   return prisma.itineraryVersion.findUnique({
     where: { itineraryId_version: { itineraryId: input.itineraryId, version: input.version } },
     select: versionSelect,
+  });
+}
+
+export async function listVersionSummaries(itineraryId: string) {
+  return prisma.itineraryVersion.findMany({
+    where: { itineraryId },
+    orderBy: { version: "asc" },
+    select: {
+      version: true,
+      basedOnVersion: true,
+      changeType: true,
+      changeInstruction: true,
+      status: true,
+      totalDistanceM: true,
+      totalDurationMin: true,
+      totalEstimatedMin: true,
+      createdAt: true,
+      _count: { select: { stops: true, routes: true } },
+    },
+  });
+}
+
+export type RestoreVersionResult =
+  | { ok: true; version: NonNullable<Awaited<ReturnType<typeof getVersionSnapshot>>> }
+  | { ok: false; reason: "not_found" | "version_not_found" | "conflict" };
+
+/** Copies a stored snapshot into a new immutable version, guarded by optimistic concurrency. */
+export async function restoreVersionTx(input: {
+  itineraryId: string;
+  targetVersion: number;
+  expectedVersion?: number;
+}): Promise<RestoreVersionResult> {
+  return prisma.$transaction(async (tx) => {
+    const itinerary = await tx.itinerary.findUnique({
+      where: { id: input.itineraryId },
+      select: { currentVersion: true },
+    });
+    if (!itinerary) return { ok: false, reason: "not_found" };
+
+    const target = await tx.itineraryVersion.findUnique({
+      where: { itineraryId_version: { itineraryId: input.itineraryId, version: input.targetVersion } },
+      select: { id: true, version: true, stops: { select: stopSelect, orderBy: { position: "asc" } }, routes: { select: routeSelect } },
+    });
+    if (!target) return { ok: false, reason: "version_not_found" };
+
+    if (input.expectedVersion != null && input.expectedVersion !== itinerary.currentVersion) {
+      return { ok: false, reason: "conflict" };
+    }
+
+    const maxVersion = await tx.itineraryVersion.aggregate({
+      where: { itineraryId: input.itineraryId },
+      _max: { version: true },
+    });
+    const nextVersion = (maxVersion._max.version ?? 0) + 1;
+
+    const created = await tx.itineraryVersion.create({
+      data: {
+        itineraryId: input.itineraryId,
+        version: nextVersion,
+        basedOnVersion: target.version,
+        changeType: "restore",
+        status: "confirmed",
+      },
+      select: { id: true },
+    });
+
+    const stopIdByPosition = new Map<number, string>();
+    for (const stop of target.stops) {
+      const row = await tx.itineraryStop.create({
+        data: {
+          itineraryVersionId: created.id,
+          destinationId: stop.destinationId ?? undefined,
+          position: stop.position,
+          name: stop.name,
+          latitude: stop.latitude,
+          longitude: stop.longitude,
+          arrivalTime: stop.arrivalTime ?? undefined,
+          departureTime: stop.departureTime ?? undefined,
+          visitDurationMin: stop.visitDurationMin ?? undefined,
+          travelDurationMin: stop.travelDurationMin ?? undefined,
+          notes: stop.notes ?? undefined,
+          category: stop.category ?? undefined,
+        },
+        select: { id: true, position: true },
+      });
+      stopIdByPosition.set(row.position, row.id);
+    }
+
+    for (const route of target.routes) {
+      const fromStopId = stopIdByPosition.get(
+        target.stops.find((stop) => stop.id === route.fromStopId)?.position ?? -1,
+      );
+      const toStopId = stopIdByPosition.get(
+        target.stops.find((stop) => stop.id === route.toStopId)?.position ?? -1,
+      );
+      if (!fromStopId || !toStopId) continue;
+      await tx.itineraryRoute.create({
+        data: {
+          itineraryVersionId: created.id,
+          fromStopId,
+          toStopId,
+          transportMode: route.transportMode,
+          distanceM: route.distanceM ?? undefined,
+          durationSec: route.durationSec ?? undefined,
+          geometryJson: route.geometryJson ?? undefined,
+          provider: route.provider ?? undefined,
+          providerProfile: route.providerProfile ?? undefined,
+          fallback: route.fallback,
+        },
+      });
+    }
+
+    const updated = await tx.itinerary.updateMany({
+      where: { id: input.itineraryId, currentVersion: itinerary.currentVersion },
+      data: { currentVersion: nextVersion },
+    });
+    if (updated.count === 0) return { ok: false, reason: "conflict" };
+
+    const version = await tx.itineraryVersion.findUniqueOrThrow({ where: { id: created.id }, select: versionSelect });
+    return { ok: true, version };
   });
 }

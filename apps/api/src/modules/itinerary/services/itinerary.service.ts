@@ -142,9 +142,74 @@ export function createItineraryService(deps: ItineraryDeps) {
       await requireActiveUser(deps, input.userId);
       const row = await itineraryRepository.findByIdAndUser(input.id, input.userId);
       if (!row) throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
-      return { data: { ...row, status: "final" } };
+      return { data: await withCurrentVersion(row) };
+    },
+
+    async getBySession(input: { sessionId: string; userId: string }) {
+      productionGate();
+      await requireActiveUser(deps, input.userId);
+      const row = await itineraryRepository.findBySessionId(input.sessionId);
+      if (!row || row.userId !== input.userId) {
+        throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
+      }
+      return { data: await withCurrentVersion(row) };
+    },
+
+    async listVersions(input: { id: string; userId: string }) {
+      productionGate();
+      await requireActiveUser(deps, input.userId);
+      const row = await itineraryRepository.findByIdAndUser(input.id, input.userId);
+      if (!row) throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
+      return {
+        data: (await itineraryRepository.listVersionSummaries(row.id)).map((v) => ({
+          ...v,
+          stopCount: v._count.stops,
+          routeCount: v._count.routes,
+          _count: undefined,
+        })),
+      };
+    },
+
+    async getVersion(input: { id: string; userId: string; version: number }) {
+      productionGate();
+      await requireActiveUser(deps, input.userId);
+      const row = await itineraryRepository.findByIdAndUser(input.id, input.userId);
+      if (!row) throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
+      const version = await itineraryRepository.getVersionSnapshot({ itineraryId: row.id, version: input.version });
+      if (!version) throw new HttpError(404, "VERSION_NOT_FOUND", "Itinerary version not found");
+      return { data: version };
+    },
+
+    async restoreVersion(input: { id: string; userId: string; version: number; expectedVersion?: number }) {
+      productionGate();
+      await requireActiveUser(deps, input.userId);
+      const row = await itineraryRepository.findById(input.id);
+      if (!row) throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
+      if (row.userId !== input.userId) throw new HttpError(403, "FORBIDDEN", "Itinerary access denied");
+
+      const result = await itineraryRepository.restoreVersionTx({
+        itineraryId: row.id,
+        targetVersion: input.version,
+        expectedVersion: input.expectedVersion,
+      });
+      if (!result.ok) {
+        if (result.reason === "conflict") throw new HttpError(409, "VERSION_CONFLICT", "Itinerary version changed");
+        if (result.reason === "version_not_found") throw new HttpError(404, "VERSION_NOT_FOUND", "Itinerary version not found");
+        throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
+      }
+
+      const fresh = await itineraryRepository.findByIdAndUser(row.id, input.userId);
+      if (!fresh) throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
+      return { data: await withCurrentVersion(fresh) };
     },
   };
+
+  async function withCurrentVersion(
+    row: NonNullable<Awaited<ReturnType<typeof itineraryRepository.findByIdAndUser>>>,
+  ) {
+    const version = await itineraryRepository.getVersionSnapshot({ itineraryId: row.id, version: row.currentVersion });
+    return { ...row, status: "final" as const, version };
+  }
 }
 
 export type ItineraryService = ReturnType<typeof createItineraryService>;
