@@ -25,6 +25,7 @@ model ChatSession {
   model            Model         @relation(fields: [modelId], references: [id], onDelete: Restrict)
   messages         ChatMessage[]
   itinerary        Itinerary?
+  itineraryDraft   ItineraryDraft?
 
   @@map("chat_sessions")
 }
