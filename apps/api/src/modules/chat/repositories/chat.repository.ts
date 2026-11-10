@@ -6,6 +6,15 @@ const sessionSelect = {
   userId: true,
   modelId: true,
   title: true,
+  status: true,
+  summary: true,
+  contextJson: true,
+  metadata: true,
+  promptTokens: true,
+  completionTokens: true,
+  totalTokens: true,
+  lastMessageAt: true,
+  schemaVersion: true,
   createdAt: true,
   updatedAt: true,
 } satisfies Prisma.ChatSessionSelect;
@@ -16,6 +25,7 @@ const messageSelect = {
   modelId: true,
   role: true,
   content: true,
+  position: true,
   inputTokens: true,
   outputTokens: true,
   metadata: true,
@@ -71,10 +81,28 @@ export async function listSessions(input: { userId: string; page: number; limit:
 
 export const findSessionById = (id: string) => prisma.chatSession.findUnique({ where: { id }, select: sessionSelect });
 
+export async function updateSession(input: { id: string; title?: string; summary?: string | null; status?: string }) {
+  const data: Prisma.ChatSessionUpdateInput = {};
+  if (input.title !== undefined) data.title = input.title;
+  if (input.summary !== undefined) data.summary = input.summary;
+  if (input.status !== undefined) data.status = input.status;
+  return prisma.chatSession.update({ where: { id: input.id }, data, select: sessionSelect });
+}
+
+export async function deleteSession(id: string) {
+  await prisma.chatSession.delete({ where: { id } });
+}
+
 export async function listMessages(input: { sessionId: string; page: number; limit: number }) {
   const where: Prisma.ChatMessageWhereInput = { sessionId: input.sessionId };
   const [data, total] = await prisma.$transaction([
-    prisma.chatMessage.findMany({ where, skip: (input.page - 1) * input.limit, take: input.limit, orderBy: { createdAt: "asc" }, select: messageSelect }),
+    prisma.chatMessage.findMany({
+      where,
+      skip: (input.page - 1) * input.limit,
+      take: input.limit,
+      orderBy: { position: "asc" },
+      select: messageSelect,
+    }),
     prisma.chatMessage.count({ where }),
   ]);
   return { data, meta: { page: input.page, limit: input.limit, total } };
@@ -130,7 +158,7 @@ async function appendMessageTx(tx: DbClient, input: AppendMessageInput) {
       },
     ] as Prisma.InputJsonValue);
 
-  return tx.chatMessage.create({
+  const row = await tx.chatMessage.create({
     data: {
       sessionId: input.sessionId,
       modelId: input.modelId ?? null,
@@ -153,6 +181,18 @@ async function appendMessageTx(tx: DbClient, input: AppendMessageInput) {
     },
     select: messageKeysetSelect,
   });
+
+  await tx.chatSession.update({
+    where: { id: input.sessionId },
+    data: {
+      lastMessageAt: row.createdAt,
+      promptTokens: { increment: inputTokens },
+      completionTokens: { increment: outputTokens },
+      totalTokens: { increment: inputTokens + outputTokens },
+    },
+  });
+
+  return row;
 }
 
 export async function appendMessage(input: AppendMessageInput) {
