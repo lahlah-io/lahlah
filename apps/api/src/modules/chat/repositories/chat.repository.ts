@@ -55,6 +55,11 @@ const messageKeysetSelect = {
   createdAt: true,
 } satisfies Prisma.ChatMessageSelect;
 
+const messageWithSessionSelect = {
+  ...messageKeysetSelect,
+  session: { select: { id: true, userId: true, modelId: true } },
+} satisfies Prisma.ChatMessageSelect;
+
 type DbClient = typeof prisma | Prisma.TransactionClient;
 
 export async function findOrCreateSystemModel(input: { provider: string; modelIdentifier: string; name: string }) {
@@ -252,4 +257,66 @@ export async function listMessagesKeyset(input: { sessionId: string; afterPositi
   const data = hasMore ? rows.slice(0, limit) : rows;
   const nextAfterPosition = hasMore ? (data[data.length - 1]?.position ?? null) : null;
   return { data, meta: { limit, nextAfterPosition } };
+}
+
+export async function findMessageById(id: string) {
+  return prisma.chatMessage.findUnique({ where: { id }, select: messageWithSessionSelect });
+}
+
+export async function listMessagesUpToPosition(sessionId: string, maxPositionExclusive: number) {
+  return prisma.chatMessage.findMany({
+    where: { sessionId, position: { lt: maxPositionExclusive } },
+    orderBy: { position: "asc" },
+    select: messageSelect,
+  });
+}
+
+export async function updateMessageVersionState(input: {
+  messageId: string;
+  sessionId: string;
+  content: string;
+  status: string;
+  model?: string | null;
+  latencyMs?: number | null;
+  errorJson?: Prisma.InputJsonValue | null;
+  toolCallsJson?: Prisma.InputJsonValue | null;
+  metadata?: Prisma.InputJsonValue;
+  versionsJson: Prisma.InputJsonValue;
+  activeVersion: number;
+  inputTokens: number;
+  outputTokens: number;
+  deltaInputTokens: number;
+  deltaOutputTokens: number;
+}) {
+  return prisma.$transaction(async (tx) => {
+    const row = await tx.chatMessage.update({
+      where: { id: input.messageId },
+      data: {
+        content: input.content,
+        status: input.status,
+        model: input.model ?? null,
+        latencyMs: input.latencyMs ?? null,
+        errorJson: input.errorJson ?? null,
+        toolCallsJson: input.toolCallsJson ?? null,
+        metadata: input.metadata ?? {},
+        versionsJson: input.versionsJson,
+        activeVersion: input.activeVersion,
+        inputTokens: input.inputTokens,
+        outputTokens: input.outputTokens,
+      },
+      select: messageKeysetSelect,
+    });
+    if (input.deltaInputTokens !== 0 || input.deltaOutputTokens !== 0) {
+      await tx.chatSession.update({
+        where: { id: input.sessionId },
+        data: {
+          lastMessageAt: new Date(),
+          promptTokens: { increment: input.deltaInputTokens },
+          completionTokens: { increment: input.deltaOutputTokens },
+          totalTokens: { increment: input.deltaInputTokens + input.deltaOutputTokens },
+        },
+      });
+    }
+    return row;
+  });
 }

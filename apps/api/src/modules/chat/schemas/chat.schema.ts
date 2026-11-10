@@ -40,3 +40,9 @@ export const sendMessageSchema = z.object({
   userId,
   content: z.string().trim().min(1).max(4000),
 });
+
+export const messageIdParamSchema = z.object({ id });
+export const messageVersionParamSchema = z.object({ id, version: z.coerce.number().int().min(1) });
+export const listVersionsQuerySchema = z.object({ userId });
+export const regenerateMessageSchema = z.object({ userId });
+export const activateVersionSchema = z.object({ userId });
