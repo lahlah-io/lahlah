@@ -130,6 +130,26 @@
         border-radius: 999px;
       }
       .tab.active { background: var(--primary); color: var(--primary-text); border-color: var(--primary); }
+      .session-action { flex: 0 0 auto; font-size: 0.82rem; }
+      .msg-row { display: flex; flex-direction: column; gap: 4px; max-width: 85%; }
+      .msg-row.user { align-self: flex-end; align-items: flex-end; }
+      .msg-row.assistant { align-self: flex-start; align-items: flex-start; }
+      .msg-row .msg { max-width: 100%; }
+      .msg-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+      button.tiny { min-height: 26px; padding: 2px 8px; font-size: 0.75rem; border-radius: 6px; }
+      .versions-inline {
+        display: grid; gap: 6px; padding: 8px;
+        border: 1px solid var(--border); border-radius: 8px; background: #fff;
+      }
+      .version-item { display: grid; gap: 2px; padding-bottom: 6px; border-bottom: 1px dashed var(--border); }
+      .version-item:last-child { border-bottom: 0; padding-bottom: 0; }
+      .version-meta { font-size: 0.75rem; color: var(--muted); }
+      .version-text { font-size: 0.8rem; white-space: pre-wrap; word-break: break-word; }
+      .version-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+      .version-list li { display: grid; gap: 4px; padding: 6px 0; border-bottom: 1px dashed var(--border); }
+      .version-list li:last-child { border-bottom: 0; }
+      .version-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+      .load-more { align-self: center; }
 
       .layout {
         display: grid;
@@ -286,6 +306,8 @@
       <div class="sessions">
         <button id="newChatBtn" type="button" class="new-chat">+ New Chat</button>
         <div id="tabs" class="tabs" role="tablist" aria-label="Session chat"></div>
+        <button id="renameBtn" type="button" class="secondary session-action" title="Ubah judul session aktif">Ubah nama</button>
+        <button id="deleteBtn" type="button" class="secondary session-action" title="Hapus session aktif">Hapus</button>
       </div>
 
       <main class="layout">
@@ -322,6 +344,12 @@
             <button id="confirmBtn" type="button" class="hidden">Simpan itinerary</button>
           </div>
           <p id="draftStatus" class="status" aria-live="polite"></p>
+          <div class="versions-block">
+            <h3>Versi itinerary</h3>
+            <p id="versionMeta" class="status"></p>
+            <ul id="versionList" class="version-list"></ul>
+            <button id="previewExitBtn" type="button" class="secondary hidden">Tampilkan versi aktif</button>
+          </div>
         </aside>
       </main>
     </div>
@@ -345,6 +373,8 @@
         reloadSessionsBtn: document.getElementById("reloadSessionsBtn"),
         userStatus: document.getElementById("userStatus"),
         newChatBtn: document.getElementById("newChatBtn"),
+        renameBtn: document.getElementById("renameBtn"),
+        deleteBtn: document.getElementById("deleteBtn"),
         tabs: document.getElementById("tabs"),
         messages: document.getElementById("messages"),
         composer: document.getElementById("composer"),
@@ -358,6 +388,9 @@
         stops: document.getElementById("stops"),
         confirmBtn: document.getElementById("confirmBtn"),
         draftStatus: document.getElementById("draftStatus"),
+        versionMeta: document.getElementById("versionMeta"),
+        versionList: document.getElementById("versionList"),
+        previewExitBtn: document.getElementById("previewExitBtn"),
       };
 
       const state = {
@@ -367,6 +400,10 @@
         chats: new Map(),
         drafts: new Map(),
         sending: false,
+        regenerating: {},
+        messageVersions: new Map(),
+        openVersions: new Set(),
+        itineraryVersions: new Map(),
       };
 
       function enc(value) { return encodeURIComponent(value); }
@@ -381,7 +418,9 @@
         el.className = "status" + (isError ? " error" : "");
       }
       function chatFor(sessionId) {
-        if (!state.chats.has(sessionId)) state.chats.set(sessionId, { messages: [], loaded: false, loading: false });
+        if (!state.chats.has(sessionId)) {
+          state.chats.set(sessionId, { messages: [], loaded: false, loading: false, loadingMore: false, nextAfterPosition: null });
+        }
         return state.chats.get(sessionId);
       }
       function stopsOf(draft) {
@@ -445,6 +484,23 @@
         if (!chat.loaded) {
           loadMessages(sessionId).catch(function (err) { setStatus(els.chatStatus, err.message, true); });
         }
+        loadItinerary(sessionId).catch(function (err) { setStatus(els.draftStatus, err.message, true); });
+      }
+
+      function visibleMessage(message) {
+        return message.role === "user" || message.role === "assistant";
+      }
+
+      function mapMessage(message) {
+        return {
+          id: message.id,
+          sessionId: message.sessionId,
+          role: message.role,
+          content: message.content,
+          status: message.status,
+          activeVersion: message.activeVersion || 1,
+          versions: Array.isArray(message.versionsJson) ? message.versionsJson : [],
+        };
       }
 
       async function loadMessages(sessionId) {
@@ -454,14 +510,44 @@
         if (state.activeId === sessionId) renderChat();
         try {
           const body = await request(
-            "/api/v1/chat/sessions/" + enc(sessionId) + "/messages?userId=" + enc(state.userId) + "&page=1&limit=100",
+            "/api/v1/chat/sessions/" + enc(sessionId) + "/messages?userId=" + enc(state.userId) +
+              "&after_position=0&limit=20",
           );
-          chat.messages = (body.data || [])
-            .filter(function (m) { return m.role === "user" || m.role === "assistant"; })
-            .map(function (m) { return { id: m.id, role: m.role, content: m.content }; });
+          chat.messages = (body.data || []).filter(visibleMessage).map(mapMessage);
+          chat.nextAfterPosition = body.meta ? body.meta.nextAfterPosition : null;
           chat.loaded = true;
         } finally {
           chat.loading = false;
+          if (state.activeId === sessionId) renderChat();
+        }
+      }
+
+      async function loadMoreMessages() {
+        const sessionId = state.activeId;
+        const chat = sessionId ? chatFor(sessionId) : null;
+        if (!chat || chat.loadingMore || chat.nextAfterPosition == null) return;
+        chat.loadingMore = true;
+        renderChat();
+        try {
+          const body = await request(
+            "/api/v1/chat/sessions/" + enc(sessionId) + "/messages?userId=" + enc(state.userId) +
+              "&after_position=" + enc(chat.nextAfterPosition) + "&limit=20",
+          );
+          // Local optimistic user messages have no server id yet; drop the matching server copy.
+          const pending = new Set(
+            chat.messages.filter(function (m) { return String(m.id).indexOf("local-") === 0; })
+              .map(function (m) { return m.role + "\u0000" + m.content; }),
+          );
+          (body.data || []).filter(visibleMessage).forEach(function (message) {
+            const key = message.role + "\u0000" + message.content;
+            if (pending.has(key)) { pending.delete(key); return; }
+            chat.messages.push(mapMessage(message));
+          });
+          chat.nextAfterPosition = body.meta ? body.meta.nextAfterPosition : null;
+        } catch (err) {
+          setStatus(els.chatStatus, err.message, true);
+        } finally {
+          chat.loadingMore = false;
           if (state.activeId === sessionId) renderChat();
         }
       }
@@ -491,6 +577,10 @@
         state.activeId = null;
         state.chats.clear();
         state.drafts.clear();
+        state.messageVersions.clear();
+        state.openVersions.clear();
+        state.itineraryVersions.clear();
+        state.regenerating = {};
         localStorage.removeItem(STORE_KEYS.active);
         renderTabs();
         renderChat();
@@ -531,6 +621,69 @@
         }
       }
 
+      async function renameSession() {
+        if (!state.activeId) {
+          setStatus(els.userStatus, "Pilih session dulu.", true);
+          return;
+        }
+        const session = state.sessions.find(function (s) { return s.id === state.activeId; });
+        const current = session && session.title ? session.title : "";
+        const input = prompt("Judul session baru", current);
+        if (input == null) return;
+        const title = input.trim();
+        if (!title || title === current) return;
+        try {
+          const body = await request("/api/v1/chat/sessions/" + enc(state.activeId), {
+            method: "PATCH",
+            body: JSON.stringify({ userId: state.userId, title: title }),
+          });
+          if (session && body && body.data) session.title = body.data.title;
+          renderTabs();
+          setStatus(els.userStatus, "Judul session diperbarui.");
+        } catch (err) {
+          setStatus(els.userStatus, err.message, true);
+        }
+      }
+
+      async function deleteSession() {
+        if (!state.activeId) {
+          setStatus(els.userStatus, "Pilih session dulu.", true);
+          return;
+        }
+        const sessionId = state.activeId;
+        if (!confirm("Hapus session ini beserta pesan dan itinerary-nya?")) return;
+        try {
+          await request("/api/v1/chat/sessions/" + enc(sessionId) + "?userId=" + enc(state.userId), {
+            method: "DELETE",
+          });
+          const chat = state.chats.get(sessionId);
+          if (chat) {
+            chat.messages.forEach(function (message) {
+              state.messageVersions.delete(message.id);
+              state.openVersions.delete(message.id);
+            });
+          }
+          state.chats.delete(sessionId);
+          state.drafts.delete(sessionId);
+          try { sessionStorage.removeItem(draftKey(sessionId)); } catch {}
+          state.sessions = state.sessions.filter(function (s) { return s.id !== sessionId; });
+          const next = state.sessions[0] || null;
+          if (next) {
+            activate(next.id);
+          } else {
+            state.activeId = null;
+            localStorage.removeItem(STORE_KEYS.active);
+            renderTabs();
+            renderChat();
+            renderItinerary();
+            syncComposer();
+          }
+          setStatus(els.userStatus, "Session dihapus.");
+        } catch (err) {
+          setStatus(els.userStatus, err.message, true);
+        }
+      }
+
       /* ---------- chat ---------- */
 
       function renderChat() {
@@ -553,12 +706,154 @@
           return;
         }
         chat.messages.forEach(function (message) {
-          const el = document.createElement("div");
-          el.className = "msg " + (message.role === "user" ? "user" : "assistant") + (message.failed ? " failed" : "");
-          el.textContent = message.content;
-          els.messages.append(el);
+          const row = document.createElement("div");
+          row.className = "msg-row " + (message.role === "user" ? "user" : "assistant");
+
+          const bubble = document.createElement("div");
+          bubble.className = "msg " + (message.role === "user" ? "user" : "assistant") + (message.failed ? " failed" : "");
+          bubble.textContent = message.content;
+          row.append(bubble);
+
+          if (message.role === "assistant" && isUuid(message.id)) {
+            const actions = document.createElement("div");
+            actions.className = "msg-actions";
+            const regenBtn = document.createElement("button");
+            regenBtn.type = "button";
+            regenBtn.className = "secondary tiny";
+            regenBtn.textContent = state.regenerating[message.id] ? "Regenerate…" : "Regenerate";
+            regenBtn.disabled = Boolean(state.regenerating[message.id]);
+            regenBtn.addEventListener("click", function () { regenerateMessage(message); });
+            const versionBtn = document.createElement("button");
+            versionBtn.type = "button";
+            versionBtn.className = "secondary tiny";
+            versionBtn.textContent = "Versi (" + (message.activeVersion || message.versions.length || 1) + ")";
+            versionBtn.addEventListener("click", function () { toggleMessageVersions(message); });
+            actions.append(regenBtn, versionBtn);
+            row.append(actions);
+
+            if (state.openVersions.has(message.id)) row.append(renderMessageVersions(message));
+          }
+
+          els.messages.append(row);
         });
+
+        if (chat.nextAfterPosition != null) {
+          const more = document.createElement("button");
+          more.type = "button";
+          more.className = "secondary tiny load-more";
+          more.textContent = chat.loadingMore ? "Memuat…" : "Muat pesan berikutnya";
+          more.disabled = chat.loadingMore;
+          more.addEventListener("click", loadMoreMessages);
+          els.messages.append(more);
+        }
         els.messages.scrollTop = els.messages.scrollHeight;
+      }
+
+      function isUuid(value) {
+        return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value || ""));
+      }
+
+      function renderMessageVersions(message) {
+        const box = document.createElement("div");
+        box.className = "versions-inline";
+        const data = state.messageVersions.get(message.id);
+        if (!data) {
+          box.textContent = "Memuat versi…";
+          return box;
+        }
+        data.versions.slice().reverse().forEach(function (version) {
+          const item = document.createElement("div");
+          item.className = "version-item";
+          const meta = document.createElement("span");
+          meta.className = "version-meta";
+          meta.textContent = "v" + version.version + " · " + version.status +
+            (version.version === data.activeVersion ? " · aktif" : "") +
+            (version.createdAt ? " · " + new Date(version.createdAt).toLocaleString("id-ID") : "");
+          const text = document.createElement("span");
+          text.className = "version-text";
+          const content = String(version.content || "");
+          text.textContent = content.length > 140 ? content.slice(0, 140) + "…" : content;
+          item.append(meta, text);
+          if (version.version !== data.activeVersion) {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "secondary tiny";
+            btn.textContent = "Aktifkan";
+            btn.addEventListener("click", function () { activateMessageVersion(message, version.version); });
+            item.append(btn);
+          }
+          box.append(item);
+        });
+        return box;
+      }
+
+      async function loadMessageVersions(message) {
+        const body = await request(
+          "/api/v1/chat/messages/" + enc(message.id) + "/versions?userId=" + enc(state.userId),
+        );
+        state.messageVersions.set(message.id, body.data);
+        return body.data;
+      }
+
+      async function toggleMessageVersions(message) {
+        if (state.openVersions.has(message.id)) {
+          state.openVersions.delete(message.id);
+          renderChat();
+          return;
+        }
+        state.openVersions.add(message.id);
+        renderChat();
+        try {
+          await loadMessageVersions(message);
+        } catch (err) {
+          setStatus(els.chatStatus, err.message, true);
+          state.openVersions.delete(message.id);
+        }
+        renderChat();
+      }
+
+      async function regenerateMessage(message) {
+        if (state.regenerating[message.id]) return;
+        state.regenerating[message.id] = true;
+        setStatus(els.chatStatus, "Membuat versi baru…");
+        renderChat();
+        try {
+          const body = await request("/api/v1/chat/messages/" + enc(message.id) + "/regenerate", {
+            method: "POST",
+            body: JSON.stringify({ userId: state.userId }),
+          });
+          const data = body.data;
+          message.content = data.message || message.content;
+          message.activeVersion = data.activeVersion;
+          message.status = "completed";
+          state.messageVersions.delete(message.id);
+          if (data.draft) setDraft(message.sessionId || state.activeId, data.draft);
+          setStatus(els.chatStatus, "Versi " + data.activeVersion + " dibuat.");
+        } catch (err) {
+          setStatus(els.chatStatus, err.message, true);
+        } finally {
+          delete state.regenerating[message.id];
+          renderChat();
+        }
+      }
+
+      async function activateMessageVersion(message, version) {
+        setStatus(els.chatStatus, "Mengaktifkan versi " + version + "…");
+        try {
+          const body = await request(
+            "/api/v1/chat/messages/" + enc(message.id) + "/versions/" + enc(version) + "/activate",
+            { method: "PATCH", body: JSON.stringify({ userId: state.userId }) },
+          );
+          message.content = body.data.content;
+          message.activeVersion = body.data.activeVersion;
+          message.status = body.data.status;
+          state.messageVersions.delete(message.id);
+          await loadMessageVersions(message);
+          setStatus(els.chatStatus, "Versi " + version + " aktif.");
+        } catch (err) {
+          setStatus(els.chatStatus, err.message, true);
+        }
+        renderChat();
       }
 
       function emptyState(text) {
@@ -602,8 +897,12 @@
           const data = body && body.data ? body.data : {};
           chat.messages.push({
             id: data.assistantMessageId || "assistant-" + Date.now(),
+            sessionId: sessionId,
             role: "assistant",
             content: data.message || "(tanpa pesan)",
+            status: "completed",
+            activeVersion: 1,
+            versions: [],
           });
           if (data.draft) setDraft(sessionId, data.draft);
           setStatus(els.chatStatus, data.draft ? "Draft siap. Periksa panel itinerary lalu simpan." : "Balasan diterima.");
@@ -638,6 +937,7 @@
       }
 
       function setDraft(sessionId, draft) {
+        const prev = state.drafts.get(sessionId);
         const entry = {
           draft: draft,
           coords: draft.route && Array.isArray(draft.route.coordinates) && draft.route.coordinates.length
@@ -646,6 +946,8 @@
           routeInfo: null,
           routeStatus: "loading",
           confirmedId: null,
+          itinerary: prev && prev.itinerary ? prev.itinerary : null,
+          previewVersion: null,
         };
         state.drafts.set(sessionId, entry);
         saveDraftState(sessionId);
@@ -719,8 +1021,216 @@
         if (state.activeId === sessionId) renderItinerary();
       }
 
+      function shortTime(value) {
+        if (value == null || value === "") return "";
+        return String(value).slice(0, 5);
+      }
+
+      function snapshotFromVersion(version, itinerary) {
+        const stops = ((version && version.stops) || []).slice().sort(function (a, b) { return a.position - b.position; });
+        const orderById = {};
+        stops.forEach(function (stop) { orderById[stop.id] = stop.position; });
+        const routes = ((version && version.routes) || []).slice().sort(function (a, b) {
+          return (orderById[a.fromStopId] || 0) - (orderById[b.fromStopId] || 0);
+        });
+        const coords = [];
+        routes.forEach(function (route) {
+          const geometry = route.geometryJson;
+          if (geometry && Array.isArray(geometry.coordinates)) {
+            geometry.coordinates.forEach(function (point) { coords.push([Number(point[0]), Number(point[1])]); });
+          }
+        });
+        const destinations = stops.map(function (stop) {
+          return {
+            order: stop.position,
+            name: stop.name,
+            longitude: Number(stop.longitude),
+            latitude: Number(stop.latitude),
+            visitAt: shortTime(stop.arrivalTime || stop.departureTime),
+            durationMinutes: stop.visitDurationMin,
+          };
+        });
+        const fallbackCount = routes.filter(function (route) { return route.fallback; }).length;
+        return {
+          draft: {
+            draftId: null,
+            status: "confirmed",
+            travelDate: itinerary && itinerary.tripDate ? String(itinerary.tripDate).slice(0, 10) : "",
+            startTime: destinations.length ? destinations[0].visitAt : "",
+            endTime: "",
+            destinations: destinations,
+            route: coords.length ? { type: "LineString", coordinates: coords } : null,
+          },
+          coords: coords.length ? coords : destinations.map(function (d) { return [d.longitude, d.latitude]; }),
+          routeInfo: {
+            distanceKm: version && version.totalDistanceM != null ? version.totalDistanceM / 1000 : null,
+            durationMin: version ? version.totalDurationMin : null,
+            fallbackCount: fallbackCount,
+          },
+          // A version with stops but no route legs is drawn as straight lines, so label it fallback.
+          routeStatus: routes.length
+            ? (fallbackCount === routes.length ? "fallback" : "osrm")
+            : destinations.length > 1 ? "fallback" : "none",
+        };
+      }
+
+      function applyItineraryDetail(detail, previewVersion) {
+        const version = previewVersion || detail.version;
+        if (!version) return;
+        const snapshot = snapshotFromVersion(version, detail);
+        state.drafts.set(detail.sessionId, {
+          itinerary: detail,
+          previewVersion: previewVersion || null,
+          draft: snapshot.draft,
+          coords: snapshot.coords,
+          routeInfo: snapshot.routeInfo,
+          routeStatus: snapshot.routeStatus,
+          confirmedId: detail.id,
+        });
+        saveDraftState(detail.sessionId);
+        if (state.activeId === detail.sessionId) renderItinerary();
+      }
+
+      async function fetchItineraryDetail(sessionId) {
+        const body = await request(
+          "/api/v1/itineraries/by-session/" + enc(sessionId) + "?userId=" + enc(state.userId),
+        );
+        return body.data;
+      }
+
+      async function loadItinerary(sessionId) {
+        try {
+          const detail = await fetchItineraryDetail(sessionId);
+          if (state.activeId !== sessionId) return;
+          applyItineraryDetail(detail, null);
+          await loadItineraryVersions(detail);
+        } catch (err) {
+          if (/ITINERARY_NOT_FOUND/.test(err.message)) {
+            if (state.activeId === sessionId) renderItinerary();
+            return;
+          }
+          throw err;
+        }
+      }
+
+      async function loadItineraryVersions(detail) {
+        const body = await request(
+          "/api/v1/itineraries/" + enc(detail.id) + "/versions?userId=" + enc(state.userId),
+        );
+        state.itineraryVersions.set(detail.id, { currentVersion: detail.currentVersion, versions: body.data || [] });
+        if (state.activeId === detail.sessionId) renderItinerary();
+      }
+
+      async function previewItineraryVersion(itineraryId, version) {
+        setStatus(els.versionMeta, "Memuat versi " + version + "…");
+        try {
+          const body = await request(
+            "/api/v1/itineraries/" + enc(itineraryId) + "/versions/" + enc(version) + "?userId=" + enc(state.userId),
+          );
+          const entry = state.drafts.get(state.activeId);
+          if (!entry || !entry.itinerary) return;
+          applyItineraryDetail(entry.itinerary, body.data);
+        } catch (err) {
+          setStatus(els.versionMeta, err.message, true);
+        }
+      }
+
+      async function restoreItineraryVersion(itineraryId, version, expectedVersion) {
+        setStatus(els.draftStatus, "Memulihkan versi " + version + "…");
+        try {
+          const body = await request(
+            "/api/v1/itineraries/" + enc(itineraryId) + "/restore/" + enc(version),
+            { method: "POST", body: JSON.stringify({ userId: state.userId, expectedVersion: expectedVersion }) },
+          );
+          applyItineraryDetail(body.data, null);
+          await loadItineraryVersions(body.data);
+          setStatus(els.draftStatus, "Versi " + version + " dipulihkan sebagai v" + body.data.currentVersion + ".");
+        } catch (err) {
+          if (/VERSION_CONFLICT/.test(err.message)) {
+            setStatus(els.draftStatus, "Versi berubah di server. Data dimuat ulang; coba lagi.", true);
+            await loadItinerary(state.activeId);
+            return;
+          }
+          setStatus(els.draftStatus, err.message, true);
+        }
+      }
+
+      function exitVersionPreview() {
+        const entry = state.drafts.get(state.activeId);
+        if (entry && entry.itinerary) applyItineraryDetail(entry.itinerary, null);
+      }
+
+      function renderVersionList(entry) {
+        els.versionList.textContent = "";
+        els.previewExitBtn.classList.add("hidden");
+        const detail = entry && entry.itinerary ? entry.itinerary : null;
+        if (!detail) {
+          setStatus(els.versionMeta, "Belum ada itinerary tersimpan.");
+          return;
+        }
+        const preview = entry.previewVersion ? entry.previewVersion.version : null;
+        setStatus(
+          els.versionMeta,
+          "Itinerary " + String(detail.id).slice(0, 8) + " · aktif v" + detail.currentVersion +
+            (preview ? " · pratinjau v" + preview : ""),
+        );
+        if (preview) els.previewExitBtn.classList.remove("hidden");
+        const history = state.itineraryVersions.get(detail.id);
+        if (!history) {
+          const li = document.createElement("li");
+          li.className = "muted small";
+          li.textContent = "Memuat riwayat versi…";
+          els.versionList.append(li);
+          return;
+        }
+        history.versions.slice().reverse().forEach(function (version) {
+          const li = document.createElement("li");
+          const meta = document.createElement("span");
+          meta.className = "version-meta";
+          meta.textContent = "v" + version.version + " · " + version.changeType + " · " +
+            version.stopCount + " titik · " + version.routeCount + " rute" +
+            (version.version === detail.currentVersion ? " · aktif" : "") +
+            (version.createdAt ? " · " + new Date(version.createdAt).toLocaleString("id-ID") : "");
+          const text = document.createElement("span");
+          text.className = "version-text";
+          text.textContent = version.changeInstruction || "(tanpa instruksi perubahan)";
+          const actions = document.createElement("div");
+          actions.className = "version-actions";
+          if (version.version !== preview) {
+            const view = document.createElement("button");
+            view.type = "button";
+            view.className = "secondary tiny";
+            view.textContent = "Lihat";
+            view.addEventListener("click", function () {
+              previewItineraryVersion(detail.id, version.version);
+            });
+            actions.append(view);
+          }
+          if (version.version !== detail.currentVersion) {
+            const restore = document.createElement("button");
+            restore.type = "button";
+            restore.className = "secondary tiny";
+            restore.textContent = "Pulihkan";
+            restore.addEventListener("click", function () {
+              restoreItineraryVersion(detail.id, version.version, detail.currentVersion);
+            });
+            actions.append(restore);
+          }
+          li.append(meta, text, actions);
+          els.versionList.append(li);
+        });
+      }
+
       function formatKm(km) {
         return Number(km).toLocaleString("id-ID", { maximumFractionDigits: 1 }) + " km";
+      }
+
+      function clearItineraryPanel(message) {
+        els.mapWrap.classList.add("hidden");
+        setStatus(els.draftMeta, message);
+        setStatus(els.routeNote, "");
+        setStatus(els.draftStatus, "");
+        renderVersionList(null);
       }
 
       function renderItinerary() {
@@ -728,25 +1238,23 @@
         els.confirmBtn.classList.add("hidden");
         const sessionId = state.activeId;
         if (!sessionId) {
-          els.mapWrap.classList.add("hidden");
-          setStatus(els.draftMeta, "Belum ada draft. Minta itinerary lewat chat.");
-          setStatus(els.routeNote, "");
-          setStatus(els.draftStatus, "");
+          clearItineraryPanel("Belum ada draft. Minta itinerary lewat chat.");
           return;
         }
         restoreDraftState(sessionId);
         const entry = state.drafts.get(sessionId);
         if (!entry || !entry.draft) {
-          els.mapWrap.classList.add("hidden");
-          setStatus(els.draftMeta, "Belum ada draft. Minta itinerary lewat chat.");
-          setStatus(els.routeNote, "");
-          setStatus(els.draftStatus, "");
+          clearItineraryPanel("Belum ada draft. Minta itinerary lewat chat.");
           return;
         }
 
         const draft = entry.draft;
         const stops = stopsOf(draft);
-        setStatus(els.draftMeta, draft.travelDate + " · " + draft.startTime + "–" + draft.endTime + " · " + stops.length + " destinasi");
+        const meta = [];
+        if (draft.travelDate) meta.push(draft.travelDate);
+        if (draft.startTime) meta.push(draft.endTime ? draft.startTime + "–" + draft.endTime : "mulai " + draft.startTime);
+        meta.push(stops.length + " destinasi");
+        setStatus(els.draftMeta, meta.join(" · "));
 
         stops.forEach(function (stop) {
           const li = document.createElement("li");
@@ -754,25 +1262,34 @@
           name.textContent = stop.name;
           const meta = document.createElement("span");
           meta.className = "stop-meta";
-          meta.textContent = "Kunjungan " + stop.visitAt + " · " + stop.durationMinutes + " menit";
+          const bits = [];
+          if (stop.visitAt) bits.push("Kunjungan " + stop.visitAt);
+          bits.push(stop.durationMinutes != null ? stop.durationMinutes + " menit" : "durasi tidak dicatat");
+          meta.textContent = bits.join(" · ");
           li.append(name, meta);
           els.stops.append(li);
         });
 
         if (entry.confirmedId) {
           els.confirmBtn.classList.add("hidden");
-          setStatus(els.draftStatus, "Itinerary tersimpan · " + entry.confirmedId);
+          setStatus(els.draftStatus, "Itinerary tersimpan · " + String(entry.confirmedId).slice(0, 8));
         } else {
           els.confirmBtn.classList.remove("hidden");
-          setStatus(els.draftStatus, "Draft " + String(draft.draftId).slice(0, 8) + " menunggu konfirmasi.");
+          setStatus(els.draftStatus, "Draft " + String(draft.draftId || "").slice(0, 8) + " menunggu konfirmasi.");
         }
 
         if (entry.routeStatus === "loading") {
           setStatus(els.routeNote, "Mengambil rute jalan OSRM…");
         } else if (entry.routeStatus === "osrm") {
-          setStatus(els.routeNote, "Rute jalan OSRM (mobil) · " + formatKm(entry.routeInfo.distanceKm) + " · " + entry.routeInfo.durationMin + " menit. Perkiraan, bukan lalu lintas langsung.");
+          const info = entry.routeInfo || {};
+          const bits = ["Rute tersimpan (OSRM mobil)"];
+          if (info.distanceKm != null) bits.push(formatKm(info.distanceKm));
+          if (info.durationMin != null) bits.push(info.durationMin + " menit");
+          if (info.fallbackCount) bits.push(info.fallbackCount + " leg garis lurus");
+          setStatus(els.routeNote, bits.join(" · ") + ". Perkiraan, bukan lalu lintas langsung.");
         } else if (entry.routeStatus === "fallback") {
-          setStatus(els.routeNote, "Rute jalan gagal (" + entry.routeInfo.error + "). Memakai garis lurus dari draft.", true);
+          const reason = entry.routeInfo && entry.routeInfo.error ? " (" + entry.routeInfo.error + ")" : "";
+          setStatus(els.routeNote, "Leg rute memakai garis lurus" + reason + ". Bukan rute jalan.", true);
         } else if (entry.routeStatus === "none") {
           setStatus(els.routeNote, "Kurang dari 2 titik; rute tidak digambar.");
         } else {
@@ -780,6 +1297,7 @@
         }
 
         els.mapWrap.classList.remove("hidden");
+        renderVersionList(entry);
         updateMap(entry);
       }
 
@@ -790,13 +1308,13 @@
         els.confirmBtn.disabled = true;
         setStatus(els.draftStatus, "Menyimpan itinerary…");
         try {
-          const body = await request("/api/v1/itineraries/confirm", {
+          await request("/api/v1/itineraries/confirm", {
             method: "POST",
             body: JSON.stringify({ draftId: entry.draft.draftId, userId: state.userId, sessionId: sessionId }),
           });
-          entry.confirmedId = (body && body.data && body.data.id) || "tersimpan";
-          saveDraftState(sessionId);
-          renderItinerary();
+          const detail = await fetchItineraryDetail(sessionId);
+          applyItineraryDetail(detail, null);
+          await loadItineraryVersions(detail);
           setStatus(els.chatStatus, "Itinerary tersimpan.");
         } catch (err) {
           setStatus(els.draftStatus, err.message, true);
@@ -999,6 +1517,8 @@
       }
 
       els.newChatBtn.addEventListener("click", newChat);
+      els.renameBtn.addEventListener("click", renameSession);
+      els.deleteBtn.addEventListener("click", deleteSession);
       els.reloadSessionsBtn.addEventListener("click", function () {
         if (!state.userId) {
           setStatus(els.userStatus, "Isi User ID dev dulu.", true);
@@ -1052,6 +1572,7 @@
         });
       });
       els.confirmBtn.addEventListener("click", confirmDraft);
+      els.previewExitBtn.addEventListener("click", exitVersionPreview);
 
       boot();
     </script>
