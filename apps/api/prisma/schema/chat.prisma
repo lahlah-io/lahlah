@@ -2,36 +2,59 @@ enum MessageRole {
   system
   user
   assistant
+  tool
 }
 
 model ChatSession {
-  id        String        @id @default(uuid()) @db.Uuid
-  userId    String        @map("user_id") @db.Uuid
-  modelId   String        @map("model_id") @db.Uuid
-  title     String        @db.VarChar
-  createdAt DateTime      @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime      @updatedAt @map("updated_at") @db.Timestamptz
-  user      User          @relation(fields: [userId], references: [id], onDelete: Restrict)
-  model     Model         @relation(fields: [modelId], references: [id], onDelete: Restrict)
-  messages  ChatMessage[]
-  itinerary Itinerary?
+  id               String        @id @default(uuid()) @db.Uuid
+  userId           String        @map("user_id") @db.Uuid
+  modelId          String        @map("model_id") @db.Uuid
+  title            String        @db.VarChar
+  status           String        @default("active") @map("status") @db.VarChar
+  summary          String?       @map("summary") @db.Text
+  contextJson      Json          @default("{}") @map("context_json")
+  metadata         Json          @default("{}") @map("metadata")
+  promptTokens     Int           @default(0) @map("prompt_tokens")
+  completionTokens Int           @default(0) @map("completion_tokens")
+  totalTokens      Int           @default(0) @map("total_tokens")
+  lastMessageAt    DateTime?     @map("last_message_at") @db.Timestamptz
+  schemaVersion    Int           @default(1) @map("schema_version")
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime      @updatedAt @map("updated_at") @db.Timestamptz
+  user             User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  model            Model         @relation(fields: [modelId], references: [id], onDelete: Restrict)
+  messages         ChatMessage[]
+  itinerary        Itinerary?
 
   @@map("chat_sessions")
 }
 
 model ChatMessage {
-  id           String      @id @default(uuid()) @db.Uuid
-  sessionId    String      @map("session_id") @db.Uuid
-  modelId      String?     @map("model_id") @db.Uuid
-  role         MessageRole
-  content      String      @db.Text
-  inputTokens  Int?        @map("input_tokens")
-  outputTokens Int?        @map("output_tokens")
-  metadata     Json        @default("{}")
-  createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz
-  session      ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  model        Model?      @relation(fields: [modelId], references: [id], onDelete: SetNull)
+  id            String      @id @default(uuid()) @db.Uuid
+  sessionId     String      @map("session_id") @db.Uuid
+  modelId       String?     @map("model_id") @db.Uuid
+  role          MessageRole
+  content       String      @db.Text
+  position      Int         @map("position")
+  inputTokens   Int         @default(0) @map("input_tokens")
+  outputTokens  Int         @default(0) @map("output_tokens")
+  toolCallsJson Json?       @map("tool_calls_json")
+  toolCallId    String?     @map("tool_call_id") @db.VarChar
+  mode          String?     @map("mode") @db.VarChar
+  model         String?     @map("model") @db.VarChar
+  latencyMs     Int?        @map("latency_ms")
+  status        String      @default("completed") @map("status") @db.VarChar
+  errorJson     Json?       @map("error_json")
+  versionsJson  Json        @default("[]") @map("versions_json")
+  activeVersion Int         @default(1) @map("active_version")
+  schemaVersion Int         @default(1) @map("schema_version")
+  metadata      Json        @default("{}")
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  session       ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  modelRef      Model?      @relation(fields: [modelId], references: [id], onDelete: SetNull)
 
+  @@unique([sessionId, position])
+  @@index([sessionId, position])
   @@index([sessionId, createdAt])
   @@map("chat_messages")
 }

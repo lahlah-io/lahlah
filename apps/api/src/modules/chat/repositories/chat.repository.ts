@@ -63,22 +63,46 @@ export async function findRecentMessages(sessionId: string, limit: number) {
 export async function insertMessage(input: {
   sessionId: string;
   modelId?: string | null;
-  role: "user" | "assistant" | "system";
+  role: "user" | "assistant" | "system" | "tool";
   content: string;
   inputTokens?: number | null;
   outputTokens?: number | null;
   metadata?: Prisma.InputJsonValue;
 }) {
-  return prisma.chatMessage.create({
-    data: {
-      sessionId: input.sessionId,
-      modelId: input.modelId ?? null,
-      role: input.role,
-      content: input.content,
-      inputTokens: input.inputTokens ?? null,
-      outputTokens: input.outputTokens ?? null,
-      metadata: input.metadata ?? {},
-    },
-    select: messageSelect,
+  return prisma.$transaction(async (tx) => {
+    const last = await tx.chatMessage.findFirst({
+      where: { sessionId: input.sessionId },
+      orderBy: { position: "desc" },
+      select: { position: true },
+    });
+    const position = (last?.position ?? 0) + 1;
+    const inputTokens = input.inputTokens ?? 0;
+    const outputTokens = input.outputTokens ?? 0;
+    const metadata = input.metadata ?? {};
+    return tx.chatMessage.create({
+      data: {
+        sessionId: input.sessionId,
+        modelId: input.modelId ?? null,
+        role: input.role,
+        content: input.content,
+        position,
+        inputTokens,
+        outputTokens,
+        metadata,
+        versionsJson: [
+          {
+            version: 1,
+            content: input.content,
+            inputTokens,
+            outputTokens,
+            metadata,
+          },
+        ],
+        activeVersion: 1,
+        status: "completed",
+        schemaVersion: 1,
+      },
+      select: messageSelect,
+    });
   });
 }
