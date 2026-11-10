@@ -1,3 +1,4 @@
+import type { Prisma } from "../../../generated/prisma/client.js";
 import { env } from "../../../env.js";
 import { HttpError } from "../../../shared/http/errors.js";
 import { completeChat, resolveAiRoleConfig } from "../../../integrations/ai/chat-completions.js";
@@ -7,6 +8,7 @@ import { buildConversationContext } from "./conversation-context.js";
 import { generateItinerary } from "./itinerary-generator.js";
 import { createDraftStore, type ItineraryDraftResponse } from "./draft-store.js";
 import { createToolExecutor } from "./tools.js";
+import { activateVersion, appendVersion, type MessageVersion } from "./message-versioning.js";
 import * as chatRepository from "../repositories/chat.repository.js";
 
 const HISTORY_LIMIT = 20;
@@ -333,6 +335,79 @@ export function createChatService(deps: ChatDeps) {
   const draftStore = deps.draftStore ?? createDraftStore();
   const doClassify = deps.classifyMessage ?? classify;
 
+  async function computeAssistantReply(input: {
+    sessionId: string;
+    userId: string;
+    content: string;
+    history: AiMessage[];
+  }): Promise<{ intent: Intent; message: string; draft: ItineraryDraftResponse | null; usage: { inputTokens?: number; outputTokens?: number } }> {
+    const classified = await doClassify(input.content, process.env);
+    let intent: Intent = classified.intent;
+    let message = "Ada yang bisa saya bantu untuk rencana perjalanan di Padang?";
+    let draft: ItineraryDraftResponse | null = null;
+    let usage: { inputTokens?: number; outputTokens?: number } = {};
+
+    if (intent === "general_chat" || intent === "confirm_itinerary") {
+      // greeting/general chat: no provider answer call required;
+      message = intent === "confirm_itinerary"
+        ? "Untuk menyimpan itinerary, gunakan aksi konfirmasi draft yang tersedia."
+        : "Halo! Saya bisa bantu buat itinerary satu hari di Kota Padang. Sebutkan tanggal, jam mulai-selesai, dan kategori (misalnya pantai atau kuliner).";
+    } else if (intent === "generate_itinerary" || intent === "modify_itinerary" || intent === "regenerate_itinerary") {
+      const trip = analyzeTripRequest(input.content);
+      if (trip.kind === "ready") {
+        const result = await runItineraryToolFlow({ deps, history: input.history, userMessage: input.content, sessionId: input.sessionId, request: trip.trip });
+        draft = result.draft;
+        usage = result.usage;
+        const draftId = draftStore.replaceSessionDraft({ userId: input.userId, sessionId: input.sessionId, itinerary: draft });
+        draft = draftStore.getDraft({ draftId, userId: input.userId, sessionId: input.sessionId });
+        message = `Draft itinerary ${draft.travelDate} untuk ${draft.destinations.length} destinasi di Padang siap dikonfirmasi.`;
+      } else if (trip.kind === "general_time") {
+        intent = "missing_information";
+        const catHint = trip.categories.length ? `Kategori terdeteksi. ` : `Sebutkan juga kategori wisata di Padang (misalnya pantai, budaya, kuliner, alam, sejarah). `;
+        message = (trip.dateHint ? `Tanggal terdeteksi ${trip.dateHint}. ` : `Tanggal bisa pakai hari ini (${todayYmd()}) jika belum lengkap. `) + catHint + GENERAL_TIME_SUGGESTION;
+      } else {
+        intent = "missing_information";
+        const parts: string[] = [];
+        if (trip.dateHint) parts.push(`tanggal ${trip.dateHint}`);
+        if (trip.timeHint) parts.push(`jam ${trip.timeHint.startTime}-${trip.timeHint.endTime}`);
+        if (trip.categories.length) parts.push(`kategori terdeteksi`);
+        const known = parts.length ? `Saya menangkap ${parts.join(", ")}. ` : "";
+        const need: string[] = [];
+        if (!trip.dateHint) need.push("tanggal (YYYY-MM-DD; jika tidak lengkap dipakai tanggal hari ini)");
+        if (!trip.timeHint) need.push("jam mulai-selesai (HH:MM-HH:MM)");
+        if (trip.categories.length === 0) need.push("kategori (pantai, budaya, kuliner, alam, sejarah, santai, belanja)");
+        message = `${known}Untuk membuat draft itinerary Padang, mohon lengkapi: ${need.join(", ")}.`;
+      }
+    } else {
+      intent = "missing_information";
+      const travelContext = /\b(perjalanan|jalan-jalan|liburan|wisata|trip|travel|itinerary|padang|kencan|date)\b/i.test(input.content);
+      if (travelContext) {
+        const trip = analyzeTripRequest(input.content);
+        if (trip.kind === "general_time") {
+          const catHint = trip.categories.length ? `Kategori terdeteksi. ` : ``;
+          message = (trip.dateHint ? `Tanggal terdeteksi ${trip.dateHint}. ` : ``) + catHint + GENERAL_TIME_SUGGESTION;
+        } else if (trip.kind === "missing") {
+          const parts: string[] = [];
+          if (trip.dateHint) parts.push(`tanggal ${trip.dateHint}`);
+          if (trip.timeHint) parts.push(`jam ${trip.timeHint.startTime}-${trip.timeHint.endTime}`);
+          if (trip.categories.length) parts.push(`kategori terdeteksi`);
+          const known = parts.length ? `Saya menangkap ${parts.join(", ")}. ` : "";
+          const need: string[] = [];
+          if (!trip.timeHint) need.push("jam mulai-selesai (HH:MM-HH:MM; jika belum, bisa pakai acuan umum siang/sore 13.00–17.00 atau malam 18.30–21.30)");
+          if (!trip.dateHint) need.push("tanggal (YYYY-MM-DD; jika tidak lengkap dipakai tanggal hari ini)");
+          if (trip.categories.length === 0) need.push("kategori (pantai, budaya, kuliner, alam, sejarah, santai, belanja)");
+          message = `${known}Untuk draft itinerary Padang, mohon lengkapi: ${need.join(", ")}.`;
+        } else {
+          message = "Bisa jelaskan rencana Anda? Untuk itinerary, saya butuh tanggal, jam mulai-selesai, dan kategori wisata di Padang.";
+        }
+      } else {
+        message = "Bisa jelaskan rencana Anda? Untuk itinerary, saya butuh tanggal, jam mulai-selesai, dan kategori wisata di Padang.";
+      }
+    }
+
+    return { intent, message, draft, usage };
+  }
+
   return {
     async createSession(input: { userId: string; title?: string }) {
       productionGate();
@@ -401,69 +476,12 @@ export function createChatService(deps: ChatDeps) {
       const historyRows = await chatRepository.findRecentMessages(session.id, HISTORY_LIMIT);
       const history = buildConversationContext({ systemPrompt: SYSTEM_PROMPT, history: asAiHistory(historyRows) });
 
-      const classified = await doClassify(input.content, process.env);
-      let intent: Intent = classified.intent;
-      let message = "Ada yang bisa saya bantu untuk rencana perjalanan di Padang?";
-      let draft: ItineraryDraftResponse | null = null;
-      let usage: { inputTokens?: number; outputTokens?: number } = {};
-
-      if (intent === "general_chat" || intent === "confirm_itinerary") {
-        // greeting/general chat: no provider answer call required;
-        message = intent === "confirm_itinerary"
-          ? "Untuk menyimpan itinerary, gunakan aksi konfirmasi draft yang tersedia."
-          : "Halo! Saya bisa bantu buat itinerary satu hari di Kota Padang. Sebutkan tanggal, jam mulai-selesai, dan kategori (misalnya pantai atau kuliner).";
-      } else if (intent === "generate_itinerary" || intent === "modify_itinerary" || intent === "regenerate_itinerary") {
-        const trip = analyzeTripRequest(input.content);
-        if (trip.kind === "ready") {
-          const result = await runItineraryToolFlow({ deps, history, userMessage: input.content, sessionId: session.id, request: trip.trip });
-          draft = result.draft;
-          usage = result.usage;
-          const draftId = draftStore.replaceSessionDraft({ userId: input.userId, sessionId: session.id, itinerary: draft });
-          draft = draftStore.getDraft({ draftId, userId: input.userId, sessionId: session.id });
-          message = `Draft itinerary ${draft.travelDate} untuk ${draft.destinations.length} destinasi di Padang siap dikonfirmasi.`;
-        } else if (trip.kind === "general_time") {
-          intent = "missing_information";
-          const catHint = trip.categories.length ? `Kategori terdeteksi. ` : `Sebutkan juga kategori wisata di Padang (misalnya pantai, budaya, kuliner, alam, sejarah). `;
-          message = (trip.dateHint ? `Tanggal terdeteksi ${trip.dateHint}. ` : `Tanggal bisa pakai hari ini (${todayYmd()}) jika belum lengkap. `) + catHint + GENERAL_TIME_SUGGESTION;
-        } else {
-          intent = "missing_information";
-          const parts: string[] = [];
-          if (trip.dateHint) parts.push(`tanggal ${trip.dateHint}`);
-          if (trip.timeHint) parts.push(`jam ${trip.timeHint.startTime}-${trip.timeHint.endTime}`);
-          if (trip.categories.length) parts.push(`kategori terdeteksi`);
-          const known = parts.length ? `Saya menangkap ${parts.join(", ")}. ` : "";
-          const need: string[] = [];
-          if (!trip.dateHint) need.push("tanggal (YYYY-MM-DD; jika tidak lengkap dipakai tanggal hari ini)");
-          if (!trip.timeHint) need.push("jam mulai-selesai (HH:MM-HH:MM)");
-          if (trip.categories.length === 0) need.push("kategori (pantai, budaya, kuliner, alam, sejarah, santai, belanja)");
-          message = `${known}Untuk membuat draft itinerary Padang, mohon lengkapi: ${need.join(", ")}.`;
-        }
-      } else {
-        intent = "missing_information";
-        const travelContext = /\b(perjalanan|jalan-jalan|liburan|wisata|trip|travel|itinerary|padang|kencan|date)\b/i.test(input.content);
-        if (travelContext) {
-          const trip = analyzeTripRequest(input.content);
-          if (trip.kind === "general_time") {
-            const catHint = trip.categories.length ? `Kategori terdeteksi. ` : ``;
-            message = (trip.dateHint ? `Tanggal terdeteksi ${trip.dateHint}. ` : ``) + catHint + GENERAL_TIME_SUGGESTION;
-          } else if (trip.kind === "missing") {
-            const parts: string[] = [];
-            if (trip.dateHint) parts.push(`tanggal ${trip.dateHint}`);
-            if (trip.timeHint) parts.push(`jam ${trip.timeHint.startTime}-${trip.timeHint.endTime}`);
-            if (trip.categories.length) parts.push(`kategori terdeteksi`);
-            const known = parts.length ? `Saya menangkap ${parts.join(", ")}. ` : "";
-            const need: string[] = [];
-            if (!trip.timeHint) need.push("jam mulai-selesai (HH:MM-HH:MM; jika belum, bisa pakai acuan umum siang/sore 13.00–17.00 atau malam 18.30–21.30)");
-            if (!trip.dateHint) need.push("tanggal (YYYY-MM-DD; jika tidak lengkap dipakai tanggal hari ini)");
-            if (trip.categories.length === 0) need.push("kategori (pantai, budaya, kuliner, alam, sejarah, santai, belanja)");
-            message = `${known}Untuk draft itinerary Padang, mohon lengkapi: ${need.join(", ")}.`;
-          } else {
-            message = "Bisa jelaskan rencana Anda? Untuk itinerary, saya butuh tanggal, jam mulai-selesai, dan kategori wisata di Padang.";
-          }
-        } else {
-          message = "Bisa jelaskan rencana Anda? Untuk itinerary, saya butuh tanggal, jam mulai-selesai, dan kategori wisata di Padang.";
-        }
-      }
+      const { intent, message, draft, usage } = await computeAssistantReply({
+        sessionId: session.id,
+        userId: input.userId,
+        content: input.content,
+        history,
+      });
 
       const saved = await chatRepository.appendMessage({
         sessionId: session.id,
@@ -484,6 +502,188 @@ export function createChatService(deps: ChatDeps) {
           draft,
           assistantMessageId: saved.id,
           sessionId: session.id,
+        },
+      };
+    },
+
+    async regenerateMessage(input: { userId: string; messageId: string }) {
+      productionGate();
+      await requireActiveUser(deps, input.userId);
+      const msg = await chatRepository.findMessageById(input.messageId);
+      if (!msg) throw new HttpError(404, "MESSAGE_NOT_FOUND", "Chat message not found");
+      if (msg.session.userId !== input.userId) throw new HttpError(403, "FORBIDDEN", "Message access denied");
+      if (msg.role !== "assistant") throw new HttpError(422, "REGENERATE_TARGET_INVALID", "Only assistant messages can be regenerated");
+
+      const prior = await chatRepository.listMessagesUpToPosition(msg.sessionId, msg.position);
+      const trigger = [...prior].reverse().find((m) => m.role === "user");
+      if (!trigger) throw new HttpError(422, "REGENERATE_CONTEXT_MISSING", "No user message found to regenerate from");
+
+      const historyRows = prior.slice(-HISTORY_LIMIT).map((m) => ({ role: m.role, content: m.content }));
+      const history = buildConversationContext({ systemPrompt: SYSTEM_PROMPT, history: asAiHistory(historyRows) });
+
+      const prevInput = Number.isFinite(msg.inputTokens) ? Number(msg.inputTokens) : 0;
+      const prevOutput = Number.isFinite(msg.outputTokens) ? Number(msg.outputTokens) : 0;
+      const currentState = {
+        versionsJson: msg.versionsJson as unknown,
+        activeVersion: msg.activeVersion,
+        content: msg.content,
+        status: msg.status,
+        model: msg.model,
+        latencyMs: msg.latencyMs,
+        errorJson: msg.errorJson as unknown,
+        toolCallsJson: msg.toolCallsJson as unknown,
+        inputTokens: prevInput,
+        outputTokens: prevOutput,
+        metadata: msg.metadata as unknown,
+      };
+
+      try {
+        const { intent, message, draft, usage } = await computeAssistantReply({
+          sessionId: msg.sessionId,
+          userId: input.userId,
+          content: trigger.content,
+          history,
+        });
+        const inTok = usage.inputTokens ?? 0;
+        const outTok = usage.outputTokens ?? 0;
+        const next: MessageVersion = {
+          version: 0,
+          content: message,
+          status: "completed",
+          createdAt: new Date().toISOString(),
+          metadata: { intent, draftId: draft?.draftId ?? null },
+          usage: { promptTokens: inTok, completionTokens: outTok, totalTokens: inTok + outTok },
+          inputTokens: inTok,
+          outputTokens: outTok,
+        };
+        const appended = appendVersion(currentState as any, next);
+        const saved = await chatRepository.updateMessageVersionState({
+          messageId: msg.id,
+          sessionId: msg.sessionId,
+          content: appended.content,
+          status: appended.status,
+          model: (appended.model as string | null | undefined) ?? null,
+          latencyMs: (appended.latencyMs as number | null | undefined) ?? null,
+          errorJson: (appended.errorJson ?? null) as Prisma.InputJsonValue | null,
+          toolCallsJson: (appended.toolCallsJson ?? null) as Prisma.InputJsonValue | null,
+          metadata: (appended.metadata ?? {}) as Prisma.InputJsonValue,
+          versionsJson: appended.versionsJson as unknown as Prisma.InputJsonValue,
+          activeVersion: appended.activeVersion,
+          inputTokens: appended.inputTokens,
+          outputTokens: appended.outputTokens,
+          deltaInputTokens: inTok,
+          deltaOutputTokens: outTok,
+        });
+        return {
+          data: {
+            assistantMessageId: saved.id,
+            sessionId: msg.sessionId,
+            message,
+            intent,
+            draft,
+            activeVersion: saved.activeVersion,
+          },
+        };
+      } catch (err) {
+        const versions = Array.isArray(msg.versionsJson) ? ([...(msg.versionsJson as MessageVersion[])]) : [];
+        const failed: MessageVersion = {
+          version: versions.length + 1,
+          content: "",
+          status: "failed",
+          createdAt: new Date().toISOString(),
+          errorJson: { message: err instanceof Error ? err.message : String(err), code: (err as any)?.code },
+          usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+          inputTokens: 0,
+          outputTokens: 0,
+        };
+        const versionsJson = [...versions, failed];
+        await chatRepository.updateMessageVersionState({
+          messageId: msg.id,
+          sessionId: msg.sessionId,
+          content: msg.content,
+          status: msg.status,
+          model: msg.model,
+          latencyMs: msg.latencyMs,
+          errorJson: (msg.errorJson ?? null) as Prisma.InputJsonValue | null,
+          toolCallsJson: (msg.toolCallsJson ?? null) as Prisma.InputJsonValue | null,
+          metadata: (msg.metadata ?? {}) as Prisma.InputJsonValue,
+          versionsJson: versionsJson as unknown as Prisma.InputJsonValue,
+          activeVersion: msg.activeVersion,
+          inputTokens: prevInput,
+          outputTokens: prevOutput,
+          deltaInputTokens: 0,
+          deltaOutputTokens: 0,
+        });
+        throw err;
+      }
+    },
+
+    async listMessageVersions(input: { userId: string; messageId: string }) {
+      productionGate();
+      await requireActiveUser(deps, input.userId);
+      const msg = await chatRepository.findMessageById(input.messageId);
+      if (!msg) throw new HttpError(404, "MESSAGE_NOT_FOUND", "Chat message not found");
+      if (msg.session.userId !== input.userId) throw new HttpError(403, "FORBIDDEN", "Message access denied");
+      const versions = Array.isArray(msg.versionsJson) ? msg.versionsJson : [];
+      return {
+        data: {
+          messageId: msg.id,
+          sessionId: msg.sessionId,
+          activeVersion: msg.activeVersion,
+          versions,
+          versionsJson: versions,
+        },
+      };
+    },
+
+    async activateMessageVersion(input: { userId: string; messageId: string; version: number }) {
+      productionGate();
+      await requireActiveUser(deps, input.userId);
+      const msg = await chatRepository.findMessageById(input.messageId);
+      if (!msg) throw new HttpError(404, "MESSAGE_NOT_FOUND", "Chat message not found");
+      if (msg.session.userId !== input.userId) throw new HttpError(403, "FORBIDDEN", "Message access denied");
+      const versions = Array.isArray(msg.versionsJson) ? (msg.versionsJson as MessageVersion[]) : [];
+      const target = versions.find((v) => v.version === input.version);
+      if (!target) throw new HttpError(404, "VERSION_NOT_FOUND", "Message version not found");
+
+      const currentState = {
+        versionsJson: msg.versionsJson as unknown,
+        activeVersion: msg.activeVersion,
+        content: msg.content,
+        status: msg.status,
+        model: msg.model,
+        latencyMs: msg.latencyMs,
+        errorJson: msg.errorJson as unknown,
+        toolCallsJson: msg.toolCallsJson as unknown,
+        inputTokens: Number.isFinite(msg.inputTokens) ? Number(msg.inputTokens) : 0,
+        outputTokens: Number.isFinite(msg.outputTokens) ? Number(msg.outputTokens) : 0,
+        metadata: msg.metadata as unknown,
+      };
+      const activated = activateVersion(currentState as any, input.version);
+      const saved = await chatRepository.updateMessageVersionState({
+        messageId: msg.id,
+        sessionId: msg.sessionId,
+        content: activated.content,
+        status: activated.status,
+        model: (activated.model as string | null | undefined) ?? null,
+        latencyMs: (activated.latencyMs as number | null | undefined) ?? null,
+        errorJson: (activated.errorJson ?? null) as Prisma.InputJsonValue | null,
+        toolCallsJson: (activated.toolCallsJson ?? null) as Prisma.InputJsonValue | null,
+        metadata: (activated.metadata ?? {}) as Prisma.InputJsonValue,
+        versionsJson: activated.versionsJson as unknown as Prisma.InputJsonValue,
+        activeVersion: activated.activeVersion,
+        inputTokens: activated.inputTokens,
+        outputTokens: activated.outputTokens,
+        deltaInputTokens: 0,
+        deltaOutputTokens: 0,
+      });
+      return {
+        data: {
+          messageId: saved.id,
+          sessionId: msg.sessionId,
+          activeVersion: saved.activeVersion,
+          content: saved.content,
+          status: saved.status,
         },
       };
     },
