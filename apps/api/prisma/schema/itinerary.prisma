@@ -71,10 +71,13 @@ model ItineraryVersion {
   totalDurationMin  Int?             @map("total_duration_min")
   totalEstimatedMin Int?             @map("total_estimated_min")
   status            String           @db.VarChar
+  sourceMessageId   String?          @map("source_message_id") @db.Uuid
+  routeJson         Json?            @map("route_json")
+  expiresAt         DateTime?        @map("expires_at") @db.Timestamptz
   createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz
   stops             ItineraryStop[]
-  routes            ItineraryRoute[]
   itinerary         Itinerary        @relation(fields: [itineraryId], references: [id], onDelete: Cascade)
+  sourceMessage     ChatMessage?     @relation(fields: [sourceMessageId], references: [id], onDelete: SetNull)
 
   @@unique([itineraryId, version])
   @@index([itineraryId, version])
@@ -95,34 +98,13 @@ model ItineraryStop {
   travelDurationMin  Int?             @map("travel_duration_min")
   notes              String?          @db.Text
   category           String?          @db.VarChar
+  snapshotJson       Json?            @map("snapshot_json")
   version            ItineraryVersion @relation(fields: [itineraryVersionId], references: [id], onDelete: Cascade)
   destination        Destination?     @relation(fields: [destinationId], references: [id])
-  routeFrom          ItineraryRoute[] @relation("RouteFromStop")
-  routeTo            ItineraryRoute[] @relation("RouteToStop")
 
   @@unique([itineraryVersionId, position])
   @@index([itineraryVersionId, position])
   @@map("itinerary_stops")
-}
-
-model ItineraryRoute {
-  id                 String           @id @default(uuid()) @db.Uuid
-  itineraryVersionId String           @map("itinerary_version_id") @db.Uuid
-  fromStopId         String           @map("from_stop_id") @db.Uuid
-  toStopId           String           @map("to_stop_id") @db.Uuid
-  transportMode      String           @map("transport_mode") @db.VarChar
-  distanceM          Int?             @map("distance_m")
-  durationSec        Int?             @map("duration_sec")
-  geometryJson       Json?            @map("geometry_json")
-  provider           String?          @db.VarChar
-  providerProfile    String?          @map("provider_profile") @db.VarChar
-  fallback           Boolean          @default(false)
-  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz
-  version            ItineraryVersion @relation(fields: [itineraryVersionId], references: [id], onDelete: Cascade)
-  fromStop           ItineraryStop    @relation("RouteFromStop", fields: [fromStopId], references: [id], onDelete: Cascade)
-  toStop             ItineraryStop    @relation("RouteToStop", fields: [toStopId], references: [id], onDelete: Cascade)
-
-  @@map("itinerary_routes")
 }
 
 model ItineraryDraft {

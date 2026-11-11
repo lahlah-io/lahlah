@@ -53,6 +53,7 @@ model ChatMessage {
   createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz
   session       ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   modelRef      Model?      @relation(fields: [modelId], references: [id], onDelete: SetNull)
+  itineraryVersions ItineraryVersion[]
 
   @@unique([sessionId, position])
   @@index([sessionId, position])
