@@ -23,6 +23,7 @@ coverage/
 npm-debug.log*
 pnpm-debug.log*
 yarn-debug.log*
+apps/api/log/
 
 # Editor and OS files
 .DS_Store

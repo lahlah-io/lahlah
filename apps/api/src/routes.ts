@@ -57,12 +57,13 @@ const chatService = createChatService({
   searchDestinations: async (input) => {
     const q = input.keywords?.trim();
     const cats = input.categories?.filter(Boolean) ?? [];
+    const catSlugs = [...new Set(cats.flatMap((c) => (c.startsWith("seed-") ? [c, c.slice(5)] : [c, `seed-${c}`])))];
     const rows = await prisma.destination.findMany({
       where: {
         city: "Padang",
         isActive: true,
         ...(q ? { OR: [{ name: { contains: q, mode: "insensitive" } }, { description: { contains: q, mode: "insensitive" } }] } : {}),
-        ...(cats.length ? { categories: { some: { category: { slug: { in: cats } } } } } : {}),
+        ...(catSlugs.length ? { categories: { some: { category: { slug: { in: catSlugs } } } } } : {}),
       },
       take: 10,
       select: toolSelect,
