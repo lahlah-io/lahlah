@@ -299,21 +299,19 @@ const itineraryStop = z.object({
   travelDurationMin: z.number().int().nullable(),
   notes: z.string().nullable(),
   category: z.string().nullable(),
+  snapshotJson: jsonObject.nullable(),
 });
 
-const itineraryRoute = z.object({
-  id: z.uuid(),
-  itineraryVersionId: z.uuid(),
-  fromStopId: z.uuid(),
-  toStopId: z.uuid(),
+const routeLeg = z.object({
+  fromPosition: z.number().int(),
+  toPosition: z.number().int(),
   transportMode: z.string(),
   distanceM: z.number().int().nullable(),
   durationSec: z.number().int().nullable(),
-  geometryJson: lineString.nullable(),
+  geometry: lineString.nullable(),
   provider: z.string().nullable(),
-  providerProfile: z.string().nullable(),
+  profile: z.string().nullable(),
   fallback: z.boolean(),
-  createdAt: z.iso.datetime(),
 });
 
 const itineraryVersion = z.object({
@@ -327,9 +325,11 @@ const itineraryVersion = z.object({
   totalDurationMin: z.number().int().nullable(),
   totalEstimatedMin: z.number().int().nullable(),
   status: z.string(),
+  sourceMessageId: z.uuid().nullable(),
+  routeJson: lineString.extend({ legs: z.array(routeLeg) }).nullable(),
+  expiresAt: z.iso.datetime().nullable(),
   createdAt: z.iso.datetime(),
   stops: z.array(itineraryStop),
-  routes: z.array(itineraryRoute),
 });
 
 const itineraryVersionSummary = z.object({
@@ -405,7 +405,7 @@ const openApiDocument = {
       ItineraryDestination: toJson(itineraryDestination),
       Itinerary: toJson(itinerary),
       ItineraryStop: toJson(itineraryStop),
-      ItineraryRoute: toJson(itineraryRoute),
+      ItineraryRouteJson: toJson(itineraryVersion.shape.routeJson.unwrap()),
       ItineraryVersion: toJson(itineraryVersion),
       ItineraryVersionSummary: toJson(itineraryVersionSummary),
       ItineraryDetail: toJson(itineraryDetail),
@@ -852,7 +852,7 @@ const responseSchemas = {
   ItineraryDestination: itineraryDestination,
   Itinerary: itinerary,
   ItineraryStop: itineraryStop,
-  ItineraryRoute: itineraryRoute,
+  ItineraryRouteJson: itineraryVersion.shape.routeJson.unwrap(),
   ItineraryVersion: itineraryVersion,
   ItineraryVersionSummary: itineraryVersionSummary,
   ItineraryDetail: itineraryDetail,

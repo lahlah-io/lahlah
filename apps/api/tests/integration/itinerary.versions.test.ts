@@ -108,15 +108,15 @@ test("itinerary detail reconstructs current snapshot (stops + route legs) from D
     const { app, id } = await confirmedItinerary(user.id, session.id, rows);
     const res = await app.request(`/api/v1/itineraries/${id}?userId=${user.id}`);
     assert.equal(res.status, 200);
-    const body = await res.json() as { data: { id: string; currentVersion: number; version: { version: number; status: string; stops: Array<{ position: number; name: string }>; routes: Array<{ provider: string; fallback: boolean }> } } };
+    const body = await res.json() as { data: { id: string; currentVersion: number; version: { version: number; status: string; stops: Array<{ position: number; name: string }>; routeJson: { legs: Array<{ provider: string; fallback: boolean }> } } } };
     assert.equal(body.data.id, id);
     assert.equal(body.data.currentVersion, 1);
     assert.equal(body.data.version.version, 1);
     assert.equal(body.data.version.status, "confirmed");
     assert.deepEqual(body.data.version.stops.map((s) => s.position), [1, 2]);
     assert.deepEqual(body.data.version.stops.map((s) => s.name), rows.map((r) => r.name));
-    assert.equal(body.data.version.routes.length, 1);
-    assert.equal(body.data.version.routes[0]!.fallback, true);
+    assert.equal(body.data.version.routeJson.legs.length, 1);
+    assert.equal(body.data.version.routeJson.legs[0]!.fallback, true);
 
     const bySession = await app.request(`/api/v1/itineraries/by-session/${session.id}?userId=${user.id}`);
     assert.equal(bySession.status, 200);

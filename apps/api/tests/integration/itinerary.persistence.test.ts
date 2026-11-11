@@ -107,7 +107,7 @@ test("confirm persists immutable version, stops and routes (DB-sourced, restart-
       where: { id: body.data!.id },
       include: {
         destinations: true,
-        versions: { include: { stops: { orderBy: { position: "asc" } }, routes: true }, orderBy: { version: "asc" } },
+        versions: { include: { stops: { orderBy: { position: "asc" } } }, orderBy: { version: "asc" } },
       },
     });
     assert.ok(inDb, "itinerary persisted");
@@ -120,7 +120,7 @@ test("confirm persists immutable version, stops and routes (DB-sourced, restart-
     assert.equal(v1.stops.length, 2);
     assert.deepEqual(v1.stops.map((s) => s.position), [1, 2]);
     assert.deepEqual(v1.stops.map((s) => s.name), rows.map((r) => r.name));
-    assert.equal(v1.routes.length, 1);
+    assert.equal((v1.routeJson as { legs: unknown[] }).legs.length, 1);
     assert.equal(inDb.destinations.length, 2);
 
     // restart-safe: fresh store/app reads same DB-backed draft/state; idempotent repeat returns existing
