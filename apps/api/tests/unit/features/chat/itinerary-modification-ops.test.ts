@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { applyModification } from "../../../../src/modules/itinerary/services/modification.service.js";
+import { applyModification } from "../../../../src/modules/chat/services/modification-ops.js";
 
 const active = [1, 2, 3, 4, 5, 6].map((p) => ({
   position: p,
