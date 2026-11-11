@@ -5,7 +5,13 @@ export const intentLabels = [
   "general_chat",
   "generate_itinerary",
   "modify_itinerary",
+  "replace_destination",
+  "remove_destination",
+  "add_destination",
   "regenerate_itinerary",
+  "select_itinerary_version",
+  "publish_itinerary_version",
+  "clarify_modification",
   "confirm_itinerary",
   "missing_information",
 ] as const;
@@ -28,7 +34,7 @@ const classifierOutputSchema = z.object({
 });
 
 export const CLASSIFIER_SYSTEM_PROMPT =
-  'Classify the user message into exactly one intent. Respond with ONLY a JSON object in the form {"intent":"<label>","confidence":<0..1>}. Labels: general_chat, generate_itinerary, modify_itinerary, regenerate_itinerary, confirm_itinerary, missing_information.';
+  'Classify the user message into exactly one intent. Respond with ONLY a JSON object in the form {"intent":"<label>","confidence":<0..1>}. Labels: general_chat, generate_itinerary, modify_itinerary, replace_destination, remove_destination, add_destination, regenerate_itinerary, select_itinerary_version, publish_itinerary_version, clarify_modification, confirm_itinerary, missing_information.';
 
 const GREETINGS = ["halo", "hai", "hi", "hello", "assalamualaikum", "selamat pagi", "selamat siang", "selamat sore", "selamat malam"];
 
@@ -43,11 +49,33 @@ const RULE_KEYWORDS: Array<{ intent: Intent; keywords: string[] }> = [
   { intent: "confirm_itinerary", keywords: ["konfirmasi", "confirm", "setuju"] },
 ];
 
+// Destination-scoped verbs need a target; plain "ubah jadwal" stays modify_itinerary.
+const RULE_PATTERNS: Array<{ intent: Intent; pattern: RegExp }> = [
+  { intent: "select_itinerary_version", pattern: /\b(?:pilih|kembali\s+ke|buka|lihat)\s+versi\b/ },
+  { intent: "publish_itinerary_version", pattern: /\b(?:publish|publikasikan|simpan\s+final)\b/ },
+  {
+    intent: "replace_destination",
+    pattern: /\b(?:ganti|ubah|gantikan)\b[^.]*\b(?:destinasi|tempat|lokasi|spot|nomor|ke-\d)/,
+  },
+  {
+    intent: "remove_destination",
+    pattern: /\b(?:hapus|hilangkan|buang)\b[^.]*\b(?:destinasi|tempat|lokasi|spot|nomor|ke-\d|\d)/,
+  },
+  {
+    intent: "add_destination",
+    pattern: /\btambah(?:kan)?\s+(?:\d+\s+)?(?:destinasi|tempat|lokasi|spot)\b/,
+  },
+  { intent: "clarify_modification", pattern: /\b(?:tidak|kurang)\s+(?:suka|cocok)\b/ },
+];
+
 function matchRule(message: string): ClassificationResult | null {
   const m = message.trim().toLowerCase();
   if (!m) return null;
   if (GREETINGS.some((g) => m.startsWith(g) && !/[a-z0-9]/.test(m[g.length] ?? ""))) {
     return { intent: "general_chat", source: "rule" };
+  }
+  for (const rule of RULE_PATTERNS) {
+    if (rule.pattern.test(m)) return { intent: rule.intent, source: "rule" };
   }
   for (const rule of RULE_KEYWORDS) {
     if (rule.keywords.some((k) => m.includes(k))) return { intent: rule.intent, source: "rule" };

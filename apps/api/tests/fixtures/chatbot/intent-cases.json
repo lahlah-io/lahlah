@@ -1,6 +1,6 @@
 {
   "datasetVersion": "chatbot-matrix-1.0",
-  "promptVersion": "intent-v1",
+  "promptVersion": "intent-v2",
   "referenceDate": "2026-11-09",
   "timezone": "Asia/Jakarta",
   "cases": [
@@ -28,7 +28,7 @@
     {
       "id": "INT-004",
       "input": "Ganti destinasi kedua dengan tempat lain",
-      "expectedIntent": "modify_itinerary",
+      "expectedIntent": "replace_destination",
       "mode": "rule",
       "priority": "high"
     },
@@ -64,8 +64,8 @@
     {
       "id": "INT-009",
       "input": "Hapus destinasi terakhir",
-      "expectedIntent": "modify_itinerary",
-      "mode": "model",
+      "expectedIntent": "remove_destination",
+      "mode": "rule",
       "priority": "high"
     },
     {
