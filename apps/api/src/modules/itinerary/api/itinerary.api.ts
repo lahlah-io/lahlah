@@ -7,6 +7,7 @@ import {
   itineraryOwnerQuerySchema,
   itinerarySessionParamSchema,
   itineraryVersionParamSchema,
+  publishItineraryVersionSchema,
   restoreItineraryVersionSchema,
 } from "../schemas/itinerary.schema.js";
 
@@ -65,6 +66,20 @@ export function createItineraryApi(service: ItineraryService) {
           id: c.req.valid("param").id,
           version: c.req.valid("param").version,
           ...c.req.valid("json"),
+        }),
+      ),
+  );
+
+  api.post(
+    "/:id/publish/:version",
+    zValidator("param", itineraryVersionParamSchema),
+    zValidator("json", publishItineraryVersionSchema),
+    async (c) =>
+      c.json(
+        await service.publishVersion({
+          id: c.req.valid("param").id,
+          version: c.req.valid("param").version,
+          userId: c.req.valid("json").userId,
         }),
       ),
   );

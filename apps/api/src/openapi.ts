@@ -22,6 +22,7 @@ import {
   itineraryOwnerQuerySchema,
   itinerarySessionParamSchema,
   itineraryVersionParamSchema,
+  publishItineraryVersionSchema,
   restoreItineraryVersionSchema,
 } from "./modules/itinerary/schemas/itinerary.schema.js";
 import { routeRequestSchema } from "./modules/routing/schemas/routing.schema.js";
@@ -236,10 +237,20 @@ const itineraryDraft = z.object({
   route: lineString.nullable(),
 });
 
+const chatMapPoint = z.object({
+  position: z.number().int(),
+  destinationId: z.uuid(),
+  name: z.string(),
+  latitude: z.number(),
+  longitude: z.number(),
+});
+
 const chatReply = z.object({
   message: z.string(),
   intent: z.enum(intentLabels),
   draft: itineraryDraft.nullable(),
+  version: z.object({ id: z.uuid() }).nullable(),
+  map: z.object({ versionId: z.uuid(), points: z.array(chatMapPoint) }).nullable(),
   assistantMessageId: z.uuid(),
   sessionId: z.uuid(),
 });
@@ -780,6 +791,24 @@ const openApiDocument = {
           "403": errorResponse("Itinerary milik user lain"),
           "404": errorResponse("Itinerary atau versi tidak ditemukan"),
           "409": errorResponse("Versi berubah (VERSION_CONFLICT)"),
+          "503": errorResponse("Auth belum dikonfigurasi"),
+        },
+      },
+    },
+    "/api/v1/itineraries/{id}/publish/{version}": {
+      post: {
+        tags: ["itineraries"],
+        summary: "Publikasikan versi itinerary terpilih",
+        description:
+          "Menyalin stops dari versi yang dipilih ke baris destinasi final dalam satu transaksi. Tidak membuat versi baru.",
+        parameters: params(itineraryVersionParamSchema, "path"),
+        requestBody: jsonBody(publishItineraryVersionSchema),
+        responses: {
+          "200": response("Versi dipublikasikan", envelope("ItineraryDetail")),
+          "400": errorResponse("Validasi parameter atau body gagal"),
+          "401": errorResponse("User tidak aktif"),
+          "403": errorResponse("Itinerary milik user lain"),
+          "404": errorResponse("Itinerary atau versi tidak ditemukan"),
           "503": errorResponse("Auth belum dikonfigurasi"),
         },
       },
