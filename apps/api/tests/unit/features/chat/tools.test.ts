@@ -47,12 +47,21 @@ test("rejects invalid search args", async () => {
   );
 });
 
-test("rejects unknown category slug", async () => {
+test("drops unknown category slug instead of rejecting", async () => {
   const { executeTool } = await loadTools();
-  await assert.rejects(
-    () => executeTool("search_destinations", { categories: ["not-a-real-slug"] }, baseDeps()),
-    (err: unknown) => err instanceof HttpError && err.code === "TOOL_ARGS_INVALID",
-  );
+  let seen: { categories?: string[] } | undefined;
+  const result = (await executeTool(
+    "search_destinations",
+    { categories: ["not-a-real-slug"] },
+    baseDeps({
+      searchDestinations: async (input: { categories?: string[] }) => {
+        seen = input;
+        return [];
+      },
+    }),
+  )) as unknown[];
+  assert.deepEqual(seen?.categories ?? [], []);
+  assert.deepEqual(result, []);
 });
 
 test("rejects non-UUID destination ids", async () => {
