@@ -18,16 +18,14 @@ const KNOWN_CATEGORY_SLUGS = new Set([
   "belanja",
 ]);
 
-const searchArgsSchema = z
-  .object({
-    keywords: z.string().trim().min(1).max(200).optional(),
-    categories: z
-      .array(z.string().trim().min(1).max(100))
-      .max(10)
-      .optional()
-      .refine((v) => !v || v.every((s) => KNOWN_CATEGORY_SLUGS.has(s)), "unknown category"),
-  })
-  .strict();
+const searchArgsSchema = z.object({
+  keywords: z.string().trim().max(200).optional(),
+  categories: z
+    .array(z.string().trim().min(1).max(100))
+    .max(10)
+    .optional()
+    .transform((v) => v?.filter((s) => KNOWN_CATEGORY_SLUGS.has(s))),
+});
 
 const detailArgsSchema = z
   .object({

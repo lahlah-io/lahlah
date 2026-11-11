@@ -50,6 +50,13 @@ function targetName(text: string): string | undefined {
   return name ? name : undefined;
 }
 
+function targetRemoveName(text: string): string | undefined {
+  const m = /\b(?:hapus|hilangkan|buang)\s+(?:destinasi|tempat|lokasi|spot)\s+(.+)$/i.exec(text);
+  const name = m?.[1]?.trim();
+  if (!name || /\bterakhir\b/i.test(name)) return undefined;
+  return name;
+}
+
 /**
  * Parses only destination-scoped modifications. Everything else (time, category,
  * count changes) returns null so the caller keeps its existing trip flow.
@@ -65,13 +72,22 @@ export function parseModification(text: string): ItineraryModification | null {
   const scoped = DESTINATION_NOUN.test(text) || position != null;
   if (replaceVerb && scoped) {
     const name = at.targetPosition ? undefined : targetName(text);
+    // "ubah jadi/menjadi N destinasi" is a count change, not a replace — leave it to the trip flow.
+    if (!at.targetPosition && !name) return null;
     return { operation: "replace_destination", ...at, ...(name ? { targetName: name } : {}) };
   }
 
   const removeVerb = /\b(?:hapus|hilangkan|buang)\b/i.test(text);
   const last = /\bterakhir\b/i.test(text);
   if (removeVerb && (scoped || last)) {
-    return { operation: "remove_destination", ...at, ...(last ? { targetLast: true } : {}) };
+    const name = !at.targetPosition ? targetRemoveName(text) : undefined;
+    if (!at.targetPosition && !last && !name) return null;
+    return {
+      operation: "remove_destination",
+      ...at,
+      ...(last ? { targetLast: true } : {}),
+      ...(!at.targetPosition && !last && name ? { targetName: name } : {}),
+    };
   }
 
   const add = new RegExp(
