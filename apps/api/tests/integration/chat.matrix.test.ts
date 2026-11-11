@@ -162,7 +162,7 @@ test("CON-001..006 + DES-001/002: draft and regeneration never persist; confirm 
     for (const row of rows) {
       assert.equal(row.city, "Padang", "DES-001");
       assert.equal(row.isActive, true, "DES-004");
-      assert.ok(row.categories.some((c) => c.category.slug === "seed-pantai"), "DES-002");
+      assert.ok(row.categories.some((c) => ["pantai", "seed-pantai"].includes(c.category.slug)), "DES-002");
     }
 
     const regenerated = await send(user.id, session, "buat ulang itinerary 2026-12-02 08:00 12:00 pantai di Padang");

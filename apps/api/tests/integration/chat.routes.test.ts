@@ -178,9 +178,13 @@ test("greeting returns general_chat without provider answer call and persists hi
   }
 });
 
-test("missing date/time/categories asks clarification with no tool run", async () => {
+test("minimal itinerary request still generates a draft with defaults", async () => {
   process.env.NODE_ENV = "test";
-  const provider = await startFakeProvider(() => ({ status: 500, json: { error: "must not be called" } }));
+  let toolCalls = 0;
+  const provider = await startFakeProvider(() => {
+    toolCalls++;
+    return toolCallResponse("search_destinations", {});
+  });
   const app = buildApp(provider.url);
   const user = await createTestUser();
   try {
@@ -188,9 +192,13 @@ test("missing date/time/categories asks clarification with no tool run", async (
     const session = (await created.json() as { data: { id: string } }).data;
     const sent = await app.request(`/api/v1/chat/sessions/${session.id}/messages`, { method: "POST", headers: json, body: JSON.stringify({ userId: user.id, content: "buat itinerary di padang" }) });
     assert.equal(sent.status, 200);
-    const body = await sent.json() as { data: { intent: string; draft: unknown } };
-    assert.equal(body.data.intent, "missing_information");
-    assert.equal(body.data.draft, null);
+    const body = await sent.json() as { data: { intent: string; draft: { travelDate: string; startTime: string; endTime: string; destinations: unknown[] } | null } };
+    assert.equal(body.data.intent, "generate_itinerary");
+    assert.ok(body.data.draft);
+    assert.match(body.data.draft.travelDate, /^\d{4}-\d{2}-\d{2}$/);
+    assert.equal(body.data.draft.startTime, "08:00");
+    assert.equal(body.data.draft.endTime, "21:00");
+    assert.ok(toolCalls >= 1);
   } finally {
     await provider.close();
     await cleanupUser(user.id);
@@ -280,7 +288,7 @@ async function sendMessage(app: Hono, sessionId: string, userId: string, content
   return await res.json() as { data: { intent: string; message: string; draft: { travelDate: string; destinations: Array<{ destinationId: string }> } | null } };
 }
 
-test("acceptance #1: date -> category -> time accumulates and promotes to a draft", async () => {
+test("acceptance #1: date -> category -> time accumulates continuously with defaults", async () => {
   process.env.NODE_ENV = "test";
   delete process.env.AI_CLASSIFIER_MODEL;
   let toolCalls = 0;
@@ -295,21 +303,18 @@ test("acceptance #1: date -> category -> time accumulates and promotes to a draf
     const session = (await created.json() as { data: { id: string } }).data;
 
     const turn1 = await sendMessage(app, session.id, user.id, "buat itinerary besok");
-    assert.equal(turn1.data.intent, "missing_information");
-    assert.equal(turn1.data.draft, null);
+    assert.ok(turn1.data.draft);
+    assert.match(turn1.data.draft.travelDate, /^\d{4}-\d{2}-\d{2}$/);
+    assert.match(turn1.data.intent, /itinerary/);
 
     const turn2 = await sendMessage(app, session.id, user.id, "Kuliner");
-    assert.equal(turn2.data.intent, "missing_information");
-    assert.equal(turn2.data.draft, null);
-    assert.match(turn2.data.message, /kategori terdeteksi/i);
-    assert.doesNotMatch(turn2.data.message, /sebutkan juga kategori/i);
+    assert.ok(turn2.data.draft);
 
     const turn3 = await sendMessage(app, session.id, user.id, "Sore");
     assert.ok(turn3.data.draft);
-    assert.ok(turn3.data.draft.destinations.length >= 1);
     assert.match(turn3.data.draft.travelDate, /^\d{4}-\d{2}-\d{2}$/);
     assert.match(turn3.data.intent, /itinerary/);
-    assert.equal(toolCalls, 1);
+    assert.equal(toolCalls, 3);
   } finally {
     await provider.close();
     await cleanupUser(user.id);
@@ -356,18 +361,16 @@ test("acceptance #3: category union then destination count cap", async () => {
     const session = (await created.json() as { data: { id: string } }).data;
 
     const turn1 = await sendMessage(app, session.id, user.id, "buat itinerary besok");
-    assert.equal(turn1.data.intent, "missing_information");
-    assert.equal(turn1.data.draft, null);
+    assert.ok(turn1.data.draft);
 
     const turn2 = await sendMessage(app, session.id, user.id, "Kuliner dan alam");
-    assert.equal(turn2.data.intent, "missing_information");
-    assert.equal(turn2.data.draft, null);
+    assert.ok(turn2.data.draft);
 
     const turn3 = await sendMessage(app, session.id, user.id, "3 destinasi saja");
     assert.ok(turn3.data.draft);
     assert.ok(turn3.data.draft.destinations.length >= 1 && turn3.data.draft.destinations.length <= 3);
     assert.match(turn3.data.intent, /itinerary/);
-    assert.equal(toolCalls, 1);
+    assert.equal(toolCalls, 3);
   } finally {
     await provider.close();
     await cleanupUser(user.id);
@@ -377,7 +380,11 @@ test("acceptance #3: category union then destination count cap", async () => {
 test("E2E-004: replacing category keeps accumulated parameters", async () => {
   process.env.NODE_ENV = "test";
   delete process.env.AI_CLASSIFIER_MODEL;
-  const provider = await startFakeProvider(() => ({ status: 500, json: { error: "must not be called" } }));
+  let toolCalls = 0;
+  const provider = await startFakeProvider(() => {
+    toolCalls++;
+    return toolCallResponse("search_destinations", {});
+  });
   const app = buildApp(provider.url);
   const user = await createTestUser();
   try {
@@ -385,15 +392,11 @@ test("E2E-004: replacing category keeps accumulated parameters", async () => {
     const session = (await created.json() as { data: { id: string } }).data;
 
     const turn1 = await sendMessage(app, session.id, user.id, "Buat itinerary besok kategori kuliner");
-    assert.equal(turn1.data.intent, "missing_information");
-    assert.equal(turn1.data.draft, null);
+    assert.ok(turn1.data.draft);
 
     const turn2 = await sendMessage(app, session.id, user.id, "Ganti kategori jadi alam");
-    assert.equal(turn2.data.intent, "missing_information");
-    assert.equal(turn2.data.draft, null);
-    assert.match(turn2.data.message, /tanggal terdeteksi/i);
-    assert.match(turn2.data.message, /kategori terdeteksi/i);
-    assert.doesNotMatch(turn2.data.message, /sebutkan juga kategori/i);
+    assert.ok(turn2.data.draft);
+    assert.match(turn2.data.draft.travelDate, /^\d{4}-\d{2}-\d{2}$/);
   } finally {
     await provider.close();
     await cleanupUser(user.id);
@@ -461,7 +464,11 @@ test("E2E-006: regenerate keeps context and produces capped draft", async () => 
 test("E2E-007: non-actionable follow-up does not generate a draft", async () => {
   process.env.NODE_ENV = "test";
   delete process.env.AI_CLASSIFIER_MODEL;
-  const provider = await startFakeProvider(() => ({ status: 500, json: { error: "must not be called" } }));
+  let toolCalls = 0;
+  const provider = await startFakeProvider(() => {
+    toolCalls++;
+    return toolCallResponse("search_destinations", {});
+  });
   const app = buildApp(provider.url);
   const user = await createTestUser();
   try {
@@ -469,12 +476,13 @@ test("E2E-007: non-actionable follow-up does not generate a draft", async () => 
     const session = (await created.json() as { data: { id: string } }).data;
 
     const turn1 = await sendMessage(app, session.id, user.id, "Buat itinerary besok");
-    assert.equal(turn1.data.intent, "missing_information");
-    assert.equal(turn1.data.draft, null);
+    assert.ok(turn1.data.draft);
 
+    const before = toolCalls;
     const turn2 = await sendMessage(app, session.id, user.id, "Terima kasih");
     assert.equal(turn2.data.draft, null);
     assert.ok(turn2.data.message.length > 0);
+    assert.equal(toolCalls, before);
   } finally {
     await provider.close();
     await cleanupUser(user.id);
@@ -503,9 +511,10 @@ test("E2E-008: sessions are isolated across users", async () => {
     assert.ok(a.data.draft.destinations.length <= 3);
 
     const b1 = await sendMessage(app, sessionB.id, userB.id, "Buat itinerary kuliner untuk lusa");
-    assert.equal(b1.data.intent, "missing_information");
-    assert.equal(b1.data.draft, null);
-    assert.equal(toolCalls, 1);
+    assert.ok(b1.data.draft);
+    assert.ok(b1.data.draft.destinations.length >= 1);
+    assert.match(b1.data.draft.travelDate, /^\d{4}-\d{2}-\d{2}$/);
+    assert.equal(toolCalls, 2);
     // shortcut: destinationCount is not exposed on draft response; isolation proven by independent outcomes.
   } finally {
     await provider.close();

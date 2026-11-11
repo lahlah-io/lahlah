@@ -63,7 +63,7 @@ function buildChatApp(providerBaseUrl: string) {
   process.env.AI_TOOL_API_KEY = "";
 
   const chatService = createChatService({
-    classifyMessage: async () => ({ intent: "generate_itinerary", source: "rule" }),
+    classifyMessage: async () => ({ intent: "general_chat", source: "rule" }),
     findUserById: (id) => prisma.user.findUnique({ where: { id }, select: { id: true, isActive: true } }),
     searchDestinations: async (input) => {
       const q = input.keywords?.trim();
