@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { completeChat, resolveAiRoleConfig } from "../../../integrations/ai/chat-completions.js";
+import { appendLog } from "../../../shared/logging/file-logger.js";
 
 export const intentLabels = [
   "general_chat",
@@ -22,6 +23,7 @@ export type ClassificationResult = {
   intent: Intent;
   confidence?: number;
   source: "rule" | "model";
+  usage?: { promptTokens: number; completionTokens: number };
 };
 
 type EnvLike = Record<string, string | undefined>;
@@ -98,11 +100,12 @@ function parseClassifierOutput(content: string | null): ClassificationResult | n
 
 // shortcut: natural language and ambiguous messages always hit the model; malformed output
 // is treated as missing info so a bad classifier never runs a tool or writes a draft.
-export async function classify(message: string, env: EnvLike = process.env): Promise<ClassificationResult> {
+export async function classify(message: string, env: EnvLike = process.env, sessionId?: string | null): Promise<ClassificationResult> {
   const rule = matchRule(message);
   if (rule) return rule;
 
   let content: string | null;
+  let usage: { promptTokens: number; completionTokens: number } | undefined;
   try {
     const config = resolveAiRoleConfig("classifier", env);
     const result = await completeChat({
@@ -114,7 +117,15 @@ export async function classify(message: string, env: EnvLike = process.env): Pro
       ],
     });
     content = result.content;
-  } catch {
+    usage = result.usage
+      ? { promptTokens: result.usage.promptTokens, completionTokens: result.usage.completionTokens }
+      : undefined;
+  } catch (err) {
+    appendLog(
+      "chat",
+      { kind: "classifier_error", input: message, error: err instanceof Error ? err.message : String(err) },
+      sessionId,
+    );
     return { intent: "missing_information", source: "rule" };
   }
 
@@ -122,5 +133,5 @@ export async function classify(message: string, env: EnvLike = process.env): Pro
   if (!classified || (classified.confidence ?? 0) < MIN_CONFIDENCE) {
     return { intent: "missing_information", source: "rule" };
   }
-  return classified;
+  return usage ? { ...classified, usage } : classified;
 }

@@ -37,10 +37,10 @@ type ChatDeps = {
 
 export type TripDetails = { travelDate: string; startTime: string; endTime: string; categories: string[]; destinationCount?: number };
 
-function mapUsage(raw: unknown): { inputTokens?: number; outputTokens?: number } {
-  // shortcut: completeChat normalizer does not expose usage yet; keep optional.
-  void raw;
-  return {};
+function mapUsage(raw: { usage?: { promptTokens?: number; completionTokens?: number } }): { inputTokens?: number; outputTokens?: number } {
+  const u = raw.usage;
+  if (!u) return {};
+  return { inputTokens: u.promptTokens ?? 0, outputTokens: u.completionTokens ?? 0 };
 }
 
 function asAiHistory(rows: Array<{ role: "user" | "assistant" | "system" | "tool"; content: string }>) {
@@ -72,15 +72,6 @@ async function resolveSystemModelId() {
   const row = await chatRepository.findOrCreateSystemModel({ provider, modelIdentifier, name: modelIdentifier });
   return row.id;
 }
-
-const GENERAL_TIME_SUGGESTION = `Jamnya belum ada — balas singkat saja, contoh: "sore" atau "jam 09:00-15:00".
-- dini hari 00:00-05:59
-- pagi 06:00-10:59 (pantai/alam/kuliner pagi)
-- siang 11:00-14:59 (kuliner siang/budaya)
-- sore 15:00-17:59 (santai, tutup sunset pantai)
-- malam 18:00-23:59 (kuliner malam)
-
-Contoh lengkap: "Buat itinerary 2026-11-21 jam 09:00-15:00 untuk kategori kuliner dan alam di Padang, 3 destinasi".`;
 
 const MONTHS: Record<string, string> = {
   jan: "01", januari: "01", feb: "02", februari: "02", mar: "03", maret: "03", apr: "04", april: "04",
@@ -156,13 +147,11 @@ export function parseFlexibleTimeRange(text: string): { startTime: string; endTi
 }
 
 const WORD_NUMBERS: Record<string, number> = { satu: 1, dua: 2, tiga: 3, empat: 4, lima: 5, enam: 6, tujuh: 7, delapan: 8, sembilan: 9, sepuluh: 10 };
-const COUNT_NOUN = "destinasi|tempat(?:\\s+wisata)?|lokasi|spot|titik";
+const COUNT_NOUN = "destinasi|tempat(?:\\s+wisata)?|lokasi|spot|titik|itinerary|itinerari|itenerary";
 
 export function extractDestinationCount(text: string): number | null {
-  const digit = /\b(\d+)\s+(?:destinasi|tempat(?:\s+wisata)?|lokasi|spot|titik)\b/
-    .exec(text.toLowerCase());
-  const word = new RegExp(`\\b(satu|dua|tiga|empat|lima|enam|tujuh|delapan|sembilan|sepuluh)\\s+(?:${COUNT_NOUN})\\b`)
-    .exec(text.toLowerCase());
+  const digit = new RegExp(`\\b(\\d+)\\s+(?:${COUNT_NOUN})\\b`, "i").exec(text);
+  const word = new RegExp(`\\b(satu|dua|tiga|empat|lima|enam|tujuh|delapan|sembilan|sepuluh)\\s+(?:${COUNT_NOUN})\\b`, "i").exec(text);
   const pick = (m: RegExpExecArray | null): number | null => {
     if (!m) return null;
     const n = WORD_NUMBERS[m[1]!] ?? Number(m[1]);
@@ -171,19 +160,21 @@ export function extractDestinationCount(text: string): number | null {
   if (digit && word) return (digit.index! <= word.index! ? pick(digit) : pick(word));
   const withNoun = digit ? pick(digit) : pick(word);
   if (withNoun != null) return withNoun;
-  // shortcut: "jadikan/ubah jadi/ganti jadi 3" without count noun (CTX-008 matrix).
-  const setCount = /\b(?:jadikan|ubah\s+jadi|ganti\s+jadi)\s+(satu|dua|tiga|empat|lima|enam|tujuh|delapan|sembilan|sepuluh|\d{1,2})\b/i.exec(text);
+  // shortcut: "jadikan/ubah jadi/ubah menjadi/ganti jadi 3" tanpa kata jumlah (CTX-008 + percakapan).
+  const setCount = /\b(?:jadikan|ubah(?:kan)?\s+(?:jadi|menjadi)|ganti\s+(?:jadi|menjadi))\s+(satu|dua|tiga|empat|lima|enam|tujuh|delapan|sembilan|sepuluh|\d{1,2})\b/i.exec(text);
   return pick(setCount);
 }
 
 export function extractCategories(text: string): string[] {
   const categories: string[] = [];
   const t = text.toLowerCase();
-  if (t.includes("pantai")) categories.push("seed-pantai");
-  if (t.includes("budaya")) categories.push("seed-budaya");
-  if (t.includes("sejarah")) categories.push("seed-sejarah");
-  if (t.includes("alam")) categories.push("seed-alam");
-  if (t.includes("kuliner") || t.includes("makan")) categories.push("seed-kuliner");
+  if (t.includes("pantai")) categories.push("pantai");
+  if (t.includes("budaya")) categories.push("budaya");
+  if (t.includes("sejarah")) categories.push("sejarah");
+  if (t.includes("alam")) categories.push("alam");
+  if (t.includes("kuliner") || t.includes("makan")) categories.push("kuliner");
+  if (t.includes("santai")) categories.push("santai");
+  if (t.includes("belanja") || t.includes("shopping")) categories.push("belanja");
   return [...new Set(categories)];
 }
 
@@ -281,47 +272,36 @@ export type EffectiveOutcome =
   | { kind: "general_time"; dateHint: string | null; categories: string[] }
   | { kind: "missing"; dateHint: string | null; timeHint: { startTime: string; endTime: string } | null; categories: string[] };
 
-export function resolveEffectiveRequest(p: AccumulatedTripParams): EffectiveOutcome {
-  if (!p.travelDate) {
-    return {
-      kind: "missing",
-      dateHint: null,
-      timeHint: (p.startTime && p.endTime) ? { startTime: p.startTime, endTime: p.endTime } : null,
-      categories: p.categories,
-    };
+// Slot default per kategori tunggal; campuran/tak dikenal = seharian penuh.
+const CATEGORY_TIME_SLOT: Record<string, { startTime: string; endTime: string }> = {
+  pantai: { startTime: "06:00", endTime: "10:59" },
+  alam: { startTime: "06:00", endTime: "10:59" },
+  budaya: { startTime: "11:00", endTime: "14:59" },
+  sejarah: { startTime: "11:00", endTime: "14:59" },
+  belanja: { startTime: "11:00", endTime: "14:59" },
+  kuliner: { startTime: "11:00", endTime: "14:59" },
+  santai: { startTime: "15:00", endTime: "17:59" },
+};
+
+export function defaultTimeRange(categories: string[]): { startTime: string; endTime: string } {
+  if (categories.length === 1) {
+    const slot = CATEGORY_TIME_SLOT[categories[0]!];
+    if (slot) return slot;
   }
-  if (p.destinationCount != null) {
-    return {
-      kind: "ready",
-      trip: {
-        travelDate: p.travelDate,
-        startTime: p.startTime ?? "08:00",
-        endTime: p.endTime ?? "21:00",
-        categories: p.categories,
-        destinationCount: p.destinationCount,
-      },
-    };
-  }
-  const hasTime = !!p.startTime && !!p.endTime;
-  const hasCat = p.categories.length > 0;
-  if (hasTime && hasCat) {
-    return {
-      kind: "ready",
-      trip: {
-        travelDate: p.travelDate,
-        startTime: p.startTime!,
-        endTime: p.endTime!,
-        categories: p.categories,
-        destinationCount: p.destinationCount ?? 8,
-      },
-    };
-  }
-  if (!hasTime) return { kind: "general_time", dateHint: p.travelDate, categories: p.categories };
+  return { startTime: "08:00", endTime: "21:00" };
+}
+
+export function resolveEffectiveRequest(p: AccumulatedTripParams, now = new Date()): EffectiveOutcome {
+  const time = defaultTimeRange(p.categories);
   return {
-    kind: "missing",
-    dateHint: p.travelDate,
-    timeHint: { startTime: p.startTime!, endTime: p.endTime! },
-    categories: p.categories,
+    kind: "ready",
+    trip: {
+      travelDate: p.travelDate ?? todayYmd(now),
+      startTime: p.startTime ?? time.startTime,
+      endTime: p.endTime ?? time.endTime,
+      categories: p.categories,
+      destinationCount: p.destinationCount ?? 8,
+    },
   };
 }
 
@@ -621,16 +601,30 @@ export function createChatService(deps: ChatDeps) {
       (a, b) => Number(b.category === targetCategory) - Number(a.category === targetCategory),
     );
 
-    const applied = applyModification(
-      active.stops.map((s) => ({
-        position: s.position,
-        destinationId: s.destinationId ?? "",
-        name: s.name,
-        category: s.category,
-      })),
-      input.mod,
-      ordered,
-    );
+    let applied: ReturnType<typeof applyModification>;
+    try {
+      applied = applyModification(
+        active.stops.map((s) => ({
+          position: s.position,
+          destinationId: s.destinationId ?? "",
+          name: s.name,
+          category: s.category,
+        })),
+        input.mod,
+        ordered,
+      );
+    } catch (err) {
+      if (err instanceof HttpError && err.code === "MODIFY_TARGET_NOT_FOUND") {
+        const list = active.stops.map((s) => `${s.position}. ${s.name}`).join("; ");
+        return {
+          intent: "modify_itinerary",
+          message: `Destinasi itu tidak ada di itinerary saat ini. Destinasi aktif: ${list}. Sebutkan nomor (misal "hapus destinasi ke-3") atau nama yang persis.`,
+          draft: versionToDraft(active),
+          usage: {},
+        };
+      }
+      throw err;
+    }
 
     const pool = new Map<
       string,
@@ -706,18 +700,21 @@ export function createChatService(deps: ChatDeps) {
     history: AiMessage[];
     sourceMessageId?: string;
   }): Promise<{ intent: Intent; message: string; draft: ItineraryDraftResponse | null; usage: { inputTokens?: number; outputTokens?: number } }> {
-    const classified = await doClassify(input.content, process.env);
+    const classified = await doClassify(input.content, process.env, input.sessionId);
     let intent: Intent = classified.intent;
     let message = "Ada yang bisa saya bantu untuk rencana perjalanan di Padang?";
     let draft: ItineraryDraftResponse | null = null;
-    let usage: { inputTokens?: number; outputTokens?: number } = {};
+    let usage: { inputTokens?: number; outputTokens?: number } = classified.usage
+      ? { inputTokens: classified.usage.promptTokens, outputTokens: classified.usage.completionTokens }
+      : {};
 
     const merged = accumulateTripParams(input.history, input.content, new Date());
     const outcome = resolveEffectiveRequest(merged.params);
     const contributes = messageContributesParams(input.content);
     const isGeneratorIntent = intent === "generate_itinerary" || intent === "modify_itinerary" || intent === "regenerate_itinerary";
     const isConfirm = intent === "confirm_itinerary";
-    const usesTripFlow = isGeneratorIntent || (contributes && merged.pending && !isConfirm);
+    const wantsItinerary = /\b(buat|buatkan|rencana|rencanakan|itinerary|itinerari|itenerary|destinasi|susun|bikin|generate|minta)\b/i.test(input.content);
+  const usesTripFlow = isGeneratorIntent || (contributes && (merged.pending || wantsItinerary) && !isConfirm);
 
     const modification = parseModification(input.content);
     const isModificationIntent =
@@ -736,82 +733,49 @@ export function createChatService(deps: ChatDeps) {
         sourceMessageId: input.sourceMessageId,
         mod: modification,
       });
-      if (applied) return { intent: applied.intent, message: applied.message, draft: applied.draft, usage: applied.usage };
+      if (applied) return { intent: applied.intent, message: applied.message, draft: applied.draft, usage };
     }
 
-    if (usesTripFlow) {
-      if (outcome.kind === "ready") {
-        if (!isGeneratorIntent) intent = "modify_itinerary";
-        const result = await runItineraryToolFlow({ deps, history: input.history, userMessage: input.content, sessionId: input.sessionId, request: outcome.trip });
-        draft = result.draft;
-        usage = result.usage;
-        if (deps.itinerary) {
-          const route = buildRouteJson(
-            draft.destinations.map((d) => ({ position: d.order, latitude: d.latitude, longitude: d.longitude })),
-          );
-          const saved = await deps.itinerary.saveDraftVersion({
-            userId: input.userId,
-            sessionId: input.sessionId,
-            travelDate: draft.travelDate,
-            startTime: draft.startTime,
-            endTime: draft.endTime,
-            stops: draftStops(draft),
-            routeJson: route.json,
-            changeType: "generate",
-            sourceMessageId: input.sourceMessageId ?? null,
-          });
-          draft = versionToDraft(saved);
-        } else {
-          const draftId = await draftStore.replaceSessionDraft({ userId: input.userId, sessionId: input.sessionId, itinerary: draft });
-          draft = await draftStore.getDraft({ draftId, userId: input.userId, sessionId: input.sessionId });
-        }
-        message = `Draft itinerary ${draft.travelDate} untuk ${draft.destinations.length} destinasi di Padang siap dikonfirmasi.`;
-      } else if (outcome.kind === "general_time") {
-        intent = "missing_information";
-        const catHint = outcome.categories.length ? `Kategori terdeteksi. ` : `Sebutkan juga kategori wisata di Padang (misalnya pantai, budaya, kuliner, alam, sejarah). `;
-        message = (outcome.dateHint ? `Tanggal terdeteksi ${outcome.dateHint}. ` : `Tanggal bisa pakai hari ini (${todayYmd()}) jika belum lengkap. `) + catHint + GENERAL_TIME_SUGGESTION;
+    if (usesTripFlow && outcome.kind === "ready") {
+      if (!isGeneratorIntent) intent = "modify_itinerary";
+      const result = await runItineraryToolFlow({ deps, history: input.history, userMessage: input.content, sessionId: input.sessionId, request: outcome.trip });
+      draft = result.draft;
+      usage = {
+        inputTokens: (usage.inputTokens ?? 0) + (result.usage.inputTokens ?? 0),
+        outputTokens: (usage.outputTokens ?? 0) + (result.usage.outputTokens ?? 0),
+      };
+      if (deps.itinerary) {
+        const route = buildRouteJson(
+          draft.destinations.map((d) => ({ position: d.order, latitude: d.latitude, longitude: d.longitude })),
+        );
+        const saved = await deps.itinerary.saveDraftVersion({
+          userId: input.userId,
+          sessionId: input.sessionId,
+          travelDate: draft.travelDate,
+          startTime: draft.startTime,
+          endTime: draft.endTime,
+          stops: draftStops(draft),
+          routeJson: route.json,
+          changeType: merged.pending ? "regenerate" : "generate",
+          sourceMessageId: input.sourceMessageId ?? null,
+        });
+        draft = versionToDraft(saved);
       } else {
-        intent = "missing_information";
-        const parts: string[] = [];
-        if (outcome.dateHint) parts.push(`tanggal ${outcome.dateHint}`);
-        if (outcome.timeHint) parts.push(`jam ${outcome.timeHint.startTime}-${outcome.timeHint.endTime}`);
-        if (outcome.categories.length) parts.push(`kategori terdeteksi`);
-        const known = parts.length ? `Saya menangkap ${parts.join(", ")}. ` : "";
-        const need: string[] = [];
-        if (!outcome.dateHint) need.push("tanggal (YYYY-MM-DD; jika tidak lengkap dipakai tanggal hari ini)");
-        if (!outcome.timeHint) need.push("jam mulai-selesai (HH:MM-HH:MM)");
-        if (outcome.categories.length === 0) need.push("kategori (pantai, budaya, kuliner, alam, sejarah, santai, belanja)");
-        message = `${known}Untuk membuat draft itinerary Padang, mohon lengkapi: ${need.join(", ")}.`;
+        const draftId = await draftStore.replaceSessionDraft({ userId: input.userId, sessionId: input.sessionId, itinerary: draft });
+        draft = await draftStore.getDraft({ draftId, userId: input.userId, sessionId: input.sessionId });
       }
+      const defaults: string[] = [];
+      if (merged.params.travelDate == null) defaults.push(`tanggal hari ini (${draft.travelDate})`);
+      if (merged.params.startTime == null) defaults.push(`jam ${draft.startTime}-${draft.endTime}`);
+      message = `Draft itinerary ${draft.travelDate} untuk ${draft.destinations.length} destinasi di Padang siap dikonfirmasi.`;
+      if (defaults.length) message += ` Dipakai default ${defaults.join(", ")} (bisa diubah).`;
     } else if (intent === "general_chat" || isConfirm) {
       message = isConfirm
         ? "Untuk menyimpan itinerary, gunakan aksi konfirmasi draft yang tersedia."
-        : "Halo! Saya bisa bantu buat itinerary satu hari di Kota Padang. Sebutkan tanggal, jam mulai-selesai, dan kategori (misalnya pantai atau kuliner).";
+        : "Halo! Saya bisa bantu menyusun itinerary satu hari di Kota Padang. Sebutkan saja kategori wisata yang kamu suka — misalnya pantai, kuliner, atau alam. Mau mulai dari mana?";
     } else {
       intent = "missing_information";
-      const travelContext = /\b(perjalanan|jalan-jalan|liburan|wisata|trip|travel|itinerary|padang)\b/i.test(input.content);
-      if (travelContext) {
-        const trip = analyzeTripRequest(input.content);
-        if (trip.kind === "general_time") {
-          const catHint = trip.categories.length ? `Kategori terdeteksi. ` : ``;
-          message = (trip.dateHint ? `Tanggal terdeteksi ${trip.dateHint}. ` : ``) + catHint + GENERAL_TIME_SUGGESTION;
-        } else if (trip.kind === "missing") {
-          const parts: string[] = [];
-          if (trip.dateHint) parts.push(`tanggal ${trip.dateHint}`);
-          if (trip.timeHint) parts.push(`jam ${trip.timeHint.startTime}-${trip.timeHint.endTime}`);
-          if (trip.categories.length) parts.push(`kategori terdeteksi`);
-          const known = parts.length ? `Saya menangkap ${parts.join(", ")}. ` : "";
-          const need: string[] = [];
-          if (!trip.timeHint) need.push("jam (cukup tulis pagi/siang/sore/malam, atau HH:MM-HH:MM; contoh 'sore' atau 'jam 09:00-15:00')");
-          if (!trip.dateHint) need.push("tanggal (YYYY-MM-DD; jika tidak lengkap dipakai tanggal hari ini)");
-          if (trip.categories.length === 0) need.push("kategori (pantai, budaya, kuliner, alam, sejarah, santai, belanja)");
-          message = `${known}Untuk draft itinerary Padang, mohon lengkapi: ${need.join(", ")}.`;
-        } else {
-          message = "Bisa jelaskan rencana Anda? Untuk itinerary, saya butuh tanggal, jam mulai-selesai, dan kategori wisata di Padang.";
-        }
-      } else {
-        message = "Bisa jelaskan rencana Anda? Untuk itinerary, saya butuh tanggal, jam mulai-selesai, dan kategori wisata di Padang.";
-      }
+      message = "Sebutkan kategori wisata di Padang (misalnya pantai, budaya, kuliner, alam, sejarah, santai, belanja) — tanggal dan jam bisa saya isi otomatis.";
     }
 
     return { intent, message, draft, usage };
