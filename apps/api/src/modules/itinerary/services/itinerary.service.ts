@@ -101,17 +101,7 @@ export function createItineraryService(deps: ItineraryDeps) {
         category: null,
       }));
 
-      type RouteLeg = {
-        fromPosition: number;
-        toPosition: number;
-        transportMode: string;
-        distanceM: number | null;
-        durationSec: number | null;
-        geometryJson: { type: "LineString"; coordinates: Array<[number, number]> } | null;
-        provider: string | null;
-        providerProfile: string | null;
-        fallback: boolean;
-      };
+      type RouteLeg = itineraryRepository.RouteLegJson;
 
       const ordered = [...draft.destinations].sort((a, b) => a.order - b.order);
       const routeLegs: RouteLeg[] = [];
@@ -128,7 +118,7 @@ export function createItineraryService(deps: ItineraryDeps) {
             transportMode: profile,
             distanceM: null,
             durationSec: null,
-            geometryJson: {
+            geometry: {
               type: "LineString",
               coordinates: [
                 [from.longitude, from.latitude],
@@ -136,7 +126,7 @@ export function createItineraryService(deps: ItineraryDeps) {
               ],
             },
             provider: "fallback",
-            providerProfile: "straight_line",
+            profile: "straight_line",
             fallback: true,
           };
           if (!deps.getRoute) {
@@ -154,9 +144,9 @@ export function createItineraryService(deps: ItineraryDeps) {
             const coords =
               r.geometry && Array.isArray(r.geometry.coordinates) && r.geometry.coordinates.length >= 2
                 ? r.geometry.coordinates
-                : straight.geometryJson!.coordinates;
+                : straight.geometry!.coordinates;
             if (r.source === "fallback") {
-              routeLegs.push({ ...straight, geometryJson: { type: "LineString", coordinates: coords } });
+              routeLegs.push({ ...straight, geometry: { type: "LineString", coordinates: coords } });
               continue;
             }
             const distanceM = r.distanceKm != null ? Math.round(r.distanceKm * 1000) : null;
@@ -167,9 +157,9 @@ export function createItineraryService(deps: ItineraryDeps) {
               transportMode: profile,
               distanceM,
               durationSec,
-              geometryJson: { type: "LineString", coordinates: coords },
+              geometry: { type: "LineString", coordinates: coords },
               provider: r.source,
-              providerProfile: profile,
+              profile,
               fallback: false,
             });
           } catch {
@@ -190,9 +180,12 @@ export function createItineraryService(deps: ItineraryDeps) {
       metadata.mode = routeMode;
       metadata.distanceType = routeMode;
       metadata.profile = profile;
-      metadata.route = routeLegs.length
-        ? { type: "LineString" as const, coordinates: routeLegs.flatMap((l) => l.geometryJson?.coordinates ?? []) }
-        : (draft.route as unknown);
+      const routeJson: itineraryRepository.ItineraryRouteJson = {
+        type: "LineString",
+        coordinates: routeLegs.flatMap((l) => l.geometry?.coordinates ?? []),
+        legs: routeLegs,
+      };
+      metadata.route = routeLegs.length ? routeJson : (draft.route as unknown);
 
       try {
         const created = await itineraryRepository.createConfirmed({
@@ -214,7 +207,7 @@ export function createItineraryService(deps: ItineraryDeps) {
             totalEstimatedMin: totalDurationMin,
             status: "confirmed",
             stops,
-            routes: routeLegs,
+            routeJson,
           },
         });
         return { data: { ...created, status: "final" }, created: true as const };
@@ -249,12 +242,15 @@ export function createItineraryService(deps: ItineraryDeps) {
       const row = await itineraryRepository.findByIdAndUser(input.id, input.userId);
       if (!row) throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
       return {
-        data: (await itineraryRepository.listVersionSummaries(row.id)).map((v) => ({
-          ...v,
-          stopCount: v._count.stops,
-          routeCount: v._count.routes,
-          _count: undefined,
-        })),
+        data: (await itineraryRepository.listVersionSummaries(row.id)).map((v) => {
+          const routeJson = v.routeJson as itineraryRepository.ItineraryRouteJson | null;
+          return {
+            ...v,
+            stopCount: v._count.stops,
+            routeCount: Array.isArray(routeJson?.legs) ? routeJson.legs.length : 0,
+            _count: undefined,
+          };
+        }),
       };
     },
 

@@ -45,22 +45,8 @@ const stopSelect = {
   travelDurationMin: true,
   notes: true,
   category: true,
+  snapshotJson: true,
 } satisfies Prisma.ItineraryStopSelect;
-
-const routeSelect = {
-  id: true,
-  itineraryVersionId: true,
-  fromStopId: true,
-  toStopId: true,
-  transportMode: true,
-  distanceM: true,
-  durationSec: true,
-  geometryJson: true,
-  provider: true,
-  providerProfile: true,
-  fallback: true,
-  createdAt: true,
-} satisfies Prisma.ItineraryRouteSelect;
 
 const versionSelect = {
   id: true,
@@ -73,10 +59,30 @@ const versionSelect = {
   totalDurationMin: true,
   totalEstimatedMin: true,
   status: true,
+  sourceMessageId: true,
+  routeJson: true,
+  expiresAt: true,
   createdAt: true,
   stops: { select: stopSelect, orderBy: { position: "asc" as const } },
-  routes: { select: routeSelect },
 } satisfies Prisma.ItineraryVersionSelect;
+
+export type RouteLegJson = {
+  fromPosition: number;
+  toPosition: number;
+  transportMode: string;
+  distanceM: number | null;
+  durationSec: number | null;
+  geometry: { type: "LineString"; coordinates: Array<[number, number]> } | null;
+  provider: string | null;
+  profile: string | null;
+  fallback: boolean;
+};
+
+export type ItineraryRouteJson = {
+  type: "LineString";
+  coordinates: Array<[number, number]>;
+  legs: RouteLegJson[];
+};
 
 export async function findByIdAndUser(id: string, userId: string) {
   return prisma.itinerary.findFirst({ where: { id, userId }, select: itinerarySelect });
@@ -121,8 +127,10 @@ export async function createConfirmed(input: {
     totalDurationMin?: number | null;
     totalEstimatedMin?: number | null;
     status: string;
+    sourceMessageId?: string | null;
+    routeJson?: Prisma.InputJsonValue | null;
+    expiresAt?: Date | null;
     stops: SnapshotStopInput[];
-    routes?: SnapshotRouteInput[];
   };
 }) {
   return prisma.$transaction(async (tx) => {
@@ -163,13 +171,15 @@ export async function createConfirmed(input: {
         totalDurationMin: input.version.totalDurationMin ?? undefined,
         totalEstimatedMin: input.version.totalEstimatedMin ?? undefined,
         status: input.version.status,
+        sourceMessageId: input.version.sourceMessageId ?? undefined,
+        routeJson: input.version.routeJson ?? undefined,
+        expiresAt: input.version.expiresAt ?? undefined,
       },
       select: { id: true },
     });
 
-    const createdStops = [] as Array<{ id: string; position: number }>;
     for (const stop of [...input.version.stops].sort((a, b) => a.position - b.position)) {
-      const row = await tx.itineraryStop.create({
+      await tx.itineraryStop.create({
         data: {
           itineraryVersionId: version.id,
           destinationId: stop.destinationId ?? undefined,
@@ -183,33 +193,10 @@ export async function createConfirmed(input: {
           travelDurationMin: stop.travelDurationMin ?? undefined,
           notes: stop.notes ?? undefined,
           category: stop.category ?? undefined,
+          snapshotJson: stop.snapshotJson ?? undefined,
         },
         select: { id: true, position: true },
       });
-      createdStops.push(row);
-    }
-
-    const stopIdByPosition = new Map(createdStops.map((s) => [s.position, s.id]));
-    if (input.version.routes?.length) {
-      for (const route of input.version.routes) {
-        const fromStopId = route.fromStopId ?? (route.fromPosition != null ? stopIdByPosition.get(route.fromPosition) : undefined);
-        const toStopId = route.toStopId ?? (route.toPosition != null ? stopIdByPosition.get(route.toPosition) : undefined);
-        if (!fromStopId || !toStopId) continue;
-        await tx.itineraryRoute.create({
-          data: {
-            itineraryVersionId: version.id,
-            fromStopId,
-            toStopId,
-            transportMode: route.transportMode,
-            distanceM: route.distanceM ?? undefined,
-            durationSec: route.durationSec ?? undefined,
-            geometryJson: route.geometryJson ?? undefined,
-            provider: route.provider ?? undefined,
-            providerProfile: route.providerProfile ?? undefined,
-            fallback: route.fallback ?? false,
-          },
-        });
-      }
     }
 
     await tx.itinerary.update({ where: { id: itinerary.id }, data: { currentVersion: input.version.version } });
@@ -232,20 +219,7 @@ export type SnapshotStopInput = {
   travelDurationMin?: number | null;
   notes?: string | null;
   category?: string | null;
-};
-
-export type SnapshotRouteInput = {
-  fromStopId?: string;
-  toStopId?: string;
-  fromPosition?: number;
-  toPosition?: number;
-  transportMode: string;
-  distanceM?: number | null;
-  durationSec?: number | null;
-  geometryJson?: Prisma.InputJsonValue | null;
-  provider?: string | null;
-  providerProfile?: string | null;
-  fallback?: boolean;
+  snapshotJson?: Prisma.InputJsonValue | null;
 };
 
 export type CreateVersionSnapshotInput = {
@@ -258,8 +232,10 @@ export type CreateVersionSnapshotInput = {
   totalDurationMin?: number | null;
   totalEstimatedMin?: number | null;
   status: string;
+  sourceMessageId?: string | null;
+  routeJson?: Prisma.InputJsonValue | null;
+  expiresAt?: Date | null;
   stops: SnapshotStopInput[];
-  routes?: SnapshotRouteInput[];
 };
 
 export async function createVersionSnapshotTx(input: CreateVersionSnapshotInput) {
@@ -275,13 +251,15 @@ export async function createVersionSnapshotTx(input: CreateVersionSnapshotInput)
         totalDurationMin: input.totalDurationMin ?? undefined,
         totalEstimatedMin: input.totalEstimatedMin ?? undefined,
         status: input.status,
+        sourceMessageId: input.sourceMessageId ?? undefined,
+        routeJson: input.routeJson ?? undefined,
+        expiresAt: input.expiresAt ?? undefined,
       },
       select: { id: true },
     });
 
-    const createdStops = [] as Array<{ id: string; position: number }>;
     for (const stop of [...input.stops].sort((a, b) => a.position - b.position)) {
-      const row = await tx.itineraryStop.create({
+      await tx.itineraryStop.create({
         data: {
           itineraryVersionId: version.id,
           destinationId: stop.destinationId ?? undefined,
@@ -295,33 +273,10 @@ export async function createVersionSnapshotTx(input: CreateVersionSnapshotInput)
           travelDurationMin: stop.travelDurationMin ?? undefined,
           notes: stop.notes ?? undefined,
           category: stop.category ?? undefined,
+          snapshotJson: stop.snapshotJson ?? undefined,
         },
         select: { id: true, position: true },
       });
-      createdStops.push(row);
-    }
-
-    const stopIdByPosition = new Map(createdStops.map((s) => [s.position, s.id]));
-    if (input.routes?.length) {
-      for (const route of input.routes) {
-        const fromStopId = route.fromStopId ?? (route.fromPosition != null ? stopIdByPosition.get(route.fromPosition) : undefined);
-        const toStopId = route.toStopId ?? (route.toPosition != null ? stopIdByPosition.get(route.toPosition) : undefined);
-        if (!fromStopId || !toStopId) throw new Error("createVersionSnapshotTx: route must resolve to stop ids");
-        await tx.itineraryRoute.create({
-          data: {
-            itineraryVersionId: version.id,
-            fromStopId,
-            toStopId,
-            transportMode: route.transportMode,
-            distanceM: route.distanceM ?? undefined,
-            durationSec: route.durationSec ?? undefined,
-            geometryJson: route.geometryJson ?? undefined,
-            provider: route.provider ?? undefined,
-            providerProfile: route.providerProfile ?? undefined,
-            fallback: route.fallback ?? false,
-          },
-        });
-      }
     }
 
     return tx.itineraryVersion.findUniqueOrThrow({
@@ -378,8 +333,9 @@ export async function listVersionSummaries(itineraryId: string) {
       totalDistanceM: true,
       totalDurationMin: true,
       totalEstimatedMin: true,
+      routeJson: true,
       createdAt: true,
-      _count: { select: { stops: true, routes: true } },
+      _count: { select: { stops: true } },
     },
   });
 }
@@ -403,7 +359,12 @@ export async function restoreVersionTx(input: {
 
     const target = await tx.itineraryVersion.findUnique({
       where: { itineraryId_version: { itineraryId: input.itineraryId, version: input.targetVersion } },
-      select: { id: true, version: true, stops: { select: stopSelect, orderBy: { position: "asc" } }, routes: { select: routeSelect } },
+      select: {
+        id: true,
+        version: true,
+        routeJson: true,
+        stops: { select: stopSelect, orderBy: { position: "asc" } },
+      },
     });
     if (!target) return { ok: false, reason: "version_not_found" };
 
@@ -424,13 +385,13 @@ export async function restoreVersionTx(input: {
         basedOnVersion: target.version,
         changeType: "restore",
         status: "confirmed",
+        routeJson: target.routeJson ?? undefined,
       },
       select: { id: true },
     });
 
-    const stopIdByPosition = new Map<number, string>();
     for (const stop of target.stops) {
-      const row = await tx.itineraryStop.create({
+      await tx.itineraryStop.create({
         data: {
           itineraryVersionId: created.id,
           destinationId: stop.destinationId ?? undefined,
@@ -444,33 +405,9 @@ export async function restoreVersionTx(input: {
           travelDurationMin: stop.travelDurationMin ?? undefined,
           notes: stop.notes ?? undefined,
           category: stop.category ?? undefined,
+          snapshotJson: stop.snapshotJson ?? undefined,
         },
         select: { id: true, position: true },
-      });
-      stopIdByPosition.set(row.position, row.id);
-    }
-
-    for (const route of target.routes) {
-      const fromStopId = stopIdByPosition.get(
-        target.stops.find((stop) => stop.id === route.fromStopId)?.position ?? -1,
-      );
-      const toStopId = stopIdByPosition.get(
-        target.stops.find((stop) => stop.id === route.toStopId)?.position ?? -1,
-      );
-      if (!fromStopId || !toStopId) continue;
-      await tx.itineraryRoute.create({
-        data: {
-          itineraryVersionId: created.id,
-          fromStopId,
-          toStopId,
-          transportMode: route.transportMode,
-          distanceM: route.distanceM ?? undefined,
-          durationSec: route.durationSec ?? undefined,
-          geometryJson: route.geometryJson ?? undefined,
-          provider: route.provider ?? undefined,
-          providerProfile: route.providerProfile ?? undefined,
-          fallback: route.fallback,
-        },
       });
     }
 
