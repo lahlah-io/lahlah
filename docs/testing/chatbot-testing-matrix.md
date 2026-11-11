@@ -154,7 +154,10 @@ previous draft. Regeneration with full parameters is covered end-to-end (CON-003
 
 Tests: `integration/chat.matrix.test.ts`, `integration/itinerary.confirm.test.ts`
 
-| ID | Scenario | Expected DB count | Status |
+Drafting creates an `Itinerary` root with `status = draft` plus version rows; the counts below are
+final `ItineraryDestination` rows, written only on confirm or publish.
+
+| ID | Scenario | Expected final rows | Status |
 |---|---|---|---|
 | CON-001 | First itinerary request | 0 | Auto |
 | CON-002 | New draft | 0 | Auto |
