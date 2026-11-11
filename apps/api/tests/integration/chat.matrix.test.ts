@@ -142,7 +142,16 @@ test("CON-001..006 + DES-001/002: draft and regeneration never persist; confirm 
     };
     assert.equal(firstData.intent, "generate_itinerary");
     assert.ok(firstData.draft.destinations.length > 0);
-    assert.equal(await prisma.itinerary.count({ where: { sessionId: session } }), 0, "CON-001");
+    const draftRoot = await prisma.itinerary.findUnique({
+      where: { sessionId: session },
+      select: { status: true },
+    });
+    assert.equal(draftRoot?.status, "draft", "CON-001 keeps the draft unconfirmed");
+    assert.equal(
+      await prisma.itineraryDestination.count({ where: { itinerary: { sessionId: session } } }),
+      0,
+      "CON-001 no final rows",
+    );
 
     const ids = firstData.draft.destinations.map((d) => d.destinationId);
     const rows = await prisma.destination.findMany({
@@ -161,7 +170,16 @@ test("CON-001..006 + DES-001/002: draft and regeneration never persist; confirm 
     const secondData = regenerated.body.data as { intent: string; draft: { draftId: string } };
     assert.equal(secondData.intent, "regenerate_itinerary");
     assert.notEqual(secondData.draft.draftId, firstData.draft.draftId);
-    assert.equal(await prisma.itinerary.count({ where: { sessionId: session } }), 0, "CON-002/003");
+    const afterRegen = await prisma.itinerary.findUnique({
+      where: { sessionId: session },
+      select: { status: true },
+    });
+    assert.equal(afterRegen?.status, "draft", "CON-002/003 regeneration stays a draft");
+    assert.equal(
+      await prisma.itineraryDestination.count({ where: { itinerary: { sessionId: session } } }),
+      0,
+      "CON-002/003 no final rows",
+    );
 
     const oldDraft = await confirm(firstData.draft.draftId, user.id, session);
     assert.equal(oldDraft.status, 404, "replaced draft can no longer be confirmed");
