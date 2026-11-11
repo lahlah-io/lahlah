@@ -159,8 +159,11 @@ test("destinationCount caps output before scheduling", async () => {
   const wide = { ...baseReq, startTime: "08:00", endTime: "20:00" };
   const r3 = generateItinerary({ ...wide, destinationCount: 3 }, tenCandidates) as { destinations: Array<{ id: string }> };
   assert.equal(r3.destinations.length, 3);
-  const r5 = generateItinerary({ ...wide, destinationCount: 5 }, candidates) as { destinations: Array<{ id: string }> };
-  assert.equal(r5.destinations.length, 3);
+  const r5ins = generateItinerary({ ...wide, destinationCount: 5 }, candidates) as { destinations: Array<{ id: string }> };
+  assert.equal(r5ins.destinations.length, 3);
+  const r5 = generateItinerary({ ...wide, destinationCount: 5 }, tenCandidates) as { destinations: Array<{ id: string }> };
+  assert.equal(r5.destinations.length, 5);
+  assert.equal(new Set(r5.destinations.map((d) => d.id)).size, 5);
   const r1 = generateItinerary({ ...wide, destinationCount: 1 }, tenCandidates) as { destinations: Array<{ id: string }> };
   assert.equal(r1.destinations.length, 1);
 });

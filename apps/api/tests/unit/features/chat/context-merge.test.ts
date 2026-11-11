@@ -16,6 +16,7 @@ describe("messageContributesParams", () => {
 
   test("rejects a question that adds no trip parameter", () => {
     expect(messageContributesParams("Apa destinasi pertama?", refNow)).toBe(false);
+    expect(messageContributesParams("Terima kasih", refNow)).toBe(false);
   });
 });
 
@@ -41,6 +42,75 @@ describe("mergeCategories", () => {
   test("dedupes the union", () => {
     expect(mergeCategories(["seed-kuliner"], "Tambahkan kuliner", ["seed-kuliner"])).toEqual(["seed-kuliner"]);
   });
+
+  test("replaces with 'saja'/'hanya' and preserves on no category word", () => {
+    expect(mergeCategories(["seed-kuliner", "seed-alam"], "Kuliner saja", ["seed-kuliner"])).toEqual(["seed-kuliner"]);
+    expect(mergeCategories(["seed-kuliner", "seed-alam"], "Hanya alam", ["seed-alam"])).toEqual(["seed-alam"]);
+    expect(mergeCategories(["seed-kuliner"], "Sore saja", [])).toEqual(["seed-kuliner"]);
+  });
+});
+
+describe("accumulateTripParams (matrix)", () => {
+  test("CTX-001/002/003/004: accumulates date, category, time, count across turns", () => {
+    let h: Array<{ role: string; content: string }> = [{ role: "user", content: "Buat itinerary besok" }];
+    let r = accumulateTripParams(h, "Buat itinerary besok", refNow);
+    expect(r.params.travelDate).toBe("2026-11-10");
+
+    h = [...h, { role: "assistant", content: "ok" }, { role: "user", content: "Kuliner" }];
+    r = accumulateTripParams(h, "Kuliner", refNow);
+    expect(r.params).toMatchObject({ travelDate: "2026-11-10", categories: ["seed-kuliner"] });
+
+    h = [...h, { role: "assistant", content: "ok" }, { role: "user", content: "Sore saja" }];
+    r = accumulateTripParams(h, "Sore saja", refNow);
+    expect(r.params).toMatchObject({ travelDate: "2026-11-10", categories: ["seed-kuliner"], startTime: "15:00", endTime: "17:59" });
+
+    h = [...h, { role: "assistant", content: "ok" }, { role: "user", content: "3 destinasi" }];
+    r = accumulateTripParams(h, "3 destinasi", refNow);
+    expect(r.params).toMatchObject({ travelDate: "2026-11-10", categories: ["seed-kuliner"], startTime: "15:00", endTime: "17:59", destinationCount: 3 });
+  });
+
+  test("CTX-005/006/007/008: latest explicit field wins; categories union on add", () => {
+    let r = accumulateTripParams(
+      [{ role: "user", content: "Buat itinerary besok" }, { role: "assistant", content: "ok" }, { role: "user", content: "Ganti ke lusa" }],
+      "Ganti ke lusa",
+      refNow,
+    );
+    expect(r.params.travelDate).toBe("2026-11-11");
+
+    r = accumulateTripParams(
+      [{ role: "user", content: "Buat itinerary besok kuliner" }, { role: "assistant", content: "ok" }, { role: "user", content: "Tambahkan alam" }],
+      "Tambahkan alam",
+      refNow,
+    );
+    expect(r.params.categories).toEqual(["seed-kuliner", "seed-alam"]);
+
+    r = accumulateTripParams(
+      [{ role: "user", content: "Buat itinerary besok kuliner sore" }, { role: "assistant", content: "ok" }, { role: "user", content: "Ubah jadi pagi" }],
+      "Ubah jadi pagi",
+      refNow,
+    );
+    expect(r.params).toMatchObject({ startTime: "06:00", endTime: "10:59" });
+
+    r = accumulateTripParams(
+      [{ role: "user", content: "Buat itinerary besok kuliner sore 5 destinasi" }, { role: "assistant", content: "ok" }, { role: "user", content: "Jadikan 3" }],
+      "Jadikan 3",
+      refNow,
+    );
+    expect(r.params.destinationCount).toBe(3);
+  });
+
+  test("HIS-003/008: assistant messages ignored; repeated user message does not duplicate params", () => {
+    const history = [
+      { role: "user", content: "Buat itinerary besok" },
+      { role: "assistant", content: "Kategori apa?" },
+      { role: "user", content: "Kuliner" },
+      { role: "assistant", content: "Jam berapa?" },
+      { role: "user", content: "Kuliner" },
+    ];
+    const r = accumulateTripParams(history, "Kuliner", refNow);
+    expect(r.params.travelDate).toBe("2026-11-10");
+    expect(r.params.categories).toEqual(["seed-kuliner"]);
+  });
 });
 
 describe("accumulateTripParams", () => {
@@ -56,7 +126,7 @@ describe("accumulateTripParams", () => {
     expect(params).toEqual({
       travelDate: "2026-11-10",
       startTime: "15:00",
-      endTime: "18:00",
+      endTime: "17:59",
       categories: ["seed-kuliner"],
       destinationCount: undefined,
     });
@@ -71,7 +141,7 @@ describe("accumulateTripParams", () => {
     );
     expect(params).toEqual({
       startTime: "15:00",
-      endTime: "18:00",
+      endTime: "17:59",
       categories: [],
       destinationCount: undefined,
     });
@@ -88,7 +158,7 @@ describe("accumulateTripParams", () => {
     expect(params).toEqual({
       travelDate: "2026-11-10",
       startTime: "15:00",
-      endTime: "18:00",
+      endTime: "17:59",
       categories: ["seed-kuliner"],
       destinationCount: undefined,
     });
@@ -129,6 +199,7 @@ describe("resolveEffectiveRequest", () => {
         startTime: "15:00",
         endTime: "18:00",
         categories: ["seed-kuliner"],
+        destinationCount: 8,
       });
     }
   });

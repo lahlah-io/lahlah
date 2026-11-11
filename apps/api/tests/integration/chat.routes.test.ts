@@ -373,3 +373,143 @@ test("acceptance #3: category union then destination count cap", async () => {
     await cleanupUser(user.id);
   }
 });
+
+test("E2E-004: replacing category keeps accumulated parameters", async () => {
+  process.env.NODE_ENV = "test";
+  delete process.env.AI_CLASSIFIER_MODEL;
+  const provider = await startFakeProvider(() => ({ status: 500, json: { error: "must not be called" } }));
+  const app = buildApp(provider.url);
+  const user = await createTestUser();
+  try {
+    const created = await app.request("/api/v1/chat/sessions", { method: "POST", headers: json, body: JSON.stringify({ userId: user.id }) });
+    const session = (await created.json() as { data: { id: string } }).data;
+
+    const turn1 = await sendMessage(app, session.id, user.id, "Buat itinerary besok kategori kuliner");
+    assert.equal(turn1.data.intent, "missing_information");
+    assert.equal(turn1.data.draft, null);
+
+    const turn2 = await sendMessage(app, session.id, user.id, "Ganti kategori jadi alam");
+    assert.equal(turn2.data.intent, "missing_information");
+    assert.equal(turn2.data.draft, null);
+    assert.match(turn2.data.message, /tanggal terdeteksi/i);
+    assert.match(turn2.data.message, /kategori terdeteksi/i);
+    assert.doesNotMatch(turn2.data.message, /sebutkan juga kategori/i);
+  } finally {
+    await provider.close();
+    await cleanupUser(user.id);
+  }
+});
+
+test("E2E-005: modify reduces destination count on active draft", async () => {
+  process.env.NODE_ENV = "test";
+  delete process.env.AI_CLASSIFIER_MODEL;
+  let toolCalls = 0;
+  const provider = await startFakeProvider(() => {
+    toolCalls++;
+    return toolCallResponse("search_destinations", {});
+  });
+  const app = buildApp(provider.url);
+  const user = await createTestUser();
+  try {
+    const created = await app.request("/api/v1/chat/sessions", { method: "POST", headers: json, body: JSON.stringify({ userId: user.id }) });
+    const session = (await created.json() as { data: { id: string } }).data;
+
+    const turn1 = await sendMessage(app, session.id, user.id, "Buat itinerary 5 destinasi untuk besok kategori kuliner sore");
+    assert.ok(turn1.data.draft);
+    assert.ok(turn1.data.draft.destinations.length <= 5);
+
+    const turn2 = await sendMessage(app, session.id, user.id, "Ubah menjadi 3 destinasi");
+    assert.ok(turn2.data.draft);
+    assert.ok(turn2.data.draft.destinations.length >= 1 && turn2.data.draft.destinations.length <= 3);
+    assert.match(turn2.data.intent, /itinerary/);
+    assert.ok(toolCalls >= 2);
+  } finally {
+    await provider.close();
+    await cleanupUser(user.id);
+  }
+});
+
+test("E2E-006: regenerate keeps context and produces capped draft", async () => {
+  process.env.NODE_ENV = "test";
+  delete process.env.AI_CLASSIFIER_MODEL;
+  let toolCalls = 0;
+  const provider = await startFakeProvider(() => {
+    toolCalls++;
+    return toolCallResponse("search_destinations", {});
+  });
+  const app = buildApp(provider.url);
+  const user = await createTestUser();
+  try {
+    const created = await app.request("/api/v1/chat/sessions", { method: "POST", headers: json, body: JSON.stringify({ userId: user.id }) });
+    const session = (await created.json() as { data: { id: string } }).data;
+
+    const turn1 = await sendMessage(app, session.id, user.id, "Buat itinerary 3 destinasi untuk besok kategori kuliner sore");
+    assert.ok(turn1.data.draft);
+    assert.ok(turn1.data.draft.destinations.length <= 3);
+
+    const turn2 = await sendMessage(app, session.id, user.id, "Buat ulang itinerary ini");
+    assert.ok(turn2.data.draft);
+    assert.ok(turn2.data.draft.destinations.length >= 1 && turn2.data.draft.destinations.length <= 3);
+    assert.match(turn2.data.intent, /itinerary/);
+    assert.ok(toolCalls >= 2);
+  } finally {
+    await provider.close();
+    await cleanupUser(user.id);
+  }
+});
+
+test("E2E-007: non-actionable follow-up does not generate a draft", async () => {
+  process.env.NODE_ENV = "test";
+  delete process.env.AI_CLASSIFIER_MODEL;
+  const provider = await startFakeProvider(() => ({ status: 500, json: { error: "must not be called" } }));
+  const app = buildApp(provider.url);
+  const user = await createTestUser();
+  try {
+    const created = await app.request("/api/v1/chat/sessions", { method: "POST", headers: json, body: JSON.stringify({ userId: user.id }) });
+    const session = (await created.json() as { data: { id: string } }).data;
+
+    const turn1 = await sendMessage(app, session.id, user.id, "Buat itinerary besok");
+    assert.equal(turn1.data.intent, "missing_information");
+    assert.equal(turn1.data.draft, null);
+
+    const turn2 = await sendMessage(app, session.id, user.id, "Terima kasih");
+    assert.equal(turn2.data.draft, null);
+    assert.ok(turn2.data.message.length > 0);
+  } finally {
+    await provider.close();
+    await cleanupUser(user.id);
+  }
+});
+
+test("E2E-008: sessions are isolated across users", async () => {
+  process.env.NODE_ENV = "test";
+  delete process.env.AI_CLASSIFIER_MODEL;
+  let toolCalls = 0;
+  const provider = await startFakeProvider(() => {
+    toolCalls++;
+    return toolCallResponse("search_destinations", {});
+  });
+  const app = buildApp(provider.url);
+  const userA = await createTestUser();
+  const userB = await createTestUser();
+  try {
+    const createdA = await app.request("/api/v1/chat/sessions", { method: "POST", headers: json, body: JSON.stringify({ userId: userA.id }) });
+    const sessionA = (await createdA.json() as { data: { id: string } }).data;
+    const createdB = await app.request("/api/v1/chat/sessions", { method: "POST", headers: json, body: JSON.stringify({ userId: userB.id }) });
+    const sessionB = (await createdB.json() as { data: { id: string } }).data;
+
+    const a = await sendMessage(app, sessionA.id, userA.id, "Buat itinerary 3 destinasi untuk besok");
+    assert.ok(a.data.draft);
+    assert.ok(a.data.draft.destinations.length <= 3);
+
+    const b1 = await sendMessage(app, sessionB.id, userB.id, "Buat itinerary kuliner untuk lusa");
+    assert.equal(b1.data.intent, "missing_information");
+    assert.equal(b1.data.draft, null);
+    assert.equal(toolCalls, 1);
+    // shortcut: destinationCount is not exposed on draft response; isolation proven by independent outcomes.
+  } finally {
+    await provider.close();
+    await cleanupUser(userA.id);
+    await cleanupUser(userB.id);
+  }
+});
