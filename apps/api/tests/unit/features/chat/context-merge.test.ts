@@ -22,31 +22,31 @@ describe("messageContributesParams", () => {
 
 describe("mergeCategories", () => {
   test("adds a new category", () => {
-    expect(mergeCategories(["seed-kuliner"], "Tambahkan alam", ["seed-alam"])).toEqual([
-      "seed-kuliner",
-      "seed-alam",
+    expect(mergeCategories(["kuliner"], "Tambahkan alam", ["alam"])).toEqual([
+      "kuliner",
+      "alam",
     ]);
   });
 
   test("replaces on ganti/ubah/jadi", () => {
-    expect(mergeCategories(["seed-kuliner"], "ganti jadi alam", ["seed-alam"])).toEqual(["seed-alam"]);
+    expect(mergeCategories(["kuliner"], "ganti jadi alam", ["alam"])).toEqual(["alam"]);
   });
 
   test("preserves prior when latest has no category word", () => {
-    expect(mergeCategories(["seed-kuliner", "seed-alam"], "3 destinasi saja", [])).toEqual([
-      "seed-kuliner",
-      "seed-alam",
+    expect(mergeCategories(["kuliner", "alam"], "3 destinasi saja", [])).toEqual([
+      "kuliner",
+      "alam",
     ]);
   });
 
   test("dedupes the union", () => {
-    expect(mergeCategories(["seed-kuliner"], "Tambahkan kuliner", ["seed-kuliner"])).toEqual(["seed-kuliner"]);
+    expect(mergeCategories(["kuliner"], "Tambahkan kuliner", ["kuliner"])).toEqual(["kuliner"]);
   });
 
   test("replaces with 'saja'/'hanya' and preserves on no category word", () => {
-    expect(mergeCategories(["seed-kuliner", "seed-alam"], "Kuliner saja", ["seed-kuliner"])).toEqual(["seed-kuliner"]);
-    expect(mergeCategories(["seed-kuliner", "seed-alam"], "Hanya alam", ["seed-alam"])).toEqual(["seed-alam"]);
-    expect(mergeCategories(["seed-kuliner"], "Sore saja", [])).toEqual(["seed-kuliner"]);
+    expect(mergeCategories(["kuliner", "alam"], "Kuliner saja", ["kuliner"])).toEqual(["kuliner"]);
+    expect(mergeCategories(["kuliner", "alam"], "Hanya alam", ["alam"])).toEqual(["alam"]);
+    expect(mergeCategories(["kuliner"], "Sore saja", [])).toEqual(["kuliner"]);
   });
 });
 
@@ -58,15 +58,15 @@ describe("accumulateTripParams (matrix)", () => {
 
     h = [...h, { role: "assistant", content: "ok" }, { role: "user", content: "Kuliner" }];
     r = accumulateTripParams(h, "Kuliner", refNow);
-    expect(r.params).toMatchObject({ travelDate: "2026-11-10", categories: ["seed-kuliner"] });
+    expect(r.params).toMatchObject({ travelDate: "2026-11-10", categories: ["kuliner"] });
 
     h = [...h, { role: "assistant", content: "ok" }, { role: "user", content: "Sore saja" }];
     r = accumulateTripParams(h, "Sore saja", refNow);
-    expect(r.params).toMatchObject({ travelDate: "2026-11-10", categories: ["seed-kuliner"], startTime: "15:00", endTime: "17:59" });
+    expect(r.params).toMatchObject({ travelDate: "2026-11-10", categories: ["kuliner"], startTime: "15:00", endTime: "17:59" });
 
     h = [...h, { role: "assistant", content: "ok" }, { role: "user", content: "3 destinasi" }];
     r = accumulateTripParams(h, "3 destinasi", refNow);
-    expect(r.params).toMatchObject({ travelDate: "2026-11-10", categories: ["seed-kuliner"], startTime: "15:00", endTime: "17:59", destinationCount: 3 });
+    expect(r.params).toMatchObject({ travelDate: "2026-11-10", categories: ["kuliner"], startTime: "15:00", endTime: "17:59", destinationCount: 3 });
   });
 
   test("CTX-005/006/007/008: latest explicit field wins; categories union on add", () => {
@@ -82,7 +82,7 @@ describe("accumulateTripParams (matrix)", () => {
       "Tambahkan alam",
       refNow,
     );
-    expect(r.params.categories).toEqual(["seed-kuliner", "seed-alam"]);
+    expect(r.params.categories).toEqual(["kuliner", "alam"]);
 
     r = accumulateTripParams(
       [{ role: "user", content: "Buat itinerary besok kuliner sore" }, { role: "assistant", content: "ok" }, { role: "user", content: "Ubah jadi pagi" }],
@@ -109,7 +109,7 @@ describe("accumulateTripParams (matrix)", () => {
     ];
     const r = accumulateTripParams(history, "Kuliner", refNow);
     expect(r.params.travelDate).toBe("2026-11-10");
-    expect(r.params.categories).toEqual(["seed-kuliner"]);
+    expect(r.params.categories).toEqual(["kuliner"]);
   });
 });
 
@@ -127,7 +127,7 @@ describe("accumulateTripParams", () => {
       travelDate: "2026-11-10",
       startTime: "15:00",
       endTime: "17:59",
-      categories: ["seed-kuliner"],
+      categories: ["kuliner"],
       destinationCount: undefined,
     });
     expect(pending).toBe(true);
@@ -159,7 +159,7 @@ describe("accumulateTripParams", () => {
       travelDate: "2026-11-10",
       startTime: "15:00",
       endTime: "17:59",
-      categories: ["seed-kuliner"],
+      categories: ["kuliner"],
       destinationCount: undefined,
     });
     expect(pending).toBe(true);
@@ -190,7 +190,7 @@ describe("resolveEffectiveRequest", () => {
       travelDate: "2026-11-10",
       startTime: "15:00",
       endTime: "18:00",
-      categories: ["seed-kuliner"],
+      categories: ["kuliner"],
     });
     expect(outcome.kind).toBe("ready");
     if (outcome.kind === "ready") {
@@ -198,35 +198,61 @@ describe("resolveEffectiveRequest", () => {
         travelDate: "2026-11-10",
         startTime: "15:00",
         endTime: "18:00",
-        categories: ["seed-kuliner"],
+        categories: ["kuliner"],
         destinationCount: 8,
       });
     }
   });
 
-  test("date only (no time, with categories) is general_time", () => {
-    const outcome = resolveEffectiveRequest({
-      travelDate: "2026-11-10",
-      categories: ["seed-kuliner"],
-    });
+  test("date only (no time, single category) uses the category's default slot", () => {
+    const outcome = resolveEffectiveRequest({ travelDate: "2026-11-10", categories: ["kuliner"] }, refNow);
     expect(outcome).toEqual({
-      kind: "general_time",
-      dateHint: "2026-11-10",
-      categories: ["seed-kuliner"],
+      kind: "ready",
+      trip: {
+        travelDate: "2026-11-10",
+        startTime: "11:00",
+        endTime: "14:59",
+        categories: ["kuliner"],
+        destinationCount: 8,
+      },
     });
   });
 
-  test("no date is missing with carried time hint", () => {
-    const outcome = resolveEffectiveRequest({
-      startTime: "15:00",
-      endTime: "18:00",
-      categories: ["seed-kuliner"],
-    });
+  test("no date defaults to today (Jakarta) with carried explicit time", () => {
+    const outcome = resolveEffectiveRequest({ startTime: "15:00", endTime: "18:00", categories: ["kuliner"] }, refNow);
     expect(outcome).toEqual({
-      kind: "missing",
-      dateHint: null,
-      timeHint: { startTime: "15:00", endTime: "18:00" },
-      categories: ["seed-kuliner"],
+      kind: "ready",
+      trip: {
+        travelDate: "2026-11-09",
+        startTime: "15:00",
+        endTime: "18:00",
+        categories: ["kuliner"],
+        destinationCount: 8,
+      },
     });
+  });
+
+  test("no date and no time still ready with defaults and hybrid slot", () => {
+    // Bug nyata: "Buat itinerary kategori pantai" harus langsung jadi draft, bukan missing_information.
+    const outcome = resolveEffectiveRequest({ categories: ["pantai"] }, refNow);
+    expect(outcome).toEqual({
+      kind: "ready",
+      trip: {
+        travelDate: "2026-11-09",
+        startTime: "06:00",
+        endTime: "10:59",
+        categories: ["pantai"],
+        destinationCount: 8,
+      },
+    });
+  });
+
+  test("mixed categories fall back to full-day slot", () => {
+    const outcome = resolveEffectiveRequest({ categories: ["pantai", "budaya"] }, refNow);
+    expect(outcome.kind).toBe("ready");
+    if (outcome.kind === "ready") {
+      expect(outcome.trip.startTime).toBe("08:00");
+      expect(outcome.trip.endTime).toBe("21:00");
+    }
   });
 });

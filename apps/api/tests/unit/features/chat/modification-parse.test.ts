@@ -33,6 +33,10 @@ describe("parseModification", () => {
       operation: "remove_destination",
       targetLast: true,
     });
+    expect(parseModification("hapus destinasi Pantai Air Manis")).toMatchObject({
+      operation: "remove_destination",
+      targetName: "Pantai Air Manis",
+    });
   });
 
   test("add reads quantity with a destination noun", () => {
@@ -79,5 +83,10 @@ describe("parseModification", () => {
     expect(parseModification("ubah jadwal jadi sore")).toBeNull();
     expect(parseModification("buat itinerary besok")).toBeNull();
     expect(parseModification("hapus semua")).toBeNull();
+    // count-change and target-less verbs are not destination replaces/removes
+    expect(parseModification("ubah menjadi 3 destinasi")).toBeNull();
+    expect(parseModification("ubah jadi 3 destinasi")).toBeNull();
+    expect(parseModification("ganti destinasi")).toBeNull();
+    expect(parseModification("hapus destinasi")).toBeNull();
   });
 });

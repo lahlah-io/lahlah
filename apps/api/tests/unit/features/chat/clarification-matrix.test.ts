@@ -37,7 +37,7 @@ describe(`clarification matrix (${fixture.datasetVersion}, ${fixture.promptVersi
         travelDate: "2026-11-20",
         startTime: "08:00",
         endTime: "16:00",
-        categories: ["seed-pantai"],
+        categories: ["pantai"],
       },
     });
   });
