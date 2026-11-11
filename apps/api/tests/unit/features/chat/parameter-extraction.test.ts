@@ -2,8 +2,10 @@ import { describe, expect, test } from "vitest";
 import {
   analyzeTripRequest,
   extractCategories,
+  extractDestinationCount,
   parseFlexibleDate,
   parseFlexibleTimeRange,
+  parseGeneralTimeOfDay,
 } from "../../../../src/modules/chat/services/chat.service.js";
 import { loadFixture } from "../../../helpers/fixtures.js";
 
@@ -50,8 +52,53 @@ describe(`parameter extraction matrix (${fixture.datasetVersion}, ${fixture.prom
 
   test("incomplete request is not treated as ready", () => {
     expect(analyzeTripRequest("Besok siang", refNow)).toMatchObject({
-      kind: "general_time",
+      kind: "missing",
       dateHint: "2026-11-10",
+      timeHint: { startTime: "11:00", endTime: "15:00" },
     });
+  });
+
+  test("bare time-of-day word resolves to a time slot without 'jam'", () => {
+    expect(analyzeTripRequest("Saya mau wisata besok sore pantai", refNow)).toEqual({
+      kind: "ready",
+      trip: {
+        travelDate: "2026-11-10",
+        startTime: "15:00",
+        endTime: "18:00",
+        categories: ["seed-pantai"],
+      },
+    });
+  });
+
+  test("explicit 'jam' keeps a single clock phrase as general_time", () => {
+    expect(analyzeTripRequest("Saya mulai jam 10 pagi pantai", refNow)).toMatchObject({
+      kind: "general_time",
+      dateHint: null,
+      categories: ["seed-pantai"],
+    });
+  });
+
+  test("extracts destination count from digits and Indonesian number words", () => {
+    expect(extractDestinationCount("3 destinasi")).toBe(3);
+    expect(extractDestinationCount("5 tempat wisata")).toBe(5);
+    expect(extractDestinationCount("2 tempat")).toBe(2);
+    expect(extractDestinationCount("tiga destinasi")).toBe(3);
+    expect(extractDestinationCount("lima lokasi wisata")).toBe(5);
+    expect(extractDestinationCount("besok jam 09:00")).toBeNull();
+    expect(extractDestinationCount("21 November")).toBeNull();
+    expect(extractDestinationCount("3 destinasi jam 09:00")).toBe(3);
+    expect(extractDestinationCount("tanpa jumlah")).toBeNull();
+    expect(extractDestinationCount("0 destinasi")).toBeNull();
+  });
+
+  test("ready trip carries destinationCount when a count is present", () => {
+    expect(analyzeTripRequest("Buat itinerary 3 destinasi besok pantai sore", refNow).trip.destinationCount).toBe(3);
+  });
+
+  test("generic time-of-day slots use standard ranges", () => {
+    expect(parseGeneralTimeOfDay("siang")).toEqual({ startTime: "11:00", endTime: "15:00" });
+    expect(parseGeneralTimeOfDay("malam")).toEqual({ startTime: "18:00", endTime: "21:00" });
+    expect(parseGeneralTimeOfDay("pagi")).toEqual({ startTime: "08:00", endTime: "11:00" });
+    expect(parseGeneralTimeOfDay("sore")).toEqual({ startTime: "15:00", endTime: "18:00" });
   });
 });

@@ -8,6 +8,7 @@ export type TripRequest = {
   endTime: string;
   categories: string[];
   transportMode: "walk" | "car" | "motorcycle";
+  destinationCount?: number;
 };
 
 export type CandidateDestination = {
@@ -55,6 +56,7 @@ function parseRequest(req: unknown): TripRequest {
   const start = parseMinutes(r.startTime);
   const end = parseMinutes(r.endTime);
   if (start == null || end == null || end <= start) invalid();
+  if (r.destinationCount !== undefined && (typeof r.destinationCount !== "number" || !Number.isInteger(r.destinationCount) || r.destinationCount <= 0)) invalid();
   return r as TripRequest;
 }
 
@@ -104,7 +106,9 @@ export function generateItinerary(req: unknown, candidatesInput: unknown) {
   const request = parseRequest(req);
   const start = parseMinutes(request.startTime)!;
   const end = parseMinutes(request.endTime)!;
-  const ordered = orderByNearest(asCandidates(candidatesInput));
+  const requested = request.destinationCount;
+  const orderedAll = orderByNearest(asCandidates(candidatesInput));
+  const ordered = requested != null ? orderedAll.slice(0, requested) : orderedAll;
 
   // Schedule from details.estimated_duration_minutes (fallback DEFAULT_DURATION_MINUTES). No road/speed/opening-hours assumptions.
   const destinations: Array<{
