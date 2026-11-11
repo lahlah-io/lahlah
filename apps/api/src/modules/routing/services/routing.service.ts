@@ -22,6 +22,10 @@ export function routeCacheKey(profile: RouteProfile, points: RoutePoint[]): stri
   return `${profile}:` + points.map((p) => `${round5(p.longitude)},${round5(p.latitude)}`).join(";");
 }
 
+function osrmProfileName(profile: RouteProfile): string {
+  return profile === "foot" ? "foot" : "driving";
+}
+
 function toRad(d: number): number {
   return (d * Math.PI) / 180;
 }
@@ -59,8 +63,11 @@ export function createRoutingService(deps: RoutingServiceDeps): RoutingService {
   const userAgent = deps.userAgent ?? "Lahlah/1.0";
   const fetchFn = deps.fetchFn ?? fetch;
 
-  async function fetchOsrm(path: string): Promise<{ distanceKm: number; durationMin: number; coordinates: Array<[number, number]> }> {
-    const url = `${deps.osrmBaseUrl.replace(/\/+$/, "")}/route/v1/driving/${path}?overview=full&geometries=geojson`;
+  async function fetchOsrm(
+    osrmProfile: string,
+    path: string,
+  ): Promise<{ distanceKm: number; durationMin: number; coordinates: Array<[number, number]> }> {
+    const url = `${deps.osrmBaseUrl.replace(/\/+$/, "")}/route/v1/${osrmProfile}/${path}?overview=full&geometries=geojson`;
     let res: Response;
     try {
       res = await fetchWithTimeout(fetchFn, url, deps.timeoutMs, userAgent);
@@ -100,7 +107,7 @@ export function createRoutingService(deps: RoutingServiceDeps): RoutingService {
     const path = input.points.map((p) => `${round5(p.longitude)},${round5(p.latitude)}`).join(";");
 
     try {
-      const osrm = await fetchOsrm(path);
+      const osrm = await fetchOsrm(osrmProfileName(input.profile), path);
       const estimated = input.profile === "motorcycle";
       const result: RouteResult = {
         source: "osrm",

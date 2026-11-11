@@ -5,10 +5,10 @@ import { createRoutingApi } from "../../../../src/modules/routing/index.js";
 
 function buildApp() {
   const api = createRoutingApi({
-    getRoute: async (input: { points: Array<{ latitude: number; longitude: number }>; profile: "car" | "motorcycle" }) => ({
+    getRoute: async (input: { points: Array<{ latitude: number; longitude: number }>; profile: "car" | "motorcycle" | "foot" }) => ({
       source: "osrm" as const,
       distanceKm: 8.4,
-      durationMin: input.profile === "motorcycle" ? 19 : 16,
+      durationMin: input.profile === "motorcycle" ? 19 : input.profile === "foot" ? 96 : 16,
       estimated: input.profile === "motorcycle",
       geometry: { type: "LineString" as const, coordinates: input.points.map((p) => [p.longitude, p.latitude] as [number, number]) },
     }),

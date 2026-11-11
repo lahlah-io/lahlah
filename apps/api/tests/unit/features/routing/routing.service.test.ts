@@ -101,4 +101,5 @@ test("routing rejects invalid payloads at the schema boundary", async () => {
     false,
   );
   assert.equal(routeRequestSchema.parse({ points }).profile, "car");
+  assert.equal(routeRequestSchema.parse({ points, profile: "foot" }).profile, "foot");
 });
