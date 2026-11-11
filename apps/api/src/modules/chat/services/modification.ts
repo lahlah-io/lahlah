@@ -1,19 +1,6 @@
-export type ItineraryModification =
-  | {
-      operation: "replace_destination";
-      targetPosition?: number;
-      targetName?: string;
-      targetLast?: boolean;
-    }
-  | {
-      operation: "remove_destination";
-      targetPosition?: number;
-      targetName?: string;
-      targetLast?: boolean;
-    }
-  | { operation: "add_destination"; quantity: number }
-  | { operation: "clarify_modification"; targetPosition?: number }
-  | { operation: "select_version"; version: number };
+import type { ItineraryModification } from "../../../shared/schemas/itinerary-modification.js";
+
+export type { ItineraryModification };
 
 const ORDINALS: Record<string, number> = {
   pertama: 1,
