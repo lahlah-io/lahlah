@@ -21,14 +21,14 @@
     {
       "id": "PAR-003",
       "input": "Saya suka pantai dan kuliner",
-      "expected": { "categories": ["seed-pantai", "seed-kuliner"] },
+      "expected": { "categories": ["pantai", "kuliner"] },
       "mode": "ready",
       "priority": "high"
     },
     {
       "id": "PAR-004",
       "input": "Saya hanya suka wisata sejarah",
-      "expected": { "categories": ["seed-sejarah"] },
+      "expected": { "categories": ["sejarah"] },
       "mode": "ready",
       "priority": "high"
     },
@@ -57,9 +57,24 @@
     {
       "id": "PAR-008",
       "input": "Saya suka pantai, jangan kuliner",
-      "expected": { "include": ["seed-pantai"], "exclude": ["seed-kuliner"] },
+      "expected": { "include": ["pantai"], "exclude": ["kuliner"] },
       "mode": "todo",
       "note": "Preferensi negatif (exclude) belum didukung; extractCategories hanya membaca kategori positif.",
+      "priority": "high"
+    },
+    {
+      "id": "PAR-009",
+      "input": "Mulai jam 17 dan selesai jam 12",
+      "expected": { "startTime": "17:00", "endTime": "12:00" },
+      "mode": "todo",
+      "note": "Rentang mundur tidak diparse sebagai rentang valid; ditolak di generator (SAFE-006).",
+      "priority": "high"
+    },
+    {
+      "id": "PAR-010",
+      "input": "Besok jam 12 sampai 17",
+      "expected": { "date": "2026-11-10" },
+      "mode": "date-only",
       "priority": "high"
     }
   ]

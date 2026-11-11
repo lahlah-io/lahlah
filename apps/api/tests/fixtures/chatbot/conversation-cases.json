@@ -9,8 +9,8 @@
       "id": "CTX-001",
       "followUp": "Ganti destinasi kedua",
       "expected": "Mengubah destinasi kedua saja",
-      "mode": "todo",
-      "note": "Merge context belum ada; pesan follow-up tanpa parameter lengkap jatuh ke klarifikasi."
+      "mode": "ready",
+      "note": "parseModification replace_destination (targetPosition ordinal)."
     },
     {
       "id": "CTX-002",
@@ -30,8 +30,8 @@
       "id": "CTX-004",
       "followUp": "Tambahkan kuliner",
       "expected": "Menambahkan preferensi kuliner",
-      "mode": "todo",
-      "note": "Perubahan parsial preferensi belum di-merge dengan draft sebelumnya."
+      "mode": "ready",
+      "note": "mergeCategories menggabungkan kategori lanjutan."
     },
     {
       "id": "CTX-005",
@@ -45,21 +45,35 @@
       "followUp": "Mulai jam 10 saja",
       "expected": "Mengubah waktu mulai",
       "mode": "todo",
-      "note": "Jam mulai saja tanpa rentang/kategori/tanggal belum di-merge."
+      "note": "Jam mulai tanpa rentang belum diparse."
     },
     {
       "id": "CTX-007",
       "followUp": "Saya setuju",
       "expected": "Mengonfirmasi draft aktif",
-      "mode": "todo",
-      "note": "Konfirmasi MVP memakai endpoint POST /itineraries/confirm, bukan pesan chat."
+      "mode": "endpoint",
+      "note": "Konfirmasi via POST /itineraries/confirm, bukan pesan chat."
     },
     {
       "id": "CTX-008",
       "followUp": "Buat ulang",
       "expected": "Membuat draft pengganti",
+      "mode": "ready",
+      "note": "Intent regenerate_itinerary + merge konteks prior → regenerate."
+    },
+    {
+      "id": "CTX-009",
+      "followUp": "Bagaimana dengan destinasi tadi?",
+      "expected": "Merujuk ke konteks yang benar",
       "mode": "todo",
-      "note": "Regenerasi MVP hanya berjalan bila pesan menyebut parameter lengkap."
+      "note": "Referensi pronominal (destinasi tadi) belum di-resolve."
+    },
+    {
+      "id": "CTX-010",
+      "followUp": "Lupakan permintaan sebelumnya, sekarang pantai saja",
+      "expected": "Memperbarui konteks sesuai pesan baru dan aturan scope",
+      "mode": "todo",
+      "note": "Tidak ada reset eksplisit konteks; merge bersifat akumulatif."
     }
   ]
 }
