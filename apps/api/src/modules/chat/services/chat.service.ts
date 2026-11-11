@@ -64,10 +64,11 @@ async function resolveSystemModelId() {
 }
 
 const GENERAL_TIME_SUGGESTION = `Jamnya belum ada — balas singkat saja, contoh: "sore" atau "jam 09:00-15:00".
-- pagi 08:00-11:00 (pantai/alam/kuliner pagi)
-- siang 11:00-15:00 (kuliner siang/budaya)
-- sore 15:00-18:00 (santai, tutup sunset pantai)
-- malam 18:00-21:00 (kuliner malam)
+- dini hari 00:00-05:59
+- pagi 06:00-10:59 (pantai/alam/kuliner pagi)
+- siang 11:00-14:59 (kuliner siang/budaya)
+- sore 15:00-17:59 (santai, tutup sunset pantai)
+- malam 18:00-23:59 (kuliner malam)
 
 Contoh lengkap: "Buat itinerary 2026-11-21 jam 09:00-15:00 untuk kategori kuliner dan alam di Padang, 3 destinasi".`;
 
@@ -158,7 +159,11 @@ export function extractDestinationCount(text: string): number | null {
     return n > 0 ? n : null;
   };
   if (digit && word) return (digit.index! <= word.index! ? pick(digit) : pick(word));
-  return digit ? pick(digit) : pick(word);
+  const withNoun = digit ? pick(digit) : pick(word);
+  if (withNoun != null) return withNoun;
+  // shortcut: "jadikan/ubah jadi/ganti jadi 3" without count noun (CTX-008 matrix).
+  const setCount = /\b(?:jadikan|ubah\s+jadi|ganti\s+jadi)\s+(satu|dua|tiga|empat|lima|enam|tujuh|delapan|sembilan|sepuluh|\d{1,2})\b/i.exec(text);
+  return pick(setCount);
 }
 
 export function extractCategories(text: string): string[] {
@@ -189,10 +194,11 @@ export function parseGeneralTimeOfDay(text: string): { startTime: string; endTim
   const lower = text.toLowerCase();
   // shortcut: abaikan bila pengguna sudah menyebut jam eksplisit ("jam 10 pagi" tetap general_time).
   if (/\b(jam|pukul)\b/.test(lower)) return null;
-  if (/\b(pagi|morning)\b/.test(lower)) return { startTime: "08:00", endTime: "11:00" };
-  if (/\b(siang)\b/.test(lower)) return { startTime: "11:00", endTime: "15:00" };
-  if (/\b(sore|petang|sunset)\b/.test(lower)) return { startTime: "15:00", endTime: "18:00" };
-  if (/\b(malam|night)\b/.test(lower)) return { startTime: "18:00", endTime: "21:00" };
+  if (/\b(dini\s*hari)\b/.test(lower)) return { startTime: "00:00", endTime: "05:59" };
+  if (/\b(pagi|morning)\b/.test(lower)) return { startTime: "06:00", endTime: "10:59" };
+  if (/\b(siang)\b/.test(lower)) return { startTime: "11:00", endTime: "14:59" };
+  if (/\b(sore|petang|sunset)\b/.test(lower)) return { startTime: "15:00", endTime: "17:59" };
+  if (/\b(malam|night)\b/.test(lower)) return { startTime: "18:00", endTime: "23:59" };
   return null;
 }
 
@@ -226,7 +232,7 @@ export function messageContributesParams(text: string, now?: Date): boolean {
 
 export function mergeCategories(prior: string[], text: string, latest: string[]): string[] {
   if (latest.length === 0) return prior;
-  if (/\b(ganti|ubah|jadi|saja)\b/i.test(text)) return latest;
+  if (/\b(ganti|ubah|jadi|saja|hanya)\b/i.test(text)) return latest;
   return [...new Set([...prior, ...latest])];
 }
 
@@ -296,7 +302,7 @@ export function resolveEffectiveRequest(p: AccumulatedTripParams): EffectiveOutc
         startTime: p.startTime!,
         endTime: p.endTime!,
         categories: p.categories,
-        ...(p.destinationCount != null ? { destinationCount: p.destinationCount } : {}),
+        destinationCount: p.destinationCount ?? 8,
       },
     };
   }

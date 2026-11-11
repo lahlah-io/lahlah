@@ -54,7 +54,7 @@ describe(`parameter extraction matrix (${fixture.datasetVersion}, ${fixture.prom
     expect(analyzeTripRequest("Besok siang", refNow)).toMatchObject({
       kind: "missing",
       dateHint: "2026-11-10",
-      timeHint: { startTime: "11:00", endTime: "15:00" },
+      timeHint: { startTime: "11:00", endTime: "14:59" },
     });
   });
 
@@ -64,7 +64,7 @@ describe(`parameter extraction matrix (${fixture.datasetVersion}, ${fixture.prom
       trip: {
         travelDate: "2026-11-10",
         startTime: "15:00",
-        endTime: "18:00",
+        endTime: "17:59",
         categories: ["seed-pantai"],
       },
     });
@@ -84,11 +84,35 @@ describe(`parameter extraction matrix (${fixture.datasetVersion}, ${fixture.prom
     expect(extractDestinationCount("2 tempat")).toBe(2);
     expect(extractDestinationCount("tiga destinasi")).toBe(3);
     expect(extractDestinationCount("lima lokasi wisata")).toBe(5);
+    expect(extractDestinationCount("10 destinasi")).toBe(10);
+    expect(extractDestinationCount("dua tempat wisata besok")).toBe(2);
+    expect(extractDestinationCount("3 spot kuliner")).toBe(3);
     expect(extractDestinationCount("besok jam 09:00")).toBeNull();
     expect(extractDestinationCount("21 November")).toBeNull();
     expect(extractDestinationCount("3 destinasi jam 09:00")).toBe(3);
     expect(extractDestinationCount("tanpa jumlah")).toBeNull();
     expect(extractDestinationCount("0 destinasi")).toBeNull();
+    // shortcut: no upper-bound policy yet; extraction returns the number if > 0.
+    expect(extractDestinationCount("15 destinasi")).toBe(15);
+  });
+
+  test("extracts relative and explicit dates (Jakarta)", () => {
+    expect(parseFlexibleDate("hari ini", refNow)).toBe("2026-11-09");
+    expect(parseFlexibleDate("besok", refNow)).toBe("2026-11-10");
+    expect(parseFlexibleDate("lusa", refNow)).toBe("2026-11-11");
+    expect(parseFlexibleDate("21 November 2026", refNow)).toBe("2026-11-21");
+  });
+
+  test("time-of-day words produce ready slots with date and category", () => {
+    expect(analyzeTripRequest("Saya mau wisata besok siang pantai", refNow)).toEqual({
+      kind: "ready",
+      trip: {
+        travelDate: "2026-11-10",
+        startTime: "11:00",
+        endTime: "14:59",
+        categories: ["seed-pantai"],
+      },
+    });
   });
 
   test("ready trip carries destinationCount when a count is present", () => {
@@ -96,9 +120,9 @@ describe(`parameter extraction matrix (${fixture.datasetVersion}, ${fixture.prom
   });
 
   test("generic time-of-day slots use standard ranges", () => {
-    expect(parseGeneralTimeOfDay("siang")).toEqual({ startTime: "11:00", endTime: "15:00" });
-    expect(parseGeneralTimeOfDay("malam")).toEqual({ startTime: "18:00", endTime: "21:00" });
-    expect(parseGeneralTimeOfDay("pagi")).toEqual({ startTime: "08:00", endTime: "11:00" });
-    expect(parseGeneralTimeOfDay("sore")).toEqual({ startTime: "15:00", endTime: "18:00" });
+    expect(parseGeneralTimeOfDay("siang")).toEqual({ startTime: "11:00", endTime: "14:59" });
+    expect(parseGeneralTimeOfDay("malam")).toEqual({ startTime: "18:00", endTime: "23:59" });
+    expect(parseGeneralTimeOfDay("pagi")).toEqual({ startTime: "06:00", endTime: "10:59" });
+    expect(parseGeneralTimeOfDay("sore")).toEqual({ startTime: "15:00", endTime: "17:59" });
   });
 });
