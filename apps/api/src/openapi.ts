@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { intentLabels } from "./modules/chat/services/classifier.js";
 import {
   activateVersionSchema,
   createSessionSchema,
@@ -237,14 +238,7 @@ const itineraryDraft = z.object({
 
 const chatReply = z.object({
   message: z.string(),
-  intent: z.enum([
-    "general_chat",
-    "generate_itinerary",
-    "modify_itinerary",
-    "regenerate_itinerary",
-    "confirm_itinerary",
-    "missing_information",
-  ]),
+  intent: z.enum(intentLabels),
   draft: itineraryDraft.nullable(),
   assistantMessageId: z.uuid(),
   sessionId: z.uuid(),
@@ -254,14 +248,7 @@ const chatRegenerateResult = z.object({
   assistantMessageId: z.uuid(),
   sessionId: z.uuid(),
   message: z.string(),
-  intent: z.enum([
-    "general_chat",
-    "generate_itinerary",
-    "modify_itinerary",
-    "regenerate_itinerary",
-    "confirm_itinerary",
-    "missing_information",
-  ]),
+  intent: z.enum(intentLabels),
   draft: itineraryDraft.nullable(),
   activeVersion: z.number().int(),
 });
