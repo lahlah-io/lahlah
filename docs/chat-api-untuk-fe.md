@@ -200,7 +200,7 @@ Nilai `intent` yang mungkin keluar:
 - `confirm_itinerary` — user bilang setuju/konfirmasi
 - `missing_information` — tanggal, jam, atau kategori belum lengkap; `draft` bisa `null` dan `message` menyebut apa yang kurang
 
-Contoh pemicu draft: tanggal + jam mulai-selesai + kategori, misalnya `"besok wisata pantai dari jam 09:00 sampai 15:00"`. Tanggal dipahami dalam zona `Asia/Jakarta`. Kalau jam tidak disebut, backend bisa memberi saran waktu umum (bukan draft langsung).
+Contoh pemicu draft: tanggal + jam mulai-selesai + kategori, misalnya `"besok wisata pantai dari jam 09:00 sampai 15:00"`. Tanggal dipahami dalam zona `Asia/Jakarta`. Kata waktu umum juga dikenali: `pagi`/`siang`/`sore`/`malam` dipetakan ke rentang jam (08:00-11:00 / 11:00-14:00 / 15:00-18:00 / 18:30-21:30), jadi `"besok sore kategori pantai"` cukup untuk memicu draft. Kalau jam belum disebut, backend memberi saran waktu (bukan draft langsung).
 
 `metadata` di pesan assistant menyimpan `intent` dan `draftId`.
 
@@ -273,14 +273,17 @@ Mengganti konten/status/metadata pesan menjadi versi yang dipilih. Balasan `200`
 POST /api/v1/itineraries/confirm
 Content-Type: application/json
 
-{ "draftId": "draft-uuid", "userId": "dev-user-1", "sessionId": "session-uuid" }
+{ "draftId": "draft-uuid", "userId": "dev-user-1", "sessionId": "session-uuid", "profile": "car" }
 ```
 
-- Idempotent: penyimpanan pertama `201`, pengulangan draft/session yang sama `200`. Bentuk `{ "data": { ... } }`.
-- Backend membuat snapshot **versi 1** (`changeType: "confirm"`) berisi `stops` dan `routes`. Route legs bisa berupa garis lurus/fallback (`provider: "fallback"`, `fallback: true`) jika rute jalan tidak tersedia.
+- `profile` opsional: `car` | `motorcycle` | `foot` (default `car`). Tentukan profil transportasi saat konfirmasi agar rute jalan mengikuti profil yang dipilih.
+- Idempotent: penyimpanan pertama `201`, pengulangan draft/session yang sama `200`. Bentuk `{ "data": { ... } }` (ringkas). Confirm ulang mengembalikan itinerary existing (tidak menghitung ulang rute).
+- Backend menghitung rute jalan **per leg** saat konfirmasi (bila tersedia) dan mempersisten snapshot versi 1 (`changeType: "confirm"`) berisi `stops` dan `route legs` nyata: `geometryJson`/jarak/durasi/`provider`/`transportMode`/`providerProfile` sesuai profil.
+- Jika rute jalan leg tertentu tidak tersedia, hanya leg itu yang menjadi fallback (`fallback: true`, `provider: "fallback"`, `providerProfile: "straight_line"`, geometri garis lurus). Leg lain tetap rute jalan bila tersedia (`mode` dapat `mixed`).
+- `motorcycle` dipetakan ke rute driving OSRM dengan durasi estimasi; tampilkan sebagai estimasi di UI. `foot` memakai profil jalan kaki.
 - Destinasi harus masih aktif di Padang.
 
-**Rekomendasi FE:** setelah confirm sukses, fetch ulang `GET /api/v1/itineraries/by-session/:sessionId` dan render dari snapshot DB (bukan hanya mengandalkan respons confirm), agar stops/routes persisten dan versi aktif konsisten.
+**Rekomendasi FE:** setelah confirm sukses, fetch ulang `GET /api/v1/itineraries/by-session/:sessionId` dan render dari snapshot DB (stops/routes persisten). Read endpoint tidak memanggil OSRM.
 
 ## 8. ambil itinerary
 
@@ -321,7 +324,7 @@ Contoh (dipotong):
   "status": "final",
   "isPublic": false,
   "shareSlug": null,
-  "metadata": { "date": "2026-11-20", "startTime": "08:00", "endTime": "16:00", "route": { "type": "LineString", "coordinates": [[100.359, -0.965]] } },
+  "metadata": { "date": "2026-11-20", "startTime": "08:00", "endTime": "16:00", "mode": "osrm", "distanceType": "osrm", "profile": "car", "route": { "type": "LineString", "coordinates": [[100.359, -0.965], [100.358, -0.964]] } },
   "createdAt": "...",
   "updatedAt": "...",
   "destinations": [
@@ -334,9 +337,9 @@ Contoh (dipotong):
     "basedOnVersion": 1,
     "changeInstruction": null,
     "changeType": "restore",
-    "totalDistanceM": null,
-    "totalDurationMin": null,
-    "totalEstimatedMin": null,
+    "totalDistanceM": 1234,
+    "totalDurationMin": 8,
+    "totalEstimatedMin": 8,
     "status": "confirmed",
     "createdAt": "...",
     "stops": [
@@ -362,13 +365,13 @@ Contoh (dipotong):
         "itineraryVersionId": "version-uuid",
         "fromStopId": "stop-uuid-a",
         "toStopId": "stop-uuid-b",
-        "transportMode": "straight_line",
-        "distanceM": null,
-        "durationSec": null,
+        "transportMode": "car",
+        "distanceM": 1234,
+        "durationSec": 480,
         "geometryJson": { "type": "LineString", "coordinates": [[100.3590942, -0.9654557], [100.3582427, -0.964448]] },
-        "provider": "fallback",
-        "providerProfile": "straight_line",
-        "fallback": true,
+        "provider": "osrm",
+        "providerProfile": "car",
+        "fallback": false,
         "createdAt": "..."
       }
     ]
@@ -379,7 +382,8 @@ Contoh (dipotong):
 **Penting:**
 
 - `stops[].latitude` dan `stops[].longitude` adalah **string** (Prisma `Decimal` diserialkan sebagai string di JSON). FE wajib parse ke number (`Number(...)`/`parseFloat`).
-- `routes[].geometryJson.coordinates` berurutan **`[longitude, latitude]`** (GeoJSON). `fallback: true` atau `provider: "fallback"` menandakan garis lurus, bukan rute jalan.
+- `routes[].geometryJson.coordinates` berurutan **`[longitude, latitude]`** (GeoJSON). `fallback: true` atau `provider: "fallback"` menandakan garis lurus (bukan rute jalan). Route jalan nyata: `fallback: false` dengan `provider`/`providerProfile` sesuai profil (`car`/`foot`; `motorcycle` estimasi). Fallback bisa **per leg** (`mode`/metadata dapat `mixed`).
+- `metadata.profile`, `metadata.mode`/`distanceType` (`osrm`/`straight_line`/`mixed`), dan `transportMode` mencerminkan hasil confirm yang dipersisten. Endpoint read itinerary mengembalikan data DB (tidak memanggil OSRM).
 - `status` itinerary bisa `"final"` (alias legacy didukung).
 - `changeType` contoh: `"confirm"`, `"restore"` (dan nilai lain yang relevan di masa depan).
 
@@ -437,7 +441,7 @@ Content-Type: application/json
 
 ## 10. minta garis rute jalan (osrm proxy)
 
-Gunakan proxy backend (jangan panggil OSRM demo langsung dari browser untuk alur produksi):
+Gunakan proxy backend untuk **preview rute draft** (belum tersimpan). Itinerary terkonfirmasi dibaca dari DB (tidak memanggil OSRM):
 
 ```http
 POST /api/v1/routes/driving
@@ -452,18 +456,20 @@ Content-Type: application/json
 }
 ```
 
-- `points`: 2 sampai 50 titik. `profile`: `car` atau `motorcycle` (default `car`).
+- `points`: 2 sampai 50 titik. `profile`: `car` | `motorcycle` | `foot` (default `car`).
 - Balasan `200`: `{ "data": { "source", "distanceKm", "durationMin", "estimated", "geometry", "error?" } }`
 
 Arti `source`:
 
-- `osrm` — geometri jalan asli
+- `osrm` — geometri jalan asli (mengikuti profil bila tersedia)
 - `cache` — hasil cache server
-- `fallback` — OSRM gagal, geometri garis lurus antar titik; `durationMin` bisa `null`, ada `error`
+- `fallback` — OSRM gagal/timeout, geometri garis lurus antar titik; `durationMin` bisa `null`, ada `error`
 
 Perhatian koordinat: input `{ latitude, longitude }`, tapi `geometry.coordinates` adalah `[longitude, latitude]`.
 
-Untuk `motorcycle`, waktu bisa estimasi (`estimated: true`, penyesuaian dari rute mobil). Tampilkan sebagai estimasi di UI.
+Catatan profil:
+- `foot` memakai profil jalan kaki OSRM.
+- `motorcycle` dipetakan ke rute driving dengan durasi estimasi (`estimated: true`); tampilkan sebagai estimasi di UI.
 
 ## 11. contoh fetch minimal
 

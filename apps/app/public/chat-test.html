@@ -333,11 +333,19 @@
             <div id="map" class="map" role="img" aria-label="Peta rute itinerary"></div>
             <div id="mapSrc" class="map-src">Peta © OpenStreetMap · CARTO · Rute OSRM</div>
             <div id="mapLegend" class="map-legend" aria-hidden="true">
-              <div class="legend-row"><span class="legend-swatch"></span><span>Rute jalan OSRM</span></div>
-              <div class="legend-row"><span class="legend-swatch fallback"></span><span>Garis lurus (fallback)</span></div>
+              <div class="legend-row"><span class="legend-swatch"></span><span>Rute jalan</span></div>
+              <div class="legend-row"><span class="legend-swatch fallback"></span><span>Garis lurus (fallback/leg)</span></div>
               <div class="legend-row"><span class="legend-dot"></span><span>Titik kunjungan 1, 2, 3…</span></div>
             </div>
           </div>
+          <label class="field" for="routeProfile" style="max-width:260px">
+            <span>Profil transportasi</span>
+            <select id="routeProfile">
+              <option value="car">Mobil</option>
+              <option value="motorcycle">Motor</option>
+              <option value="foot">Jalan kaki</option>
+            </select>
+          </label>
           <p id="routeNote" class="status"></p>
           <ol id="stops" class="stops"></ol>
           <div class="actions">
@@ -361,7 +369,7 @@
       const OSRM_TIMEOUT_MS = 8000;
       const MAPLIBRE_URL = "https://unpkg.com/maplibre-gl@6.17.0/dist/maplibre-gl.mjs";
       const MAPLIBRE_WORKER_URL = "https://unpkg.com/maplibre-gl@6.17.0/dist/maplibre-gl-worker.mjs";
-      const STORE_KEYS = { baseUrl: "lahlah.baseUrl", userId: "lahlah.userId", active: "lahlah.activeSession" };
+      const STORE_KEYS = { baseUrl: "lahlah.baseUrl", userId: "lahlah.userId", active: "lahlah.activeSession", profile: "lahlah.routeProfile" };
 
       const els = {
         settings: document.getElementById("settings"),
@@ -385,6 +393,7 @@
         mapWrap: document.getElementById("mapWrap"),
         map: document.getElementById("map"),
         routeNote: document.getElementById("routeNote"),
+        routeProfile: document.getElementById("routeProfile"),
         stops: document.getElementById("stops"),
         confirmBtn: document.getElementById("confirmBtn"),
         draftStatus: document.getElementById("draftStatus"),
@@ -394,6 +403,7 @@
       };
 
       const state = {
+        routeProfile: "car",
         userId: "",
         sessions: [],
         activeId: null,
@@ -427,6 +437,18 @@
         return (draft && draft.destinations ? draft.destinations.slice() : []).sort(function (a, b) { return a.order - b.order; });
       }
       function draftKey(sessionId) { return "lahlah.draft." + state.userId + "." + sessionId; }
+
+      function profileLabel(profile) {
+        return profile === "foot" ? "jalan kaki" : profile === "motorcycle" ? "motor" : "mobil";
+      }
+      function currentProfile() {
+        return state.routeProfile === "foot" || state.routeProfile === "motorcycle" ? state.routeProfile : "car";
+      }
+      function setRouteProfile(profile, persist) {
+        state.routeProfile = profile === "foot" || profile === "motorcycle" ? profile : "car";
+        if (els.routeProfile) els.routeProfile.value = state.routeProfile;
+        if (persist) localStorage.setItem(STORE_KEYS.profile, state.routeProfile);
+      }
 
       async function request(path, options) {
         const res = await fetch(base() + path, {
@@ -963,7 +985,8 @@
           if (state.activeId === sessionId) renderItinerary();
           return;
         }
-        const cacheKey = "lahlah.route." + stops.map(function (d) {
+        const profile = currentProfile();
+        const cacheKey = "lahlah.route." + profile + "." + stops.map(function (d) {
           return Math.round(d.longitude * 1e5) / 1e5 + "," + Math.round(d.latitude * 1e5) / 1e5;
         }).join(";");
         try {
@@ -972,7 +995,7 @@
             const route = JSON.parse(cached);
             if (state.drafts.get(sessionId) !== entry) return;
             entry.coords = route.geometry.coordinates;
-            entry.routeInfo = { distanceKm: route.distanceKm, durationMin: route.durationMin };
+            entry.routeInfo = { distanceKm: route.distanceKm, durationMin: route.durationMin, estimated: !!route.estimated, profile: profile };
             entry.routeStatus = route.source === "fallback" ? "fallback" : "osrm";
             if (route.source === "fallback") entry.routeInfo.error = route.error || "cache";
             saveDraftState(sessionId);
@@ -991,7 +1014,7 @@
               signal: controller.signal,
               body: JSON.stringify({
                 points: stops.map(function (d) { return { latitude: d.latitude, longitude: d.longitude }; }),
-                profile: "car",
+                profile: profile,
               }),
             });
           } finally {
@@ -1005,7 +1028,7 @@
           }
           if (state.drafts.get(sessionId) !== entry) return;
           entry.coords = route.geometry.coordinates;
-          entry.routeInfo = { distanceKm: route.distanceKm, durationMin: route.durationMin };
+          entry.routeInfo = { distanceKm: route.distanceKm, durationMin: route.durationMin, estimated: !!route.estimated, profile: profile };
           entry.routeStatus = route.source === "fallback" ? "fallback" : "osrm";
           if (route.source === "fallback") entry.routeInfo.error = route.error || "gagal";
           try { sessionStorage.setItem(cacheKey, JSON.stringify(route)); } catch {}
@@ -1051,6 +1074,8 @@
           };
         });
         const fallbackCount = routes.filter(function (route) { return route.fallback; }).length;
+        const allFallback = routes.length > 0 && fallbackCount === routes.length;
+        const persistedProfile = (itinerary && itinerary.metadata && itinerary.metadata.profile) || (routes[0] && (routes[0].providerProfile || routes[0].transportMode)) || currentProfile();
         return {
           draft: {
             draftId: null,
@@ -1066,10 +1091,11 @@
             distanceKm: version && version.totalDistanceM != null ? version.totalDistanceM / 1000 : null,
             durationMin: version ? version.totalDurationMin : null,
             fallbackCount: fallbackCount,
+            profile: persistedProfile,
           },
           // A version with stops but no route legs is drawn as straight lines, so label it fallback.
           routeStatus: routes.length
-            ? (fallbackCount === routes.length ? "fallback" : "osrm")
+            ? (allFallback ? "fallback" : fallbackCount > 0 ? "mixed" : "osrm")
             : destinations.length > 1 ? "fallback" : "none",
         };
       }
@@ -1279,17 +1305,18 @@
         }
 
         if (entry.routeStatus === "loading") {
-          setStatus(els.routeNote, "Mengambil rute jalan OSRM…");
-        } else if (entry.routeStatus === "osrm") {
+          setStatus(els.routeNote, "Mengambil rute jalan (" + profileLabel(currentProfile()) + ")…");
+        } else if (entry.routeStatus === "osrm" || entry.routeStatus === "mixed") {
           const info = entry.routeInfo || {};
-          const bits = ["Rute tersimpan (OSRM mobil)"];
+          const prof = (info.profile || currentProfile());
+          const bits = [entry.routeStatus === "mixed" ? "Rute campuran (sebagian jalan, sebagian garis lurus) - " + profileLabel(prof) : "Rute jalan - " + profileLabel(prof)];
           if (info.distanceKm != null) bits.push(formatKm(info.distanceKm));
-          if (info.durationMin != null) bits.push(info.durationMin + " menit");
+          if (info.durationMin != null) bits.push(info.durationMin + " menit" + (info.estimated || prof === "motorcycle" ? " (estimasi)" : ""));
           if (info.fallbackCount) bits.push(info.fallbackCount + " leg garis lurus");
           setStatus(els.routeNote, bits.join(" · ") + ". Perkiraan, bukan lalu lintas langsung.");
         } else if (entry.routeStatus === "fallback") {
           const reason = entry.routeInfo && entry.routeInfo.error ? " (" + entry.routeInfo.error + ")" : "";
-          setStatus(els.routeNote, "Leg rute memakai garis lurus" + reason + ". Bukan rute jalan.", true);
+          setStatus(els.routeNote, "Rute garis lurus (" + profileLabel(entry.routeInfo.profile || currentProfile()) + ")" + reason + ". Bukan rute jalan.", true);
         } else if (entry.routeStatus === "none") {
           setStatus(els.routeNote, "Kurang dari 2 titik; rute tidak digambar.");
         } else {
@@ -1310,7 +1337,7 @@
         try {
           await request("/api/v1/itineraries/confirm", {
             method: "POST",
-            body: JSON.stringify({ draftId: entry.draft.draftId, userId: state.userId, sessionId: sessionId }),
+            body: JSON.stringify({ draftId: entry.draft.draftId, userId: state.userId, sessionId: sessionId, profile: currentProfile() }),
           });
           const detail = await fetchItineraryDetail(sessionId);
           applyItineraryDetail(detail, null);
@@ -1499,6 +1526,21 @@
       function boot() {
         els.baseUrl.value = localStorage.getItem(STORE_KEYS.baseUrl) || DEFAULT_BASE_URL;
         els.userId.value = localStorage.getItem(STORE_KEYS.userId) || "";
+        setRouteProfile(localStorage.getItem(STORE_KEYS.profile) || "car", false);
+        if (els.routeProfile) {
+          els.routeProfile.addEventListener("change", function () {
+            setRouteProfile(els.routeProfile.value, true);
+            const sessionId = state.activeId;
+            const entry = sessionId ? state.drafts.get(sessionId) : null;
+            if (entry && entry.draft && entry.draft.draftId) {
+              entry.routeStatus = "loading";
+              renderItinerary();
+              loadRoute(sessionId, entry);
+            } else if (sessionId) {
+              renderItinerary();
+            }
+          });
+        }
         state.userId = els.userId.value.trim();
         renderTabs();
         renderChat();

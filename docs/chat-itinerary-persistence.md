@@ -47,13 +47,13 @@ Dokumen ini menjelaskan arsitektur penyimpanan, versioning, dan kontrak backend 
 
 ## alur konfirmasi & persistensi rute
 
-1. Chat menghasilkan **draft** (in-memory, bertied ke user/session/draftId) ketika informasi cukup (tanggal, jam, kategori, destinasi Padang). Draft bisa berisi rute/koordinat sementara.
-2. `POST /api/v1/itineraries/confirm` memvalidasi draft & destinasi aktif, lalu dalam transaksi membuat:
+1. Chat menghasilkan **draft** (in-memory, bertied ke user/session/draftId) ketika informasi cukup (tanggal, jam, kategori, destinasi Padang). Draft bisa berisi rute sementara; FE boleh memanggil `/api/v1/routes/driving` untuk **preview rute jalan** per profil (`car|motorcycle|foot`, belum tersimpan).
+2. `POST /api/v1/itineraries/confirm` menerima `draftId`, `userId`, `sessionId`, dan opsional `profile` (`car|motorcycle|foot`, default `car`). Backend memvalidasi draft & destinasi aktif, menghitung rute jalan **per leg** sesuai profil (bila tersedia), lalu dalam transaksi membuat:
    - Itinerary (jika belum ada untuk session) + `ItineraryVersion` v1 (`changeType: "confirm"`)
    - `ItineraryStop` per destinasi (posisi, nama, koordinat Decimal, waktu/durasi)
-   - `ItineraryRoute` per leg berurutan (jika ada koordinat/geometri); dapat ditandai `provider: "fallback"`, `fallback: true`, `transportMode: "straight_line"` bila tidak ada rute jalan tersimpan.
-3. Respons confirm bersifat idempotent (`201` create, `200` existing). FE disarankan me-fetch `by-session` untuk memperoleh `ItineraryDetail` lengkap dari DB.
-4. **Fallback marking**: route leg dengan `fallback: true` (atau provider fallback) harus ditampilkan sebagai garis lurus, bukan rute jalan. UI tidak boleh mengklaim rute jalan jika data persisten adalah fallback.
+   - `ItineraryRoute` per leg berurutan dengan geometri/jarak/durasi/provider/mode/profile persisten. Leg rute jalan: `fallback: false`, `provider`/`providerProfile` sesuai profil (`car`/`foot`; `motorcycle` estimasi, dipetakan ke driving). Leg tanpa rute: **per-leg fallback** (`fallback: true`, `provider: "fallback"`, `providerProfile: "straight_line"`, geometri garis lurus). Mode/metadata dapat `osrm`/`straight_line`/`mixed`.
+3. Respons confirm bersifat idempotent (`201` create, `200` existing; existing tidak dihitung ulang). FE disarankan me-fetch `by-session` untuk memperoleh `ItineraryDetail` lengkap dari DB.
+4. **Fallback marking & read**: route leg dengan `fallback: true` (atau provider fallback) harus ditampilkan sebagai garis lurus, bukan rute jalan. Endpoint read itinerary mengembalikan snapshot DB dan **tidak memanggil OSRM**.
 
 ## versioning & restore itinerary
 
@@ -84,7 +84,7 @@ Dokumen ini menjelaskan arsitektur penyimpanan, versioning, dan kontrak backend 
 - **Satu itinerary per session**: confirm ulang untuk session yang sudah punya itinerary bersifat idempotent (mengembalikan data existing), bukan membuat itinerary kedua.
 - **Cakupan MVP**: kota Padang saja, durasi 1 hari, thread linear.
 - **Auth produksi**: gate `AUTH_NOT_CONFIGURED`/503 aktif di production hingga autentikasi/otorisasi dipasang.
-- **Routing**: endpoint `/routes/driving` adalah proxy; `source: "fallback"` atau `route.fallback` berarti garis lurus. Profil motor dapat berupa estimasi.
+- **Routing**: endpoint `/routes/driving` adalah proxy untuk profil `car|motorcycle|foot` (preview draft). `source: "fallback"` berarti garis lurus; `motorcycle` dipetakan ke driving dengan durasi estimasi. Confirm mempersisten rute per leg dengan per-leg fallback; read tidak memanggil OSRM.
 - **Pembersihan data uji**: pesan sintetis untuk pengujian keyset (jika dibuat) harus dibersihkan agar tidak mengotori riwayat demo.
 
 ## referensi
