@@ -57,12 +57,11 @@ describe("safety and security matrix", () => {
     expect(rows).toEqual([]);
   });
 
-  test("SAF-002: unknown tool names and category slugs are rejected", async () => {
+  test("SAF-002: unknown tool names rejected; unknown category slugs are dropped", async () => {
     await expect(executor([])("delete_everything", {})).rejects.toMatchObject({ status: 422, code: "TOOL_UNKNOWN" });
-    await expect(executor([])("search_destinations", { categories: ["bali"] })).rejects.toMatchObject({
-      status: 422,
-      code: "TOOL_ARGS_INVALID",
-    });
+    // Kategori tak dikenal dibuang, bukan error, supaya pencarian tetap jalan.
+    const rows = await executor([])("search_destinations", { categories: ["bali"] });
+    expect(rows).toEqual([]);
   });
 
   test("SAF-003: user-supplied coordinates are ignored; candidate coordinates win", () => {

@@ -44,7 +44,7 @@ describe(`prompt evaluation matrix (${fixture.datasetVersion}, ${fixture.promptV
   });
 
   test("PRM-006: requested categories are extracted and passed to generation", () => {
-    expect(extractCategories("pantai dan kuliner")).toEqual(["seed-pantai", "seed-kuliner"]);
+    expect(extractCategories("pantai dan kuliner")).toEqual(["pantai", "kuliner"]);
   });
 
   test("PRM-007: generation never invents price data", () => {

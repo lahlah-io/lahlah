@@ -65,7 +65,7 @@ describe(`parameter extraction matrix (${fixture.datasetVersion}, ${fixture.prom
         travelDate: "2026-11-10",
         startTime: "15:00",
         endTime: "17:59",
-        categories: ["seed-pantai"],
+        categories: ["pantai"],
       },
     });
   });
@@ -74,7 +74,7 @@ describe(`parameter extraction matrix (${fixture.datasetVersion}, ${fixture.prom
     expect(analyzeTripRequest("Saya mulai jam 10 pagi pantai", refNow)).toMatchObject({
       kind: "general_time",
       dateHint: null,
-      categories: ["seed-pantai"],
+      categories: ["pantai"],
     });
   });
 
@@ -94,6 +94,11 @@ describe(`parameter extraction matrix (${fixture.datasetVersion}, ${fixture.prom
     expect(extractDestinationCount("0 destinasi")).toBeNull();
     // shortcut: no upper-bound policy yet; extraction returns the number if > 0.
     expect(extractDestinationCount("15 destinasi")).toBe(15);
+    // Ubah-jumlah tanpa kata jumlah eksplisit (percakapan nyata).
+    expect(extractDestinationCount("ubah menjadi 3 itenerary nya")).toBe(3);
+    expect(extractDestinationCount("jadikan 3")).toBe(3);
+    expect(extractDestinationCount("3 destinasi saja")).toBe(3);
+    expect(extractDestinationCount("ganti jadi lima")).toBe(5);
   });
 
   test("extracts relative and explicit dates (Jakarta)", () => {
@@ -110,7 +115,7 @@ describe(`parameter extraction matrix (${fixture.datasetVersion}, ${fixture.prom
         travelDate: "2026-11-10",
         startTime: "11:00",
         endTime: "14:59",
-        categories: ["seed-pantai"],
+        categories: ["pantai"],
       },
     });
   });
