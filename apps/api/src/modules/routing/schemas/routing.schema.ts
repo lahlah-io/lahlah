@@ -7,12 +7,12 @@ const pointSchema = z.object({
 
 export const routeRequestSchema = z.object({
   points: z.array(pointSchema).min(2).max(50),
-  profile: z.enum(["car", "motorcycle"]).default("car"),
+  profile: z.enum(["car", "motorcycle", "foot"]).default("car"),
 });
 
 export type RouteRequest = z.infer<typeof routeRequestSchema>;
 export type RoutePoint = { latitude: number; longitude: number };
-export type RouteProfile = "car" | "motorcycle";
+export type RouteProfile = "car" | "motorcycle" | "foot";
 export type RouteSource = "osrm" | "cache" | "fallback";
 
 export type RouteResult = {

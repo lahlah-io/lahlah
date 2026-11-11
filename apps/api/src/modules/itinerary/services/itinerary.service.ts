@@ -1,4 +1,5 @@
-﻿import { HttpError } from "../../../shared/http/errors.js";
+﻿import type { Prisma } from "../../../generated/prisma/client.js";
+import { HttpError } from "../../../shared/http/errors.js";
 import * as itineraryRepository from "../repositories/itinerary.repository.js";
 
 type DraftStop = {
@@ -8,6 +9,7 @@ type DraftStop = {
   latitude: number;
   longitude: number;
   visitAt: string;
+  durationMinutes?: number;
 };
 type Draft = {
   draftId: string;
@@ -18,9 +20,17 @@ type Draft = {
   route: { type: "LineString"; coordinates: [number, number][] } | null;
 };
 type UserRow = { id: string; isActive: boolean };
+type RouteProfile = "car" | "motorcycle" | "foot";
+type RouteResult = {
+  source: string;
+  distanceKm: number | null;
+  durationMin: number | null;
+  geometry: { type: "LineString"; coordinates: Array<[number, number]> };
+};
 type ItineraryDeps = {
   getDraft: (input: { draftId: string; userId: string; sessionId: string }) => Promise<Draft> | Draft;
   findUserById: (id: string) => Promise<UserRow | null>;
+  getRoute?: (input: { points: Array<{ latitude: number; longitude: number }>; profile: RouteProfile }) => Promise<RouteResult>;
 };
 
 function productionGate() {
@@ -43,7 +53,7 @@ function visitAtDate(travelDate: string, hhmm: string): Date | null {
 
 export function createItineraryService(deps: ItineraryDeps) {
   return {
-    async confirm(input: { draftId: string; userId: string; sessionId: string }) {
+    async confirm(input: { draftId: string; userId: string; sessionId: string; profile?: RouteProfile }) {
       productionGate();
       await requireActiveUser(deps, input.userId);
 
@@ -61,13 +71,14 @@ export function createItineraryService(deps: ItineraryDeps) {
 
       const title = `Itinerary Padang ${draft.travelDate}`;
       const content = draft.destinations.map((d) => `${d.order}. ${d.name} (${d.visitAt})`).join("\n");
-      const metadata = {
+      const metadata: Record<string, unknown> = {
         date: draft.travelDate,
         startTime: draft.startTime,
         endTime: draft.endTime,
         mode: "straight_line",
         distanceType: "straight_line",
-        route: draft.route,
+        route: draft.route as unknown,
+        profile: input.profile ?? "car",
       };
       const destinations = draft.destinations.map((d) => ({
         destinationId: d.destinationId,
@@ -84,27 +95,104 @@ export function createItineraryService(deps: ItineraryDeps) {
         longitude: d.longitude,
         arrivalTime: d.visitAt,
         departureTime: null,
-        visitDurationMin: (d as { durationMinutes?: number }).durationMinutes ?? null,
+        visitDurationMin: d.durationMinutes ?? null,
         travelDurationMin: null,
         notes: null,
         category: null,
       }));
-      const routeLegs = draft.route?.coordinates && draft.route.coordinates.length >= 2
-        ? draft.destinations.slice(0, -1).map((d, idx) => ({
-            fromPosition: d.order,
-            toPosition: draft.destinations[idx + 1]!.order,
-            transportMode: "straight_line",
+
+      type RouteLeg = {
+        fromPosition: number;
+        toPosition: number;
+        transportMode: string;
+        distanceM: number | null;
+        durationSec: number | null;
+        geometryJson: { type: "LineString"; coordinates: Array<[number, number]> } | null;
+        provider: string | null;
+        providerProfile: string | null;
+        fallback: boolean;
+      };
+
+      const ordered = [...draft.destinations].sort((a, b) => a.order - b.order);
+      const routeLegs: RouteLeg[] = [];
+      let totalDistanceM: number | null = null;
+      let totalDurationMin: number | null = null;
+      const profile: RouteProfile = input.profile ?? "car";
+      if (ordered.length >= 2) {
+        for (let idx = 0; idx < ordered.length - 1; idx++) {
+          const from = ordered[idx]!;
+          const to = ordered[idx + 1]!;
+          const straight: RouteLeg = {
+            fromPosition: from.order,
+            toPosition: to.order,
+            transportMode: profile,
             distanceM: null,
             durationSec: null,
             geometryJson: {
-              type: "LineString" as const,
-              coordinates: [draft.route!.coordinates[idx]!, draft.route!.coordinates[idx + 1]!],
+              type: "LineString",
+              coordinates: [
+                [from.longitude, from.latitude],
+                [to.longitude, to.latitude],
+              ],
             },
             provider: "fallback",
             providerProfile: "straight_line",
             fallback: true,
-          }))
-        : [];
+          };
+          if (!deps.getRoute) {
+            routeLegs.push(straight);
+            continue;
+          }
+          try {
+            const r = await deps.getRoute({
+              points: [
+                { latitude: from.latitude, longitude: from.longitude },
+                { latitude: to.latitude, longitude: to.longitude },
+              ],
+              profile,
+            });
+            const coords =
+              r.geometry && Array.isArray(r.geometry.coordinates) && r.geometry.coordinates.length >= 2
+                ? r.geometry.coordinates
+                : straight.geometryJson!.coordinates;
+            if (r.source === "fallback") {
+              routeLegs.push({ ...straight, geometryJson: { type: "LineString", coordinates: coords } });
+              continue;
+            }
+            const distanceM = r.distanceKm != null ? Math.round(r.distanceKm * 1000) : null;
+            const durationSec = r.durationMin != null ? Math.round(r.durationMin * 60) : null;
+            routeLegs.push({
+              fromPosition: from.order,
+              toPosition: to.order,
+              transportMode: profile,
+              distanceM,
+              durationSec,
+              geometryJson: { type: "LineString", coordinates: coords },
+              provider: r.source,
+              providerProfile: profile,
+              fallback: false,
+            });
+          } catch {
+            routeLegs.push(straight);
+          }
+        }
+
+        const distances = routeLegs.map((l) => l.distanceM).filter((v): v is number => typeof v === "number");
+        const durations = routeLegs.map((l) => l.durationSec).filter((v): v is number => typeof v === "number");
+        if (distances.length === routeLegs.length) totalDistanceM = distances.reduce((a, b) => a + b, 0);
+        if (durations.length === routeLegs.length) totalDurationMin = Math.round(durations.reduce((a, b) => a + b, 0) / 60);
+      }
+
+      const allOsrm = routeLegs.length > 0 && routeLegs.every((l) => !l.fallback);
+      const allFallback = routeLegs.length > 0 && routeLegs.every((l) => l.fallback);
+      const routeMode = routeLegs.length === 0 ? "straight_line" : allOsrm ? "osrm" : allFallback ? "straight_line" : "mixed";
+      const effectiveTransport = routeMode === "straight_line" ? "straight_line" : profile;
+      metadata.mode = routeMode;
+      metadata.distanceType = routeMode;
+      metadata.profile = profile;
+      metadata.route = routeLegs.length
+        ? { type: "LineString" as const, coordinates: routeLegs.flatMap((l) => l.geometryJson?.coordinates ?? []) }
+        : (draft.route as unknown);
 
       try {
         const created = await itineraryRepository.createConfirmed({
@@ -112,18 +200,18 @@ export function createItineraryService(deps: ItineraryDeps) {
           sessionId: input.sessionId,
           title,
           content,
-          metadata,
+          metadata: metadata as unknown as Prisma.InputJsonValue,
           tripDate: visitAtDate(draft.travelDate, "00:00"),
-          transportMode: "straight_line",
+          transportMode: effectiveTransport,
           destinations,
           version: {
             version: 1,
             basedOnVersion: null,
             changeInstruction: null,
             changeType: "confirm",
-            totalDistanceM: null,
-            totalDurationMin: null,
-            totalEstimatedMin: null,
+            totalDistanceM,
+            totalDurationMin,
+            totalEstimatedMin: totalDurationMin,
             status: "confirmed",
             stops,
             routes: routeLegs,

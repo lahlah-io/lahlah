@@ -7,6 +7,7 @@ export const confirmItinerarySchema = z.object({
   draftId: id,
   userId,
   sessionId: id,
+  profile: z.enum(["car", "motorcycle", "foot"]).default("car"),
 });
 
 export const itineraryIdParamSchema = z.object({ id });
