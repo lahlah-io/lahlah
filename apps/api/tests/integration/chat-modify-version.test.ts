@@ -1,103 +1,19 @@
 import assert from "node:assert/strict";
 import { afterAll, beforeAll, test } from "vitest";
-import { randomUUID } from "node:crypto";
 import { prisma } from "../../src/db/client.js";
-import { createChatService } from "../../src/modules/chat/index.js";
-import { createItineraryService } from "../../src/modules/itinerary/index.js";
-import * as usersRepository from "../../src/modules/users/repositories/users.repository.js";
-
-type ChatServiceLike = ReturnType<typeof createChatService>;
+import {
+  cleanupUser,
+  createModificationFixture,
+  send,
+} from "../fixtures/chat-version.js";
 
 const PREV_NODE_ENV = process.env.NODE_ENV;
 const createdUserIds: string[] = [];
 
-type Row = { id: string; name: string; latitude: number; longitude: number; category: string };
-
-async function padangRows(min: number): Promise<Row[]> {
-  const rows = await prisma.destination.findMany({
-    where: { city: "Padang", isActive: true, latitude: { not: null }, longitude: { not: null } },
-    take: min,
-    orderBy: { createdAt: "asc" },
-    select: { id: true, name: true, latitude: true, longitude: true, categories: { select: { category: { select: { slug: true } } } } },
-  });
-  assert.ok(rows.length >= min, `need >=${min} active Padang destinations (run seed)`);
-  return rows.map((r, i) => ({
-    id: r.id,
-    name: r.name,
-    latitude: Number(r.latitude),
-    longitude: Number(r.longitude),
-    category: r.categories[0]?.category.slug ?? `cat-${i}`,
-  }));
-}
-
-const findUserById = async (id: string) =>
-  usersRepository.findUserById(id).then((u) => (u ? { id: u.id, isActive: u.isActive } : null));
-
-function services(rows: Row[]) {
-  const itinerary = createItineraryService({
-    getDraft: () => {
-      throw new Error("draft store should not be used by the version flow");
-    },
-    findUserById,
-  });
-  const chat = createChatService({
-    itinerary,
-    findUserById,
-    classifyMessage: async () => ({ intent: "modify_itinerary", source: "rule" }),
-    searchDestinations: async () => rows.map((r) => ({ ...r, categories: [{ slug: r.category }] })),
-    getDestinationDetails: async () => rows.map((r) => ({ ...r, categories: [{ slug: r.category }] })),
-  }) as ChatServiceLike;
-  return { itinerary, chat };
-}
-
-async function setup() {
-  const user = await prisma.user.create({
-    data: { name: "Modify Test", email: `modify-${randomUUID()}@example.test` },
-    select: { id: true },
-  });
-  createdUserIds.push(user.id);
-  const model = await prisma.model.upsert({
-    where: { provider_modelIdentifier: { provider: "test", modelIdentifier: "chat-modify-version" } },
-    update: {},
-    create: { provider: "test", modelIdentifier: "chat-modify-version", name: "chat-modify-version", isActive: true },
-    select: { id: true },
-  });
-  const session = await prisma.chatSession.create({
-    data: { userId: user.id, modelId: model.id, title: "modify" },
-    select: { id: true },
-  });
-  const rows = await padangRows(7);
-  const { itinerary, chat } = services(rows);
-  const v1 = await itinerary.saveDraftVersion({
-    userId: user.id,
-    sessionId: session.id,
-    travelDate: "2026-11-21",
-    startTime: "08:00",
-    endTime: "18:00",
-    stops: rows.slice(0, 6).map((r, i) => ({
-      position: i + 1,
-      destinationId: r.id,
-      name: r.name,
-      latitude: r.latitude,
-      longitude: r.longitude,
-      arrivalTime: `${String(8 + i).padStart(2, "0")}:00`,
-      visitDurationMin: 60,
-      category: r.category,
-    })),
-    routeJson: { type: "LineString", coordinates: rows.slice(0, 6).map((r) => [r.longitude, r.latitude]), legs: [] },
-    changeType: "generate",
-  });
-  return { user, session, rows, itinerary, chat, v1 };
-}
-
-async function send(chat: ChatServiceLike, userId: string, sessionId: string, content: string) {
-  const res = await chat.sendMessage({ userId, sessionId, content });
-  return res.data as {
-    intent: string;
-    draft: { draftId: string; destinations: Array<{ destinationId: string }> };
-    version: { id: string } | null;
-    map: { versionId: string; points: Array<{ destinationId: string }> } | null;
-  };
+async function setup(stopCount = 6) {
+  const fixture = await createModificationFixture(stopCount);
+  createdUserIds.push(fixture.user.id);
+  return fixture;
 }
 
 beforeAll(() => {
@@ -105,16 +21,7 @@ beforeAll(() => {
 });
 
 afterAll(async () => {
-  for (const userId of createdUserIds) {
-    await prisma.itineraryStop.deleteMany({ where: { version: { itinerary: { userId } } } });
-    await prisma.itineraryVersion.deleteMany({ where: { itinerary: { userId } } });
-    await prisma.destinationCheckpoint.deleteMany({ where: { itineraryDestination: { itinerary: { userId } } } });
-    await prisma.itineraryDestination.deleteMany({ where: { itinerary: { userId } } });
-    await prisma.itinerary.deleteMany({ where: { userId } });
-    await prisma.chatMessage.deleteMany({ where: { session: { userId } } });
-    await prisma.chatSession.deleteMany({ where: { userId } });
-    await prisma.user.delete({ where: { id: userId } }).catch(() => undefined);
-  }
+  for (const userId of createdUserIds) await cleanupUser(userId);
   if (PREV_NODE_ENV === undefined) delete process.env.NODE_ENV;
   else process.env.NODE_ENV = PREV_NODE_ENV;
 });
