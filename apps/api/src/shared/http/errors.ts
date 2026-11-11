@@ -1,6 +1,7 @@
 import type { ErrorHandler } from "hono";
 import { Prisma } from "../../generated/prisma/client.js";
 import { ZodError } from "zod";
+import { appendLog } from "../logging/file-logger.js";
 
 export type HttpStatus = 400 | 401 | 403 | 404 | 409 | 422 | 429 | 502 | 503 | 504;
 
@@ -15,6 +16,26 @@ export class HttpError extends Error {
 }
 
 export const errorHandler: ErrorHandler = (error, c) => {
+  const sessionId = c.req.path.match(/\/sessions\/([^/]+)/)?.[1] ?? null;
+  appendLog(
+    "error",
+    {
+      method: c.req.method,
+      path: c.req.path,
+      type: error?.constructor?.name ?? "unknown",
+      code:
+        error instanceof HttpError
+          ? error.code
+          : error instanceof ZodError
+            ? "VALIDATION_ERROR"
+            : error instanceof Prisma.PrismaClientKnownRequestError
+              ? error.code
+              : "INTERNAL_ERROR",
+      message: error instanceof Error ? error.message : String(error),
+    },
+    sessionId,
+  );
+
   if (error instanceof HttpError) {
     return c.json({ error: { code: error.code, message: error.message } }, error.status);
   }
