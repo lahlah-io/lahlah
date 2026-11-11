@@ -111,6 +111,14 @@ test("parses multiple tool calls", () => {
   assert.equal(out.toolCalls[1]?.name, "get_destination_details");
 });
 
+test("parses usage tokens from provider response", () => {
+  const out = normalizeChatCompletionResponse({
+    choices: [{ message: { content: "ok" }, finish_reason: "stop" }],
+    usage: { prompt_tokens: 12, completion_tokens: 7, total_tokens: 19 },
+  });
+  assert.deepEqual(out.usage, { promptTokens: 12, completionTokens: 7, totalTokens: 19 });
+});
+
 test("rejects broken JSON tool arguments", () => {
   assert.throws(
     () =>

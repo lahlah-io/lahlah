@@ -64,6 +64,13 @@ export function normalizeChatCompletionResponse(raw: unknown): CompletionResult 
     content: choice?.message?.content ?? null,
     toolCalls: toolCallsRaw.length ? normalizeToolCalls(toolCallsRaw) : [],
     finishReason: choice?.finish_reason ?? null,
+    usage: parsed.data.usage
+      ? {
+          promptTokens: parsed.data.usage.prompt_tokens,
+          completionTokens: parsed.data.usage.completion_tokens,
+          totalTokens: parsed.data.usage.total_tokens,
+        }
+      : undefined,
   };
 }
 

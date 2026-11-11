@@ -17,6 +17,7 @@ export type CompletionResult = {
   content: string | null;
   toolCalls: AiToolCall[];
   finishReason: string | null;
+  usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
 };
 
 export type AiRoleConfig = {
@@ -45,8 +46,15 @@ const choiceSchema = z.object({
   finish_reason: z.string().nullable().optional(),
 });
 
+const usageSchema = z.object({
+  prompt_tokens: z.number().int(),
+  completion_tokens: z.number().int(),
+  total_tokens: z.number().int(),
+});
+
 export const chatCompletionResponseSchema = z.object({
   choices: z.array(choiceSchema).optional(),
+  usage: usageSchema.optional(),
 });
 
 export type ChatCompletionResponse = z.infer<typeof chatCompletionResponseSchema>;
