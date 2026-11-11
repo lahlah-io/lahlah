@@ -1,153 +1,152 @@
-import {
-  MessageSquare,
-  MoreHorizontal,
-  Pencil,
-  Plus,
-  Search,
-  Sparkles,
-  Trash2,
-  User,
-} from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
+import { MessageSquare } from "lucide-react";
 
-import { Avatar, AvatarFallback } from "@/shared/components/ui/avatar";
-import { Button } from "@/shared/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/shared/components/ui/dropdown-menu";
-import { Input } from "@/shared/components/ui/input";
-import { ScrollArea } from "@/shared/components/ui/scroll-area";
-import { Separator } from "@/shared/components/ui/separator";
-import { cn } from "@/shared/utils/cn";
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/shared/components/ui/alert-dialog";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/shared/components/ui/empty";
+import {
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarMenu,
+} from "@/shared/components/ui/sidebar";
 
+import { ThreadItem } from "./thread-item";
 import type { ChatThread } from "../types/chat";
+import { groupThreads } from "../utils/thread-groups";
 
 interface ThreadListProps {
   /** `null` while a fresh draft is open — no row is current then. */
   activeId: string | null;
-  onCreate: () => void;
   onDelete: (id: string) => void;
-  onQueryChange: (value: string) => void;
-  onRename: (id: string) => void;
+  onRename: (id: string, title: string) => void;
   onSelect: (id: string) => void;
-  query: string;
   threads: ChatThread[];
 }
 
 export function ThreadList({
   activeId,
-  onCreate,
   onDelete,
-  onQueryChange,
   onRename,
   onSelect,
-  query,
   threads,
 }: ThreadListProps) {
-  const filtered = threads
-    .filter((thread) => thread.title.toLocaleLowerCase().includes(query.toLocaleLowerCase()))
-    .sort((a, b) => b.updatedAt - a.updatedAt);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<ChatThread | null>(null);
+
+  const groups = useMemo(() => groupThreads(threads), [threads]);
+
+  const handleSelect = useCallback(
+    (id: string) => {
+      onSelect(id);
+    },
+    [onSelect],
+  );
+
+  const handleCancelEdit = useCallback(() => setEditingId(null), []);
+
+  const handleStartEdit = useCallback((id: string) => setEditingId(id), []);
+
+  const handleRename = useCallback(
+    (id: string, title: string) => {
+      const clean = title.trim();
+      setEditingId(null);
+      const thread = threads.find((item) => item.id === id);
+      if (clean && thread && clean !== thread.title) onRename(id, clean);
+    },
+    [onRename, threads],
+  );
+
+  const handleConfirmDelete = useCallback(
+    (thread: ChatThread) => setPendingDelete(thread),
+    [],
+  );
 
   return (
-    <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
-      <div className="flex items-center gap-2 px-4 pt-4 pb-3">
-        <div className="flex size-9 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-          <Sparkles className="size-5" aria-hidden="true" />
-        </div>
-        <div>
-          <p className="text-sm font-semibold tracking-tight">Lahlah AI</p>
-          <p className="text-xs text-muted-foreground">Ruang percakapan</p>
-        </div>
-      </div>
-      <div className="flex flex-col gap-2 px-3">
-        <Button className="w-full justify-start" onClick={onCreate}>
-          <Plus data-icon="inline-start" /> Percakapan baru
-        </Button>
-        <div className="relative">
-          <Search
-            className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-            aria-hidden="true"
-          />
-          <Input
-            aria-label="Cari percakapan"
-            className="pl-9"
-            placeholder="Cari percakapan..."
-            value={query}
-            onChange={(event) => onQueryChange(event.target.value)}
-          />
-        </div>
-      </div>
-      <div className="px-5 pt-4 pb-1 text-xs font-medium tracking-widest text-muted-foreground uppercase">
-        Riwayat
-      </div>
-      <ScrollArea className="min-h-0 flex-1 px-2">
-        <div className="flex flex-col gap-1 pb-4">
-          {filtered.length === 0 ? (
-            <p className="px-3 py-5 text-sm text-muted-foreground">
-              Tidak ada percakapan yang cocok.
-            </p>
-          ) : null}
-          {filtered.map((thread) => (
-            <div
-              key={thread.id}
-              className={cn(
-                "group flex min-w-0 items-center rounded-lg pr-1 transition-colors hover:bg-sidebar-accent",
-                thread.id === activeId &&
-                  "bg-sidebar-accent text-sidebar-accent-foreground",
-              )}
+    <>
+      <SidebarContent aria-label="Riwayat percakapan" role="navigation">
+        {groups.length === 0 ? (
+          <SidebarGroup>
+            <Empty className="border-0 p-4">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <MessageSquare aria-hidden="true" />
+                </EmptyMedia>
+                <EmptyTitle>Belum ada percakapan</EmptyTitle>
+                <EmptyDescription>
+                  Percakapan yang kamu mulai akan muncul di sini.
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          </SidebarGroup>
+        ) : (
+          groups.map((group) => (
+            <SidebarGroup key={group.id}>
+              <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {group.threads.map((thread) => (
+                    <ThreadItem
+                      key={thread.id}
+                      thread={thread}
+                      isActive={thread.id === activeId}
+                      isEditing={thread.id === editingId}
+                      onSelect={handleSelect}
+                      onStartEdit={handleStartEdit}
+                      onCancelEdit={handleCancelEdit}
+                      onRename={handleRename}
+                      onConfirmDelete={handleConfirmDelete}
+                    />
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          ))
+        )}
+      </SidebarContent>
+
+      <AlertDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Hapus percakapan?</AlertDialogTitle>
+            <AlertDialogDescription>
+              “{pendingDelete?.title}” akan dihapus dari browser ini. Tindakan
+              ini tidak bisa dibatalkan.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Batal</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                if (pendingDelete) onDelete(pendingDelete.id);
+              }}
             >
-              <button
-                type="button"
-                aria-current={thread.id === activeId ? "page" : undefined}
-                className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={() => onSelect(thread.id)}
-              >
-                <MessageSquare
-                  className="size-4 shrink-0 text-muted-foreground"
-                  aria-hidden="true"
-                />
-                <span className="truncate">{thread.title}</span>
-              </button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    aria-label={`Opsi untuk ${thread.title}`}
-                  >
-                    <MoreHorizontal aria-hidden="true" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => onRename(thread.id)}>
-                    <Pencil data-icon="inline-start" /> Ubah nama
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    variant="destructive"
-                    onClick={() => onDelete(thread.id)}
-                  >
-                    <Trash2 data-icon="inline-start" /> Hapus
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          ))}
-        </div>
-      </ScrollArea>
-      <Separator />
-      <div className="flex items-center gap-3 px-4 py-2.5">
-        <Avatar className="size-9">
-          <AvatarFallback>
-            <User className="size-4" aria-hidden="true" />
-          </AvatarFallback>
-        </Avatar>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">Pengguna</p>
-          <p className="text-xs text-muted-foreground">Pratinjau lokal</p>
-        </div>
-      </div>
-    </div>
+              Hapus
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

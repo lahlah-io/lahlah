@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Map, Menu, MessagesSquare, Sparkles } from "lucide-react";
+import { useCallback, useState } from "react";
+import { Map, MessagesSquare, PanelLeft, Sparkles } from "lucide-react";
 
 import { Button } from "@/shared/components/ui/button";
 import {
@@ -16,17 +16,18 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/shared/components/ui/sheet";
+import { SidebarProvider, useSidebar } from "@/shared/components/ui/sidebar";
 import {
   ToggleGroup,
   ToggleGroupItem,
 } from "@/shared/components/ui/toggle-group";
 import { cn } from "@/shared/utils/cn";
 
+import { ThreadPanelContent } from "./thread-panel";
 import { ChatTurn, StreamingTurn } from "./chat-turn";
 import { ItineraryPanel } from "./itinerary-panel";
 import AIPromptInput from "./smoothui/ai-prompt-input";
-import { ThreadList } from "./thread-list";
-import { useChatThreads } from "../hooks/use-chat-threads";
+import { useChatThreadsContext } from "../context/chat-threads-context";
 import { useSimulatedReply } from "../hooks/use-simulated-reply";
 
 const SUGGESTIONS = [
@@ -37,7 +38,17 @@ const SUGGESTIONS = [
 
 type ChatView = "chat" | "itinerary";
 
+const MOBILE_NAV_OFFSET = "pb-[calc(4.5rem+env(safe-area-inset-bottom))]";
+
 export function ChatBox() {
+  return (
+    <SidebarProvider className="h-full w-full">
+      <ChatWorkspace />
+    </SidebarProvider>
+  );
+}
+
+function ChatWorkspace() {
   const {
     activeId,
     activeThread,
@@ -49,89 +60,95 @@ export function ChatBox() {
     selectThread,
     startDraft,
     threads,
-  } = useChatThreads();
+  } = useChatThreadsContext();
   const { cancel, start, turn } = useSimulatedReply();
-  const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
-  const [mobileOpen, setMobileOpen] = useState(false);
   const [view, setView] = useState<ChatView>("chat");
+  const { openMobile, setOpenMobile } = useSidebar();
 
-  function handleNewThread() {
+  const openMobileHistory = useCallback(() => setOpenMobile(true), [
+    setOpenMobile,
+  ]);
+  const closeMobileHistory = useCallback(() => setOpenMobile(false), [
+    setOpenMobile,
+  ]);
+
+  const handleNewThread = useCallback(() => {
     cancel();
     setDraft("");
     startDraft();
-    setMobileOpen(false);
-  }
+  }, [cancel, startDraft]);
 
-  function handleSelectThread(id: string) {
-    cancel();
-    setDraft("");
-    selectThread(id);
-    setMobileOpen(false);
-  }
-
-  function handleRename(id: string) {
-    const thread = threads.find((item) => item.id === id);
-    if (!thread) return;
-    const title = window.prompt("Nama percakapan", thread.title)?.trim();
-    if (title) renameThread(id, title);
-  }
-
-  function handleDelete(id: string) {
-    if (!window.confirm("Hapus percakapan ini dari browser?")) return;
-    cancel();
-    deleteThread(id);
-  }
-
-  function handleSubmit(value: string) {
-    const clean = value.trim();
-    if (!clean || turn.streaming) return;
-    appendUserMessage(clean);
-    setDraft("");
-    start(clean, (text, citations) => {
-      appendAssistantMessage({ citations, text });
-    });
-  }
-
-  const composerState = turn.streaming ? turn.state : "idle";
-  const sidebar = (
-    <ThreadList
-      threads={threads}
-      activeId={activeId}
-      query={query}
-      onQueryChange={setQuery}
-      onSelect={handleSelectThread}
-      onCreate={handleNewThread}
-      onRename={handleRename}
-      onDelete={handleDelete}
-    />
+  const handleSelectThread = useCallback(
+    (id: string) => {
+      cancel();
+      setDraft("");
+      selectThread(id);
+    },
+    [cancel, selectThread],
   );
 
-  return (
-    <div className="flex h-svh min-h-0 w-full overflow-hidden bg-background text-foreground">
-      <aside className="hidden w-72 shrink-0 border-r border-sidebar-border md:block">
-        {sidebar}
-      </aside>
-      <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-        <SheetContent side="left" className="gap-0 p-0">
-          <SheetHeader className="sr-only">
-            <SheetTitle>Percakapan</SheetTitle>
-          </SheetHeader>
-          {sidebar}
-        </SheetContent>
-      </Sheet>
+  const handleRename = useCallback(
+    (id: string, title: string) => {
+      renameThread(id, title);
+    },
+    [renameThread],
+  );
 
-      <section className="flex min-w-0 flex-1 flex-col">
-        <header className="relative flex h-14 shrink-0 items-center justify-center px-5 py-2 sm:px-8">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="absolute left-3 sm:left-4 md:hidden"
-            aria-label="Buka riwayat"
-            onClick={() => setMobileOpen(true)}
-          >
-            <Menu aria-hidden="true" />
-          </Button>
+  const handleDelete = useCallback(
+    (id: string) => {
+      cancel();
+      deleteThread(id);
+    },
+    [cancel, deleteThread],
+  );
+
+  const handleSubmit = useCallback(
+    (value: string) => {
+      const clean = value.trim();
+      if (!clean || turn.streaming) return;
+      appendUserMessage(clean);
+      setDraft("");
+      start(clean, (text, citations) => {
+        appendAssistantMessage({ citations, text });
+      });
+    },
+    [appendAssistantMessage, appendUserMessage, start, turn.streaming],
+  );
+
+  const composerState = turn.streaming ? turn.state : "idle";
+
+  return (
+    <div className="flex h-full min-h-0 w-full">
+      <aside
+        aria-label="Riwayat percakapan"
+        className="hidden h-full w-72 shrink-0 flex-col border-r border-sidebar-border md:flex"
+      >
+        <ThreadPanelContent
+          activeId={activeId}
+          onCreate={handleNewThread}
+          onDelete={handleDelete}
+          onRename={handleRename}
+          onSelect={handleSelectThread}
+          threads={threads}
+        />
+      </aside>
+
+      <section className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <header className="relative flex h-14 shrink-0 items-center justify-center px-3 sm:px-6">
+          <div className="absolute left-2 flex items-center gap-1 sm:left-4">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Buka riwayat percakapan"
+              aria-expanded={openMobile}
+              className="md:hidden"
+              onClick={openMobileHistory}
+            >
+              <PanelLeft aria-hidden="true" />
+            </Button>
+          </div>
           <ToggleGroup
             type="single"
             variant="outline"
@@ -178,14 +195,19 @@ export function ChatBox() {
               inert={view !== "chat"}
               role="region"
             >
-              <MessageScrollerProvider key={isDraft ? "draft" : activeThread?.id} autoScroll>
+              <MessageScrollerProvider
+                key={isDraft ? "draft" : activeThread?.id}
+                autoScroll
+              >
                 <MessageScroller className="min-h-0 flex-1">
                   <MessageScrollerViewport>
                     {/* `justify-end` pins short content to the bottom so the newest
                         turn starts next to the composer; long transcripts keep the
                         natural top-to-bottom flow and auto-scroll to the live edge. */}
                     <MessageScrollerContent className="mx-auto flex min-h-full w-full max-w-3xl flex-col justify-end gap-5 px-4 py-8 sm:px-6">
-                      {isDraft || !activeThread || activeThread.messages.length === 0 ? (
+                      {isDraft ||
+                      !activeThread ||
+                      activeThread.messages.length === 0 ? (
                         <MessageScrollerItem>
                           <div className="flex min-h-[50vh] flex-col items-center justify-center text-center">
                             <div className="mb-5 flex size-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-sm">
@@ -195,8 +217,9 @@ export function ChatBox() {
                               Apa yang ingin kamu bahas?
                             </h2>
                             <p className="mt-3 max-w-md text-sm leading-6 text-muted-foreground">
-                              Mulai dengan sebuah pertanyaan. Jawaban disimulasikan di
-                              browser: ada jeda berpikir, lalu teks mengalir kata per kata.
+                              Mulai dengan sebuah pertanyaan. Jawaban
+                              disimulasikan di browser: ada jeda berpikir, lalu
+                              teks mengalir kata per kata.
                             </p>
                             <div className="mt-8 grid w-full max-w-xl gap-2 sm:grid-cols-3">
                               {SUGGESTIONS.map((suggestion) => (
@@ -218,7 +241,9 @@ export function ChatBox() {
                           {activeThread.messages.map((message) => (
                             <ChatTurn key={message.id} message={message} />
                           ))}
-                          {turn.streaming ? <StreamingTurn turn={turn} /> : null}
+                          {turn.streaming ? (
+                            <StreamingTurn turn={turn} />
+                          ) : null}
                         </div>
                       )}
                     </MessageScrollerContent>
@@ -227,7 +252,13 @@ export function ChatBox() {
                 </MessageScroller>
               </MessageScrollerProvider>
 
-              <div className="shrink-0 px-4 pt-3 pb-4 sm:px-6 sm:pb-6">
+              <div
+                className={cn(
+                  "shrink-0 px-4 pt-3 sm:px-6",
+                  MOBILE_NAV_OFFSET,
+                  "md:pb-6",
+                )}
+              >
                 <div className="mx-auto max-w-3xl">
                   <AIPromptInput
                     aria-label="Tulis pesan untuk Lahlah AI"
@@ -243,7 +274,11 @@ export function ChatBox() {
             </div>
 
             <div
-              className="h-full w-full min-w-0 shrink-0"
+              className={cn(
+                "h-full w-full min-w-0 shrink-0",
+                MOBILE_NAV_OFFSET,
+                "md:pb-0",
+              )}
               inert={view !== "itinerary"}
             >
               <ItineraryPanel />
@@ -251,6 +286,29 @@ export function ChatBox() {
           </div>
         </div>
       </section>
+
+      <Sheet open={openMobile} onOpenChange={setOpenMobile}>
+        <SheetContent
+          side="left"
+          showCloseButton={false}
+          className="data-[side=left]:w-80 gap-0 bg-sidebar p-0 text-sidebar-foreground"
+        >
+          <SheetHeader className="sr-only">
+            <SheetTitle>Riwayat percakapan</SheetTitle>
+          </SheetHeader>
+          <div className="flex h-full min-h-0 flex-col bg-sidebar text-sidebar-foreground">
+            <ThreadPanelContent
+              activeId={activeId}
+              onCreate={handleNewThread}
+              onDelete={handleDelete}
+              onNavigate={closeMobileHistory}
+              onRename={handleRename}
+              onSelect={handleSelectThread}
+              threads={threads}
+            />
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

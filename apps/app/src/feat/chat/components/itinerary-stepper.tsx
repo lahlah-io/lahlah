@@ -1,6 +1,6 @@
 import { DestinationCard } from "./destination-card";
 
-import { ITINERARY_DAYS } from "../data/itinerary";
+import { ITINERARY_DAYS } from "@/shared/data/itinerary";
 
 export function ItineraryStepper() {
   return (

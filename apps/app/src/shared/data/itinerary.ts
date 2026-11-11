@@ -1,6 +1,6 @@
 import { Luggage, Mountain, Navigation } from "lucide-react";
 
-import type { ItineraryDay, TripSummary } from "../types/itinerary";
+import type { ItineraryDay, TripSummary } from "@/shared/types/itinerary";
 
 export const TRIP_SUMMARY: TripSummary = {
   dates: "Nov 9–11, 2026",

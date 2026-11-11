@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 
 import { FanGallery } from "./gallery/fan-gallery";
-import { ITINERARY_DAYS } from "../data/itinerary";
+import { ITINERARY_DAYS } from "@/shared/data/itinerary";
 
 export function TripGallery() {
   const items = useMemo(

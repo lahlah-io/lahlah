@@ -1,6 +1,6 @@
 import { Star } from "lucide-react";
 
-import type { ItineraryDestination } from "../types/itinerary";
+import type { ItineraryDestination } from "@/shared/types/itinerary";
 
 function DestinationCard({ destination }: { destination: ItineraryDestination }) {
   return (

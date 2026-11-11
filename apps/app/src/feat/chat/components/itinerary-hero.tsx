@@ -3,7 +3,7 @@ import { CalendarDays, MapPin, Milestone } from "lucide-react";
 
 import { Badge } from "@/shared/components/ui/badge";
 
-import { TRIP_SUMMARY } from "../data/itinerary";
+import { TRIP_SUMMARY } from "@/shared/data/itinerary";
 import { TripGallery } from "./trip-gallery";
 
 const META = [
