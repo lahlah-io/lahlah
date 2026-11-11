@@ -23,15 +23,51 @@ async function assertModelAvailable(modelId: string): Promise<void> {
   if (!model.isActive) throw new HttpError(400, "MODEL_INACTIVE", "Default model is inactive");
 }
 
+async function assertModelsAllowed(ids: string[]): Promise<void> {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return;
+
+  const models = await plansRepository.findModelsForPlan(unique);
+  const found = new Map(models.map((model) => [model.id, model]));
+
+  if (unique.some((id) => !found.has(id))) {
+    throw new HttpError(404, "MODEL_NOT_FOUND", "One or more allowed models do not exist");
+  }
+  if (unique.some((id) => !found.get(id)?.isActive)) {
+    throw new HttpError(400, "MODEL_INACTIVE", "One or more allowed models are inactive");
+  }
+}
+
+/**
+ * A plan that restricts its models must keep its default model inside that
+ * list, otherwise the default silently becomes unusable.
+ */
+function assertDefaultModelAllowed(
+  defaultModelId: string | null | undefined,
+  allowedModelIds: string[] | null,
+): void {
+  if (!defaultModelId || allowedModelIds === null) return;
+  if (!allowedModelIds.includes(defaultModelId)) {
+    throw new HttpError(
+      400,
+      "DEFAULT_MODEL_NOT_ALLOWED",
+      "Default model must be one of the allowed models",
+    );
+  }
+}
+
 export async function createPlan(input: z.infer<typeof createPlanSchema>, actor: Actor) {
+  const details = parsePlanLimits(input.details ?? {});
   if (input.defaultModelId) await assertModelAvailable(input.defaultModelId);
+  if (details.allowedModelIds) await assertModelsAllowed(details.allowedModelIds);
+  assertDefaultModelAllowed(input.defaultModelId, details.allowedModelIds);
 
   const data: Prisma.SubscriptionPlanCreateInput = {
     name: input.name,
     description: input.description ?? null,
     price: input.price,
     billingInterval: input.billingInterval,
-    details: parsePlanLimits(input.details ?? {}) as Prisma.InputJsonValue,
+    details: details as Prisma.InputJsonValue,
     ...(input.defaultModelId
       ? { defaultModel: { connect: { id: input.defaultModelId } } }
       : {}),
@@ -60,7 +96,16 @@ export async function updatePlan(
   const existing = await plansRepository.findPlanById(id);
   if (!existing) throw new HttpError(404, "PLAN_NOT_FOUND", "Subscription plan not found");
 
+  const nextDetails =
+    input.details === undefined
+      ? parsePlanLimits(existing.details)
+      : parsePlanLimits({ ...(existing.details as Record<string, unknown>), ...input.details });
+  const nextDefaultModelId =
+    input.defaultModelId === undefined ? existing.defaultModelId : input.defaultModelId;
+
   if (input.defaultModelId) await assertModelAvailable(input.defaultModelId);
+  if (nextDetails.allowedModelIds) await assertModelsAllowed(nextDetails.allowedModelIds);
+  assertDefaultModelAllowed(nextDefaultModelId, nextDetails.allowedModelIds);
 
   const data: Prisma.SubscriptionPlanUpdateInput = {};
   if (input.name !== undefined) data.name = input.name;
@@ -68,11 +113,7 @@ export async function updatePlan(
   if (input.price !== undefined) data.price = input.price;
   if (input.billingInterval !== undefined) data.billingInterval = input.billingInterval;
   if (input.details !== undefined) {
-    const merged = {
-      ...(existing.details as Record<string, unknown>),
-      ...input.details,
-    };
-    data.details = parsePlanLimits(merged) as Prisma.InputJsonValue;
+    data.details = nextDetails as Prisma.InputJsonValue;
   }
   if (input.defaultModelId !== undefined) {
     data.defaultModel = input.defaultModelId

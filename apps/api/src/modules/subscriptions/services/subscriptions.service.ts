@@ -1,5 +1,6 @@
 import {
   checkQuota as checkQuotaForUser,
+  expireOverdueSubscriptionsForUser,
   getMyPlan,
   toQuotaLimits,
   type QuotaMetric,
@@ -15,7 +16,20 @@ export function checkQuota(userId: string, metric: QuotaMetric, amount: number) 
   return checkQuotaForUser(userId, metric, amount);
 }
 
+export async function getMyModels(userId: string) {
+  const myPlan = await getMyPlan(userId);
+  const models = await subscriptionsRepository.findActiveModels(myPlan.limits.allowedModelIds);
+
+  return {
+    defaultModelId: myPlan.plan.defaultModelId,
+    allowedModelIds: myPlan.limits.allowedModelIds,
+    models,
+  };
+}
+
 export async function getSubscriptionHistory(userId: string) {
+  // Show expired rows as expired rather than leaving a stale `active` status.
+  await expireOverdueSubscriptionsForUser(userId);
   const history = await subscriptionsRepository.findSubscriptionHistory(userId);
   return history.map((subscription) => ({
     id: subscription.id,

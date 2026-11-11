@@ -5,6 +5,7 @@ import { zValidator } from "../../../shared/http/validator.js";
 import { checkQuotaSchema, quotaMetricSchema } from "../schemas/quota.schema.js";
 import {
   checkQuota,
+  getMyModels,
   getMyPlanSummary,
   getSubscriptionHistory,
 } from "../services/subscriptions.service.js";
@@ -15,6 +16,10 @@ subscriptionsApi.use("*", requireAuth);
 
 subscriptionsApi.get("/me", async (c) =>
   c.json({ data: await getMyPlanSummary(c.get("auth").user.id) }),
+);
+
+subscriptionsApi.get("/me/models", async (c) =>
+  c.json({ data: await getMyModels(c.get("auth").user.id) }),
 );
 
 subscriptionsApi.get("/me/history", async (c) =>

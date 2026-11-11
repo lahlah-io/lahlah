@@ -17,8 +17,8 @@ import {
 
 const subscriptionPlansApi = new Hono<{ Variables: AuthVariables }>();
 
-subscriptionPlansApi.use("*", requireAdmin);
-
+// Plans are catalog data: pricing pages need them without a session. Writes
+// stay behind `requireAdmin`.
 subscriptionPlansApi.get("/", zValidator("query", listPlansQuerySchema), async (c) =>
   c.json(await listPlans(c.req.valid("query"))),
 );
@@ -27,12 +27,16 @@ subscriptionPlansApi.get("/:id", zValidator("param", planIdSchema), async (c) =>
   c.json({ data: await getPlan(c.req.valid("param").id) }),
 );
 
-subscriptionPlansApi.post("/", zValidator("json", createPlanSchema), async (c) =>
-  c.json({ data: await createPlan(c.req.valid("json"), c.get("auth").user) }, 201),
+subscriptionPlansApi.post(
+  "/",
+  requireAdmin,
+  zValidator("json", createPlanSchema),
+  async (c) => c.json({ data: await createPlan(c.req.valid("json"), c.get("auth").user) }, 201),
 );
 
 subscriptionPlansApi.patch(
   "/:id",
+  requireAdmin,
   zValidator("param", planIdSchema),
   zValidator("json", updatePlanSchema),
   async (c) =>
@@ -41,8 +45,11 @@ subscriptionPlansApi.patch(
     }),
 );
 
-subscriptionPlansApi.delete("/:id", zValidator("param", planIdSchema), async (c) =>
-  c.json({ data: await deletePlan(c.req.valid("param").id, c.get("auth").user) }),
+subscriptionPlansApi.delete(
+  "/:id",
+  requireAdmin,
+  zValidator("param", planIdSchema),
+  async (c) => c.json({ data: await deletePlan(c.req.valid("param").id, c.get("auth").user) }),
 );
 
 export { subscriptionPlansApi };

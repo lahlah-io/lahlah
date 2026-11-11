@@ -1,4 +1,4 @@
-import type { Prisma } from "../../generated/prisma/client.js";
+import { Prisma } from "../../generated/prisma/client.js";
 import { prisma } from "../../db/client.js";
 import { HttpError } from "../http/errors.js";
 import { FREE_PLAN_NAME } from "./plan-limits.schema.js";
@@ -44,18 +44,57 @@ export function findActiveSubscription(userId: string): Promise<ActiveSubscripti
 }
 
 /**
- * Grants the seeded free plan once per user. Safe to call on every login.
+ * Flips every overdue `active` subscription to `expired`. Intended for the
+ * scheduled maintenance script; request paths expire only the current user.
+ */
+export function expireOverdueSubscriptions(now: Date = new Date()) {
+  return prisma.userSubscription.updateMany({
+    where: { status: "active", expiresAt: { lt: now } },
+    data: { status: "expired" },
+  });
+}
+
+export function expireOverdueSubscriptionsForUser(userId: string, now: Date = new Date()) {
+  return prisma.userSubscription.updateMany({
+    where: { userId, status: "active", expiresAt: { lt: now } },
+    data: { status: "expired" },
+  });
+}
+
+/**
+ * Grants the seeded free plan once per user. Safe to call on every login and on
+ * every subscription read: overdue rows are expired first so a stale paid
+ * subscription never blocks the free plan.
  */
 export async function assignFreeSubscription(userId: string): Promise<ActiveSubscription> {
-  return prisma.$transaction((tx) => assignFreeSubscriptionTx(tx, userId));
+  try {
+    return await prisma.$transaction((tx) => assignFreeSubscriptionTx(tx, userId));
+  } catch (error) {
+    // Two concurrent logins can race to create the active row; the partial
+    // unique index lets one win and we reuse its result.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      const active = await findActiveSubscription(userId);
+      if (active) return active;
+    }
+    throw error;
+  }
 }
 
 export async function assignFreeSubscriptionTx(
   tx: Prisma.TransactionClient,
   userId: string,
 ): Promise<ActiveSubscription> {
+  await tx.userSubscription.updateMany({
+    where: { userId, status: "active", expiresAt: { lt: new Date() } },
+    data: { status: "expired" },
+  });
+
   const existing = await tx.userSubscription.findFirst({
-    where: { userId, status: "active" },
+    where: {
+      userId,
+      status: "active",
+      OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+    },
     select: subscriptionSelect,
   });
   if (existing) return existing;

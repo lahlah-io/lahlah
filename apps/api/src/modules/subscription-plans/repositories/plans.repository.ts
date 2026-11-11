@@ -39,3 +39,9 @@ export const countSubscriptionsForPlan = (planId: string) =>
 
 export const findModelForPlan = (id: string) =>
   prisma.model.findUnique({ where: { id }, select: { id: true, isActive: true } });
+
+export const findModelsForPlan = (ids: string[]) =>
+  prisma.model.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, isActive: true },
+  });

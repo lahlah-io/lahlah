@@ -1,4 +1,3 @@
-import { HttpError } from "../http/errors.js";
 import { parsePlanLimits, type PlanLimits } from "./plan-limits.schema.js";
 import * as subscriptionRepository from "./subscription.repository.js";
 import type { ActiveSubscription } from "./subscription.repository.js";
@@ -38,6 +37,9 @@ export type MyPlan = {
 
 export const ensureFreeSubscription = subscriptionRepository.assignFreeSubscription;
 export const getActiveSubscription = subscriptionRepository.findActiveSubscription;
+export const expireOverdueSubscriptions = subscriptionRepository.expireOverdueSubscriptions;
+export const expireOverdueSubscriptionsForUser =
+  subscriptionRepository.expireOverdueSubscriptionsForUser;
 
 export function quotaPeriod(now: Date = new Date()): QuotaPeriod {
   return {
@@ -62,10 +64,14 @@ export function isModelAllowed(limits: PlanLimits, modelId: string): boolean {
 }
 
 async function loadPlan(userId: string): Promise<{ subscription: ActiveSubscription; limits: PlanLimits }> {
-  const subscription = await subscriptionRepository.findActiveSubscription(userId);
-  if (!subscription) {
-    throw new HttpError(404, "SUBSCRIPTION_NOT_FOUND", "No active subscription");
-  }
+  // Reads are also a safe point to expire a paid plan that lapsed while the
+  // user was away; without this the active row would block the free plan.
+  await subscriptionRepository.expireOverdueSubscriptionsForUser(userId);
+
+  const subscription =
+    (await subscriptionRepository.findActiveSubscription(userId)) ??
+    (await subscriptionRepository.assignFreeSubscription(userId));
+
   return { subscription, limits: parsePlanLimits(subscription.plan.details) };
 }
 

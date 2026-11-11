@@ -91,3 +91,39 @@ test("plan saya dan kuota menghitung pemakaian nyata", async () => {
     await prisma.model.deleteMany({ where: { id: model.id } });
   }
 });
+
+test("langganan kedaluwarsa tidak menyandera plan free", async () => {
+  const session = await createTestSession();
+
+  try {
+    const active = await prisma.userSubscription.findFirstOrThrow({
+      where: { userId: session.user.id, status: "active" },
+      select: { id: true },
+    });
+    await prisma.userSubscription.update({
+      where: { id: active.id },
+      data: { expiresAt: new Date(Date.now() - 60_000) },
+    });
+
+    const response = await app.request("/api/v1/subscriptions/me", {
+      headers: session.headers,
+    });
+    assert.equal(response.status, 200);
+    const plan = await response.json().then((body) => body.data);
+    assert.equal(plan.plan.name, "free");
+    assert.notEqual(plan.subscription.id, active.id, "dibuatkan langganan free baru");
+
+    const expired = await prisma.userSubscription.findUnique({
+      where: { id: active.id },
+      select: { status: true },
+    });
+    assert.equal(expired?.status, "expired");
+
+    const activeCount = await prisma.userSubscription.count({
+      where: { userId: session.user.id, status: "active" },
+    });
+    assert.equal(activeCount, 1, "hanya satu langganan aktif per user");
+  } finally {
+    await deleteTestUser(session.user.id);
+  }
+});

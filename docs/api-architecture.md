@@ -97,9 +97,11 @@ List dibatasi hingga 1–100 data per halaman. Respons hanya memilih field yang 
 - `subscription_plans.details` (JSONB) menyimpan batas plan: `chatMessagesPerMonth`, `maxChatSessions`, `maxItineraries`, dan `allowedModelIds`. `null` berarti tanpa batas, dan key lain dipertahankan untuk kompatibilitas. Validasi ada di `src/shared/billing/plan-limits.schema.ts`.
 - Migrasi data menyisipkan plan `free` (30 pesan/bulan, 10 sesi chat, 3 itinerary). Plan `free` tidak bisa dihapus; plan yang masih dipakai langganan juga tidak bisa dihapus (409).
 - Setiap user baru otomatis mendapat langganan `free` aktif, baik saat dibuat admin maupun saat login pertama. Fungsi idempotent ada di `src/shared/billing/subscription.service.ts`.
-- `GET /api/v1/subscriptions/me` mengembalikan plan aktif, masa berlaku, limit, dan pemakaian. `GET /api/v1/subscriptions/me/history` mengembalikan riwayat langganan.
+- `GET /api/v1/subscriptions/me` mengembalikan plan aktif, masa berlaku, limit, dan pemakaian. `GET /api/v1/subscriptions/me/history` mengembalikan riwayat langganan. `GET /api/v1/subscriptions/me/models` mengembalikan model aktif yang diizinkan plan beserta `defaultModelId`, dipakai web app untuk memilih model.
 - `GET /api/v1/subscriptions/me/quota` dan `POST /api/v1/subscriptions/me/quota/check` memakai jendela bulan kalender UTC. Modul `chat` nanti memanggil `checkQuota(userId, metric, amount)` langsung dari `shared/billing`, bukan lewat HTTP internal.
-- CRUD model (`/api/v1/models`) dan plan (`/api/v1/subscription-plans`) hanya untuk admin. `defaultModelId` pada plan harus menunjuk model yang aktif.
+- `GET /api/v1/subscription-plans` dan `GET /api/v1/subscription-plans/:id` publik agar halaman pricing dapat membacanya; `POST`, `PATCH`, dan `DELETE` tetap memakai `requireAdmin`. CRUD model (`/api/v1/models`) tetap khusus admin.
+- `defaultModelId` harus menunjuk model aktif. Setiap ID di `allowedModelIds` harus ada dan aktif, dan `defaultModelId` harus termasuk daftar itu bila `allowedModelIds` tidak `null`. Pelanggaran mengembalikan `404 MODEL_NOT_FOUND`, `400 MODEL_INACTIVE`, atau `400 DEFAULT_MODEL_NOT_ALLOWED`.
+- Langganan `active` yang melewati `expiresAt` diubah menjadi `expired` saat login, saat membaca langganan/kuota, dan oleh job `pnpm --filter api db:expire-subscriptions`. Index unik parsial `user_subscriptions_active_user_key` menjamin satu langganan aktif per user sehingga baris kedaluwarsa tidak menghalangi pemberian plan `free`.
 
 ## Catatan pengujian
 

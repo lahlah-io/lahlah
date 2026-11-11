@@ -67,11 +67,42 @@ $headers = @{ Authorization = "Bearer $($login.data.token)" }
 Invoke-RestMethod -Uri http://localhost:8787/api/v1/auth/me -Headers $headers
 ```
 
+## Menguji auth secara manual
+
+Untuk menguji middleware, cookie, Bearer, dan guard admin tanpa menunggu kredensial PeridotID, buat sesi uji langsung ke database:
+
+```powershell
+pnpm --filter api dev:session
+pnpm --filter api dev:session -- --admin
+pnpm --filter api dev:session -- --inactive
+```
+
+Script mencetak `userId`, token, dan contoh perintah `curl`. Script hanya untuk pengembangan dan menolak jalan bila `NODE_ENV=production`.
+
+1. Baca user aktif dengan Bearer dan cookie:
+
+```powershell
+curl.exe -i http://localhost:8787/api/v1/auth/me -H "Authorization: Bearer <token>"
+curl.exe -i http://localhost:8787/api/v1/auth/me -H "Cookie: lahlah_session=<token>"
+```
+
+2. Logout, lalu ulangi `/auth/me`; hasilnya harus `401 UNAUTHENTICATED`.
+3. Sesi `--admin` boleh membuka `GET /api/v1/users`; sesi user biasa mendapat `403 FORBIDDEN`.
+4. Sesi `--inactive` mendapat `403 ACCOUNT_INACTIVE` meskipun tokennya valid.
+5. Hapus data uji beserta sesi dan langganannya:
+
+```powershell
+pnpm --filter api dev:session -- --cleanup <userId>
+```
+
+Login end-to-end lewat PeridotID baru bisa diuji setelah `PERIDOT_CLIENT_ID` asli tersedia dan origin frontend terdaftar. `pid_code` bersifat sekali pakai dan berumur pendek, jadi exchange harus dilakukan segera setelah `peridot.auth.loginPopup()`.
+
 ## Endpoint admin dan kuota
 
-- Admin: `/api/v1/users`, `/api/v1/models`, `/api/v1/subscription-plans`.
-- User login: `/api/v1/subscriptions/me`, `/api/v1/subscriptions/me/quota`, `/api/v1/subscriptions/me/quota/check`.
-- Plan `free` disisipkan oleh migrasi data (`30` pesan/bulan, `10` sesi chat, `3` itinerary) dan tidak bisa dihapus. Batas plan lain diatur lewat `details` pada CRUD plan.
+- Admin: `/api/v1/users`, `/api/v1/models`, dan operasi tulis `/api/v1/subscription-plans`. `GET /api/v1/subscription-plans` dan `GET /api/v1/subscription-plans/:id` publik untuk halaman pricing.
+- User login: `/api/v1/subscriptions/me`, `/api/v1/subscriptions/me/history`, `/api/v1/subscriptions/me/models`, `/api/v1/subscriptions/me/quota`, `/api/v1/subscriptions/me/quota/check`.
+- Plan `free` disisipkan oleh migrasi data (`30` pesan/bulan, `10` sesi chat, `3` itinerary) dan tidak bisa dihapus. Batas plan lain diatur lewat `details` pada CRUD plan; model di `allowedModelIds` harus ada dan aktif, dan `defaultModelId` harus termasuk daftar itu bila daftarnya tidak `null`.
+- Langganan yang lewat masa aktif diubah menjadi `expired` otomatis saat login dan saat membaca langganan/kuota. Untuk data yang tidak pernah dibuka, jalankan job `pnpm --filter api db:expire-subscriptions` secara berkala.
 - `GET /api/v1/health` dan `/health/ready` tetap publik.
 
 ## Instalasi dan menjalankan API
@@ -98,6 +129,7 @@ Jalankan perintah dari root repository:
 | Perintah | Fungsi |
 | --- | --- |
 | `pnpm --filter api dev` | Menjalankan server pengembangan dengan watch mode. |
+| `pnpm --filter api dev:session` | Membuat user dan sesi uji untuk menguji auth secara manual (khusus pengembangan). |
 | `pnpm --filter api build` | Membuat Prisma Client lalu mengompilasi TypeScript. |
 | `pnpm --filter api start` | Menjalankan hasil build dengan file `.env` lokal bila tersedia. |
 | `pnpm --filter api test:unit` | Menjalankan tes unit; tidak memerlukan PostgreSQL. |
@@ -107,6 +139,7 @@ Jalankan perintah dari root repository:
 | `pnpm --filter api db:migrate:status` | Memeriksa apakah migrasi lokal dan database selaras. |
 | `pnpm --filter api db:studio` | Membuka Prisma Studio untuk database pada `DATABASE_URL`. |
 | `pnpm --filter api db:deploy` | Menerapkan migrasi yang sudah ada ke database target. |
+| `pnpm --filter api db:expire-subscriptions` | Menandai langganan `active` yang sudah lewat `expiresAt` menjadi `expired`; jalankan berkala di lingkungan terpasang. |
 
 ## Siklus perubahan schema dan migrasi lokal
 
@@ -150,7 +183,7 @@ Jangan mengedit SQL migrasi yang telah diterapkan ke lingkungan bersama. Jika st
 
 ## Menguji auth, admin, dan kuota
 
-Tes integrasi mengirim request melalui API dan menyimpan perubahan ke PostgreSQL lokal. Tes membuat user dan sesi langsung lewat Prisma dengan email/UUID unik, memeriksa auth, CRUD admin, plan, model, dan kuota, lalu menghapus data uji di blok `finally`. Alur `pid_code` diuji dengan `fetch` PeridotID yang di-stub sehingga tidak memerlukan kredensial nyata. Jalankan dengan:
+Tes integrasi mengirim request melalui API dan menyimpan perubahan ke PostgreSQL lokal. Tes membuat user dan sesi langsung lewat Prisma dengan email/UUID unik, memeriksa auth, CRUD admin, plan, model, kuota, pembacaan plan publik, pemilihan model per plan, dan kedaluwarsa langganan, lalu menghapus data uji di blok `finally`. Alur `pid_code` diuji dengan `fetch` PeridotID yang di-stub sehingga tidak memerlukan kredensial nyata. Jalankan dengan:
 
 ```sh
 pnpm --filter api test:integration
@@ -164,4 +197,4 @@ pnpm --filter api test:unit
 
 Tes unit tetap membaca `DATABASE_URL` dari `.env` karena modul dimuat bersama `src/env.ts`, tetapi tidak membuka koneksi atau query ke database.
 
-Route users, models, dan subscription-plans mewajibkan sesi admin (`401` tanpa sesi, `403` untuk role `user`). Tidak ada lagi pengaman `503` di production karena autentikasi dan otorisasi sudah tersedia.
+Route users dan models mewajibkan sesi admin (`401` tanpa sesi, `403` untuk role `user`). Route `subscription-plans` hanya mewajibkan admin untuk `POST`/`PATCH`/`DELETE`; kedua `GET` bersifat publik.
