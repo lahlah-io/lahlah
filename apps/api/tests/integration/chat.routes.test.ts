@@ -273,3 +273,103 @@ test("provider/model/tool errors map to controlled envelopes", async () => {
     await cleanupUser(user.id);
   }
 });
+
+async function sendMessage(app: Hono, sessionId: string, userId: string, content: string) {
+  const res = await app.request(`/api/v1/chat/sessions/${sessionId}/messages`, { method: "POST", headers: json, body: JSON.stringify({ userId, content }) });
+  assert.equal(res.status, 200);
+  return await res.json() as { data: { intent: string; message: string; draft: { travelDate: string; destinations: Array<{ destinationId: string }> } | null } };
+}
+
+test("acceptance #1: date -> category -> time accumulates and promotes to a draft", async () => {
+  process.env.NODE_ENV = "test";
+  delete process.env.AI_CLASSIFIER_MODEL;
+  let toolCalls = 0;
+  const provider = await startFakeProvider(() => {
+    toolCalls++;
+    return toolCallResponse("search_destinations", {});
+  });
+  const app = buildApp(provider.url);
+  const user = await createTestUser();
+  try {
+    const created = await app.request("/api/v1/chat/sessions", { method: "POST", headers: json, body: JSON.stringify({ userId: user.id }) });
+    const session = (await created.json() as { data: { id: string } }).data;
+
+    const turn1 = await sendMessage(app, session.id, user.id, "buat itinerary besok");
+    assert.equal(turn1.data.intent, "missing_information");
+    assert.equal(turn1.data.draft, null);
+
+    const turn2 = await sendMessage(app, session.id, user.id, "Kuliner");
+    assert.equal(turn2.data.intent, "missing_information");
+    assert.equal(turn2.data.draft, null);
+    assert.match(turn2.data.message, /kategori terdeteksi/i);
+    assert.doesNotMatch(turn2.data.message, /sebutkan juga kategori/i);
+
+    const turn3 = await sendMessage(app, session.id, user.id, "Sore");
+    assert.ok(turn3.data.draft);
+    assert.ok(turn3.data.draft.destinations.length >= 1);
+    assert.match(turn3.data.draft.travelDate, /^\d{4}-\d{2}-\d{2}$/);
+    assert.match(turn3.data.intent, /itinerary/);
+    assert.equal(toolCalls, 1);
+  } finally {
+    await provider.close();
+    await cleanupUser(user.id);
+  }
+});
+
+test("acceptance #2: single message with destination count returns a capped draft", async () => {
+  process.env.NODE_ENV = "test";
+  delete process.env.AI_CLASSIFIER_MODEL;
+  let toolCalls = 0;
+  const provider = await startFakeProvider(() => {
+    toolCalls++;
+    return toolCallResponse("search_destinations", {});
+  });
+  const app = buildApp(provider.url);
+  const user = await createTestUser();
+  try {
+    const created = await app.request("/api/v1/chat/sessions", { method: "POST", headers: json, body: JSON.stringify({ userId: user.id }) });
+    const session = (await created.json() as { data: { id: string } }).data;
+
+    const turn = await sendMessage(app, session.id, user.id, "buat itinerary 3 destinasi untuk besok");
+    assert.ok(turn.data.draft);
+    assert.ok(turn.data.draft.destinations.length >= 1 && turn.data.draft.destinations.length <= 3);
+    assert.match(turn.data.intent, /itinerary/);
+    assert.equal(toolCalls, 1);
+  } finally {
+    await provider.close();
+    await cleanupUser(user.id);
+  }
+});
+
+test("acceptance #3: category union then destination count cap", async () => {
+  process.env.NODE_ENV = "test";
+  delete process.env.AI_CLASSIFIER_MODEL;
+  let toolCalls = 0;
+  const provider = await startFakeProvider(() => {
+    toolCalls++;
+    return toolCallResponse("search_destinations", {});
+  });
+  const app = buildApp(provider.url);
+  const user = await createTestUser();
+  try {
+    const created = await app.request("/api/v1/chat/sessions", { method: "POST", headers: json, body: JSON.stringify({ userId: user.id }) });
+    const session = (await created.json() as { data: { id: string } }).data;
+
+    const turn1 = await sendMessage(app, session.id, user.id, "buat itinerary besok");
+    assert.equal(turn1.data.intent, "missing_information");
+    assert.equal(turn1.data.draft, null);
+
+    const turn2 = await sendMessage(app, session.id, user.id, "Kuliner dan alam");
+    assert.equal(turn2.data.intent, "missing_information");
+    assert.equal(turn2.data.draft, null);
+
+    const turn3 = await sendMessage(app, session.id, user.id, "3 destinasi saja");
+    assert.ok(turn3.data.draft);
+    assert.ok(turn3.data.draft.destinations.length >= 1 && turn3.data.draft.destinations.length <= 3);
+    assert.match(turn3.data.intent, /itinerary/);
+    assert.equal(toolCalls, 1);
+  } finally {
+    await provider.close();
+    await cleanupUser(user.id);
+  }
+});

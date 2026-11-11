@@ -42,6 +42,14 @@ const candidates: CandidateDestination[] = [
   { id: "c", name: "Charlie", latitude: -0.93, longitude: 100.35, details: { estimated_duration_minutes: 60 } },
 ];
 
+const tenCandidates: CandidateDestination[] = Array.from({ length: 10 }, (_, i) => ({
+  id: `t${i}`,
+  name: `T${i}`,
+  latitude: -0.95 + i * 0.001,
+  longitude: 100.35,
+  details: { estimated_duration_minutes: 60 },
+}));
+
 async function expect422(fn: () => unknown, code: string) {
   try {
     await fn();
@@ -144,4 +152,30 @@ test("route is null when fewer than two valid coordinate points", async () => {
   ];
   const result = generateItinerary({ ...baseReq, startTime: "09:00", endTime: "12:00" }, noCoords) as { route: unknown };
   assert.equal(result.route, null);
+});
+
+test("destinationCount caps output before scheduling", async () => {
+  const { generateItinerary } = await loadGenerator();
+  const wide = { ...baseReq, startTime: "08:00", endTime: "20:00" };
+  const r3 = generateItinerary({ ...wide, destinationCount: 3 }, tenCandidates) as { destinations: Array<{ id: string }> };
+  assert.equal(r3.destinations.length, 3);
+  const r5 = generateItinerary({ ...wide, destinationCount: 5 }, candidates) as { destinations: Array<{ id: string }> };
+  assert.equal(r5.destinations.length, 3);
+  const r1 = generateItinerary({ ...wide, destinationCount: 1 }, tenCandidates) as { destinations: Array<{ id: string }> };
+  assert.equal(r1.destinations.length, 1);
+});
+
+test("no destinationCount stays schedule-clamped", async () => {
+  const { generateItinerary } = await loadGenerator();
+  const result = generateItinerary({ ...baseReq, startTime: "08:00", endTime: "20:00" }, tenCandidates) as {
+    destinations: Array<{ endTime: string }>;
+  };
+  assert.ok(result.destinations.length <= 10);
+  for (const d of result.destinations) assert.ok(d.endTime <= "20:00");
+});
+
+test("destinationCount zero or non-integer is rejected", async () => {
+  const { generateItinerary } = await loadGenerator();
+  await expect422(() => generateItinerary({ ...baseReq, destinationCount: 0 }, candidates), "ITINERARY_REQUEST_INVALID");
+  await expect422(() => generateItinerary({ ...baseReq, destinationCount: 1.5 }, candidates), "ITINERARY_REQUEST_INVALID");
 });
