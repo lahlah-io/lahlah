@@ -39,3 +39,7 @@ yarn-debug.log*
 commitlint.config.cjs
 
 docs/superpowers
+
+.playwright-mcp
+
+chat-e2e-*.png

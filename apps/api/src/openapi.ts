@@ -395,7 +395,7 @@ const openApiDocument = {
     { name: "destinations", description: "Destinasi wisata Padang." },
     { name: "chat", description: "Sesi chat, versioning pesan, dan generator itinerary (nonaktif di production)." },
     { name: "itineraries", description: "Konfirmasi, versi, restore, dan pengambilan itinerary (nonaktif di production)." },
-    { name: "routes", description: "Rute berkendara via OSRM dengan fallback garis lurus." },
+    { name: "routes", description: "Rute perjalanan via OSRM dengan fallback garis lurus." },
   ],
   components: {
     schemas: {
@@ -717,8 +717,9 @@ const openApiDocument = {
         summary: "Konfirmasi draft itinerary",
         description:
           "Menyimpan draft dari database menjadi itinerary berstatus `confirmed` dengan snapshot versi pertama " +
-          "(stops dan route legs). Idempoten per `sessionId`: konfirmasi ulang mengembalikan 200 dengan data " +
-          "yang sudah ada. Field `status` di respons memakai alias legacy `final`.",
+          "(stops dan route legs). Dapat mengirim `profile` (`car|motorcycle|foot`, default `car`) untuk menghitung rute jalan per leg saat konfirmasi; " +
+          "hasil rute persisten per leg (geometry/totals/provider/mode/profile) dengan `fallback` per leg jika tidak tersedia. " +
+          "Idempoten per `sessionId`: konfirmasi ulang mengembalikan 200 dengan data yang sudah ada. Field `status` di respons memakai alias legacy `final`.",
         requestBody: jsonBody(confirmItinerarySchema),
         responses: {
           "200": response("Itinerary sudah ada", envelope("Itinerary")),
@@ -814,9 +815,9 @@ const openApiDocument = {
     "/api/v1/routes/driving": {
       post: {
         tags: ["routes"],
-        summary: "Rute berkendara",
+        summary: "Hitung rute perjalanan",
         description:
-          "Meminta rute OSRM. Bila OSRM gagal, respons tetap 200 dengan `source: \"fallback\"` dan geometri garis lurus.",
+          "Meminta rute OSRM untuk profil `car`, `motorcycle`, atau `foot`. `motorcycle` dipetakan ke rute driving dengan estimasi durasi. Bila OSRM gagal/timeout, respons tetap 200 dengan `source: \"fallback\"` dan geometri garis lurus (gambar sebagai garis putus-putus).",
         requestBody: jsonBody(routeRequestSchema),
         responses: {
           "200": response("Rute atau fallback", envelope("RouteResult")),
