@@ -1,5 +1,9 @@
 ﻿import type { Prisma } from "../../../generated/prisma/client.js";
 import { HttpError } from "../../../shared/http/errors.js";
+import type {
+  ItineraryVersionView,
+  SaveDraftVersionInput,
+} from "../../../shared/schemas/itinerary-version.js";
 import * as itineraryRepository from "../repositories/itinerary.repository.js";
 
 type DraftStop = {
@@ -51,6 +55,73 @@ function visitAtDate(travelDate: string, hhmm: string): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+function ymd(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function asVersionView(
+  snapshot: NonNullable<Awaited<ReturnType<typeof itineraryRepository.getVersionSnapshot>>>,
+  times: { travelDate: string; startTime: string; endTime: string },
+): ItineraryVersionView {
+  return {
+    versionId: snapshot.id,
+    versionNumber: snapshot.version,
+    itineraryId: snapshot.itineraryId,
+    travelDate: times.travelDate,
+    startTime: times.startTime,
+    endTime: times.endTime,
+    stops: snapshot.stops.map((s) => ({
+      position: s.position,
+      destinationId: s.destinationId,
+      name: s.name,
+      latitude: Number(s.latitude),
+      longitude: Number(s.longitude),
+      arrivalTime: s.arrivalTime,
+      visitDurationMin: s.visitDurationMin,
+      category: s.category,
+    })),
+    routeJson: snapshot.routeJson,
+  };
+}
+
+function draftTimes(metadata: unknown): { travelDate: string; startTime: string; endTime: string } {
+  const meta = (metadata && typeof metadata === "object" ? metadata : {}) as Record<string, unknown>;
+  return {
+    travelDate: typeof meta.date === "string" ? meta.date : "",
+    startTime: typeof meta.startTime === "string" ? meta.startTime : "08:00",
+    endTime: typeof meta.endTime === "string" ? meta.endTime : "21:00",
+  };
+}
+
+async function resolveDraftVersion(input: { draftId: string; userId: string; sessionId: string }) {
+  const row = await itineraryRepository.findVersionById(input.draftId);
+  if (!row) return null;
+  if (row.itinerary.userId !== input.userId || row.itinerary.sessionId !== input.sessionId) return null;
+  if (row.status !== "draft") return null;
+  if (row.version !== row.itinerary.currentVersion) return null;
+  const times = draftTimes(row.itinerary.metadata);
+  const travelDate = row.itinerary.tripDate ? ymd(row.itinerary.tripDate) : times.travelDate || ymd(new Date());
+  const draft: Draft = {
+    draftId: row.id,
+    travelDate,
+    startTime: times.startTime,
+    endTime: times.endTime,
+    destinations: row.stops
+      .filter((s): s is typeof s & { destinationId: string } => s.destinationId != null)
+      .map((s) => ({
+        order: s.position,
+        destinationId: s.destinationId,
+        name: s.name,
+        latitude: Number(s.latitude),
+        longitude: Number(s.longitude),
+        visitAt: s.arrivalTime ?? "00:00",
+        durationMinutes: s.visitDurationMin ?? undefined,
+      })),
+    route: null,
+  };
+  return { versionId: row.id, versionNumber: row.version, itineraryId: row.itineraryId, draft };
+}
+
 export function createItineraryService(deps: ItineraryDeps) {
   return {
     async confirm(input: { draftId: string; userId: string; sessionId: string; profile?: RouteProfile }) {
@@ -59,9 +130,10 @@ export function createItineraryService(deps: ItineraryDeps) {
 
       const existing = await itineraryRepository.findBySessionId(input.sessionId);
       if (existing && existing.userId !== input.userId) throw new HttpError(403, "FORBIDDEN", "Session access denied");
-      if (existing) return { data: { ...existing, status: "final" }, created: false as const };
+      if (existing && existing.status !== "draft") return { data: { ...existing, status: "final" }, created: false as const };
 
-      const draft = await deps.getDraft(input); // checks not found/expired/ownership
+      const draftVersion = await resolveDraftVersion(input);
+      const draft = draftVersion ? draftVersion.draft : await deps.getDraft(input); // checks not found/expired/ownership
 
       const uniqueIds = [...new Set(draft.destinations.map((d) => d.destinationId))];
       const valid = await itineraryRepository.findActivePadangDestinationIds(uniqueIds);
@@ -188,6 +260,17 @@ export function createItineraryService(deps: ItineraryDeps) {
       metadata.route = routeLegs.length ? routeJson : (draft.route as unknown);
 
       try {
+        if (draftVersion) {
+          const created = await itineraryRepository.confirmVersionTx({
+            itineraryId: draftVersion.itineraryId,
+            versionId: draftVersion.versionId,
+            version: draftVersion.versionNumber,
+            metadata: metadata as unknown as Prisma.InputJsonValue,
+            routeJson: routeJson as unknown as Prisma.InputJsonValue,
+            destinations,
+          });
+          return { data: { ...created, status: "final" }, created: true as const };
+        }
         const created = await itineraryRepository.createConfirmed({
           userId: input.userId,
           sessionId: input.sessionId,
@@ -216,6 +299,111 @@ export function createItineraryService(deps: ItineraryDeps) {
         if (final) return { data: { ...final, status: "final" }, created: false as const };
         throw err instanceof HttpError ? err : new HttpError(409, "CONFLICT", "Could not confirm itinerary");
       }
+    },
+
+    async saveDraftVersion(input: SaveDraftVersionInput): Promise<ItineraryVersionView> {
+      productionGate();
+      await requireActiveUser(deps, input.userId);
+      const root = await itineraryRepository.upsertDraftRoot({
+        userId: input.userId,
+        sessionId: input.sessionId,
+        title: `Draft itinerary Padang ${input.travelDate}`,
+        content: input.stops.map((s) => `${s.position}. ${s.name} (${s.arrivalTime ?? "-"})`).join("\n"),
+        metadata: {
+          date: input.travelDate,
+          startTime: input.startTime,
+          endTime: input.endTime,
+          mode: "straight_line",
+          distanceType: "straight_line",
+          profile: "straight_line",
+        },
+        tripDate: visitAtDate(input.travelDate, "00:00"),
+        transportMode: "straight_line",
+      });
+      if (!root) throw new HttpError(403, "FORBIDDEN", "Session access denied");
+      const version = await itineraryRepository.nextVersionNumber(root.id);
+      const snapshot = await itineraryRepository.createVersionSnapshotTx({
+        itineraryId: root.id,
+        version,
+        basedOnVersion: input.basedOnVersion ?? (version > 1 ? version - 1 : null),
+        changeInstruction: input.changeInstruction ?? null,
+        changeType: input.changeType,
+        status: "draft",
+        sourceMessageId: input.sourceMessageId ?? null,
+        routeJson: input.routeJson as Prisma.InputJsonValue,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        stops: input.stops.map((s) => ({
+          position: s.position,
+          destinationId: s.destinationId,
+          name: s.name,
+          latitude: s.latitude,
+          longitude: s.longitude,
+          arrivalTime: s.arrivalTime,
+          visitDurationMin: s.visitDurationMin,
+          category: s.category,
+        })),
+      });
+      return asVersionView(snapshot, {
+        travelDate: input.travelDate,
+        startTime: input.startTime,
+        endTime: input.endTime,
+      });
+    },
+
+    async getActiveVersion(input: { userId: string; sessionId: string }): Promise<ItineraryVersionView | null> {
+      productionGate();
+      await requireActiveUser(deps, input.userId);
+      const root = await itineraryRepository.findBySessionId(input.sessionId);
+      if (!root || root.userId !== input.userId) return null;
+      const snapshot = await itineraryRepository.getCurrentSnapshot({ itineraryId: root.id });
+      if (!snapshot?.version) return null;
+      const times = draftTimes(root.metadata);
+      return asVersionView(snapshot.version, {
+        ...times,
+        travelDate: root.tripDate ? ymd(root.tripDate) : times.travelDate,
+      });
+    },
+
+    async selectVersion(input: { userId: string; sessionId: string; version: number }): Promise<ItineraryVersionView | null> {
+      productionGate();
+      await requireActiveUser(deps, input.userId);
+      const root = await itineraryRepository.findBySessionId(input.sessionId);
+      if (!root || root.userId !== input.userId) return null;
+      const snapshot = await itineraryRepository.selectVersion({ itineraryId: root.id, version: input.version });
+      if (!snapshot) return null;
+      const times = draftTimes(root.metadata);
+      return asVersionView(snapshot, {
+        ...times,
+        travelDate: root.tripDate ? ymd(root.tripDate) : times.travelDate,
+      });
+    },
+
+    async publishVersion(input: { id: string; userId: string; version: number }) {
+      productionGate();
+      await requireActiveUser(deps, input.userId);
+      const row = await itineraryRepository.findByIdAndUser(input.id, input.userId);
+      if (!row) throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
+      const snapshot = await itineraryRepository.getVersionSnapshot({
+        itineraryId: row.id,
+        version: input.version,
+      });
+      if (!snapshot) throw new HttpError(404, "VERSION_NOT_FOUND", "Itinerary version not found");
+      const travelDate = row.tripDate ? ymd(row.tripDate) : "";
+      const destinations = snapshot.stops
+        .filter((s): s is typeof s & { destinationId: string } => s.destinationId != null)
+        .map((s) => ({
+          destinationId: s.destinationId,
+          visitAt: s.arrivalTime ? visitAtDate(travelDate, s.arrivalTime) : null,
+          estimatedCost: null,
+          notes: s.notes,
+        }));
+      const published = await itineraryRepository.publishVersionTx({
+        itineraryId: row.id,
+        version: input.version,
+        destinations,
+      });
+      if (!published) throw new HttpError(404, "VERSION_NOT_FOUND", "Itinerary version not found");
+      return { data: await withCurrentVersion(published) };
     },
 
     async getById(input: { id: string; userId: string }) {

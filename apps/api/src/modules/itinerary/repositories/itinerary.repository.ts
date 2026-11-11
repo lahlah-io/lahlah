@@ -104,6 +104,132 @@ export async function findActivePadangDestinationIds(ids: string[]) {
   return new Set(rows.map((r) => r.id));
 }
 
+export async function upsertDraftRoot(input: {
+  userId: string;
+  sessionId: string;
+  title: string;
+  content: string;
+  metadata: Prisma.InputJsonValue;
+  tripDate?: Date | null;
+  transportMode?: string | null;
+}) {
+  const existing = await prisma.itinerary.findUnique({
+    where: { sessionId: input.sessionId },
+    select: { id: true, userId: true },
+  });
+  if (existing) {
+    if (existing.userId !== input.userId) return null;
+    return prisma.itinerary.update({
+      where: { id: existing.id },
+      data: {
+        title: input.title,
+        content: input.content,
+        metadata: input.metadata,
+        tripDate: input.tripDate ?? undefined,
+        transportMode: input.transportMode ?? undefined,
+      },
+      select: { id: true, currentVersion: true },
+    });
+  }
+  return prisma.itinerary.create({
+    data: {
+      userId: input.userId,
+      sessionId: input.sessionId,
+      title: input.title,
+      content: input.content,
+      metadata: input.metadata,
+      status: "draft",
+      tripDate: input.tripDate ?? undefined,
+      transportMode: input.transportMode ?? undefined,
+    },
+    select: { id: true, currentVersion: true },
+  });
+}
+
+export async function findVersionById(versionId: string) {
+  return prisma.itineraryVersion.findUnique({
+    where: { id: versionId },
+    select: {
+      ...versionSelect,
+      itinerary: {
+        select: { userId: true, sessionId: true, tripDate: true, currentVersion: true, metadata: true, status: true },
+      },
+    },
+  });
+}
+
+export async function selectVersion(input: { itineraryId: string; version: number }) {
+  const target = await prisma.itineraryVersion.findUnique({
+    where: { itineraryId_version: { itineraryId: input.itineraryId, version: input.version } },
+    select: { id: true },
+  });
+  if (!target) return null;
+  await prisma.itinerary.update({ where: { id: input.itineraryId }, data: { currentVersion: input.version } });
+  return getVersionSnapshot({ itineraryId: input.itineraryId, version: input.version });
+}
+
+export async function confirmVersionTx(input: {
+  itineraryId: string;
+  versionId: string;
+  version: number;
+  metadata: Prisma.InputJsonValue;
+  routeJson: Prisma.InputJsonValue;
+  destinations: Array<{
+    destinationId: string;
+    visitAt: Date | null;
+    estimatedCost: number | null;
+    notes: string | null;
+  }>;
+}) {
+  return prisma.$transaction(async (tx) => {
+    await tx.itineraryDestination.deleteMany({ where: { itineraryId: input.itineraryId } });
+    if (input.destinations.length > 0) {
+      await tx.itineraryDestination.createMany({
+        data: input.destinations.map((d) => ({ itineraryId: input.itineraryId, ...d })),
+      });
+    }
+    await tx.itineraryVersion.update({
+      where: { id: input.versionId },
+      data: { status: "confirmed", changeType: "confirm", routeJson: input.routeJson },
+    });
+    return tx.itinerary.update({
+      where: { id: input.itineraryId },
+      data: { status: "confirmed", currentVersion: input.version, metadata: input.metadata },
+      select: itinerarySelect,
+    });
+  });
+}
+
+export async function publishVersionTx(input: {
+  itineraryId: string;
+  version: number;
+  destinations: Array<{
+    destinationId: string;
+    visitAt: Date | null;
+    estimatedCost: number | null;
+    notes: string | null;
+  }>;
+}) {
+  return prisma.$transaction(async (tx) => {
+    const target = await tx.itineraryVersion.findUnique({
+      where: { itineraryId_version: { itineraryId: input.itineraryId, version: input.version } },
+      select: { id: true },
+    });
+    if (!target) return null;
+    await tx.itineraryDestination.deleteMany({ where: { itineraryId: input.itineraryId } });
+    if (input.destinations.length > 0) {
+      await tx.itineraryDestination.createMany({
+        data: input.destinations.map((d) => ({ itineraryId: input.itineraryId, ...d })),
+      });
+    }
+    return tx.itinerary.update({
+      where: { id: input.itineraryId },
+      data: { currentVersion: input.version },
+      select: itinerarySelect,
+    });
+  });
+}
+
 export async function createConfirmed(input: {
   userId: string;
   sessionId: string;
@@ -279,6 +405,11 @@ export async function createVersionSnapshotTx(input: CreateVersionSnapshotInput)
       });
     }
 
+    await tx.itinerary.update({
+      where: { id: input.itineraryId },
+      data: { currentVersion: input.version },
+    });
+
     return tx.itineraryVersion.findUniqueOrThrow({
       where: { id: version.id },
       select: versionSelect,
@@ -311,6 +442,14 @@ export async function getCurrentSnapshot(input: { itineraryId: string }) {
     select: versionSelect,
   });
   return { ...itinerary, version };
+}
+
+export async function nextVersionNumber(itineraryId: string) {
+  const row = await prisma.itineraryVersion.aggregate({
+    where: { itineraryId },
+    _max: { version: true },
+  });
+  return (row._max.version ?? 0) + 1;
 }
 
 export async function getVersionSnapshot(input: { itineraryId: string; version: number }) {
