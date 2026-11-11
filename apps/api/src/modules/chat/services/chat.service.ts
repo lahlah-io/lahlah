@@ -8,7 +8,16 @@ import { buildConversationContext } from "./conversation-context.js";
 import { generateItinerary } from "./itinerary-generator.js";
 import { createDraftStore, type DraftStore, type ItineraryDraftResponse } from "./draft-store.js";
 import { createToolExecutor } from "./tools.js";
+import { parseModification } from "./modification.js";
+import { applyModification } from "./modification-ops.js";
+import { haversineMeters, isCoordinate, routeLineString } from "./route-geometry.js";
 import { activateVersion, appendVersion, type MessageVersion } from "./message-versioning.js";
+import type { ItineraryModification } from "../../../shared/schemas/itinerary-modification.js";
+import type {
+  ItineraryVersionGateway,
+  ItineraryVersionStop,
+  ItineraryVersionView,
+} from "../../../shared/schemas/itinerary-version.js";
 import * as chatRepository from "../repositories/chat.repository.js";
 
 const HISTORY_LIMIT = 20;
@@ -21,6 +30,7 @@ type ChatDeps = {
   classifyMessage?: typeof classify;
   completeAiChat?: typeof completeChat;
   draftStore?: DraftStore;
+  itinerary?: ItineraryVersionGateway;
   searchDestinations: (input: { keywords?: string; categories?: string[] }) => Promise<unknown[]>;
   getDestinationDetails: (input: { destinationIds: string[] }) => Promise<unknown[]>;
 };
@@ -343,6 +353,99 @@ function toDraftResponse(input: {
   };
 }
 
+function buildRouteJson(stops: Array<{ position: number; latitude: number; longitude: number }>) {
+  const legs = [];
+  let totalDistanceM = 0;
+  for (let i = 0; i < stops.length - 1; i += 1) {
+    const from = stops[i]!;
+    const to = stops[i + 1]!;
+    const distanceM = haversineMeters(from, to);
+    if (distanceM != null) totalDistanceM += distanceM;
+    legs.push({
+      fromPosition: from.position,
+      toPosition: to.position,
+      transportMode: "walk",
+      distanceM: distanceM == null ? null : Math.round(distanceM),
+      durationSec: null,
+      geometry: {
+        type: "LineString" as const,
+        coordinates: [
+          [from.longitude, from.latitude],
+          [to.longitude, to.latitude],
+        ] as Array<[number, number]>,
+      },
+      provider: "straight_line",
+      profile: "straight_line",
+      fallback: true,
+    });
+  }
+  return {
+    json: {
+      type: "LineString" as const,
+      coordinates: routeLineString(stops)?.coordinates ?? [],
+      legs,
+    },
+    totalDistanceM: totalDistanceM > 0 ? Math.round(totalDistanceM) : null,
+  };
+}
+
+function versionToDraft(view: ItineraryVersionView): ItineraryDraftResponse {
+  const route = view.routeJson as { type?: string; coordinates?: Array<[number, number]> } | null;
+  return {
+    draftId: view.versionId,
+    status: "pending_confirmation",
+    travelDate: view.travelDate,
+    startTime: view.startTime,
+    endTime: view.endTime,
+    destinations: view.stops
+      .filter((s): s is ItineraryVersionStop & { destinationId: string } => s.destinationId != null)
+      .map((s) => ({
+        order: s.position,
+        destinationId: s.destinationId,
+        name: s.name,
+        latitude: s.latitude,
+        longitude: s.longitude,
+        visitAt: s.arrivalTime ?? "",
+        durationMinutes: s.visitDurationMin ?? 60,
+      })),
+    route: route?.type === "LineString" && Array.isArray(route.coordinates)
+      ? { type: "LineString", coordinates: route.coordinates }
+      : null,
+  };
+}
+
+function draftStops(draft: ItineraryDraftResponse): ItineraryVersionStop[] {
+  return draft.destinations.map((d) => ({
+    position: d.order,
+    destinationId: d.destinationId,
+    name: d.name,
+    latitude: d.latitude,
+    longitude: d.longitude,
+    arrivalTime: d.visitAt || null,
+    visitDurationMin: d.durationMinutes ?? null,
+    category: null,
+  }));
+}
+
+function toCandidate(row: unknown) {
+  const r = (row ?? {}) as Record<string, unknown>;
+  const categories = Array.isArray(r.categories) ? r.categories : [];
+  const first = categories[0] as Record<string, unknown> | undefined;
+  return {
+    destinationId: String(r.id ?? ""),
+    name: String(r.name ?? ""),
+    latitude: typeof r.latitude === "number" ? r.latitude : null,
+    longitude: typeof r.longitude === "number" ? r.longitude : null,
+    category: first && typeof first.slug === "string" ? first.slug : null,
+  };
+}
+
+function addMinutes(hhmm: string | null, minutes: number): string {
+  const [h, m] = (hhmm ?? "08:00").split(":").map(Number);
+  const total = Math.min(23 * 60 + 59, (h ?? 8) * 60 + (m ?? 0) + minutes);
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
 async function runItineraryToolFlow(input: {
   deps: ChatDeps;
   history: AiMessage[];
@@ -464,11 +567,144 @@ export function createChatService(deps: ChatDeps) {
   const draftStore = deps.draftStore ?? createDraftStore();
   const doClassify = deps.classifyMessage ?? classify;
 
+  async function applyChatModification(input: {
+    userId: string;
+    sessionId: string;
+    content: string;
+    categories: string[];
+    sourceMessageId?: string;
+    mod: ItineraryModification;
+  }): Promise<{ intent: Intent; message: string; draft: ItineraryDraftResponse; usage: Record<string, never> } | null> {
+    const gateway = deps.itinerary;
+    if (!gateway) return null;
+    const active = await gateway.getActiveVersion({ userId: input.userId, sessionId: input.sessionId });
+    if (!active) return null;
+
+    if (input.mod.operation === "clarify_modification") {
+      return {
+        intent: "modify_itinerary",
+        message: "Mau ganti atau hapus destinasi itu? Contoh: \"ganti destinasi ke-3\" atau \"hapus destinasi ke-3\".",
+        draft: versionToDraft(active),
+        usage: {},
+      };
+    }
+
+    if (input.mod.operation === "select_version") {
+      const selected = await gateway.selectVersion({
+        userId: input.userId,
+        sessionId: input.sessionId,
+        version: input.mod.version,
+      });
+      if (!selected) throw new HttpError(422, "VERSION_NOT_FOUND", "Versi itinerary tidak ditemukan");
+      return {
+        intent: "modify_itinerary",
+        message: `Versi ${selected.versionNumber} sekarang aktif dengan ${selected.stops.length} destinasi.`,
+        draft: versionToDraft(selected),
+        usage: {},
+      };
+    }
+
+    const rows = await deps.searchDestinations({ categories: input.categories });
+    const candidates = rows
+      .map(toCandidate)
+      .filter((c) => c.destinationId && c.name && isCoordinate(c));
+    const scoped = input.mod.operation === "add_destination" ? null : input.mod;
+    const target = scoped?.targetLast
+      ? active.stops[active.stops.length - 1]
+      : scoped?.targetPosition != null
+        ? active.stops.find((s) => s.position === scoped.targetPosition)
+        : scoped?.targetName
+          ? active.stops.find((s) => s.name.toLowerCase() === scoped.targetName!.trim().toLowerCase())
+          : undefined;
+    const targetCategory = target?.category ?? null;
+    const ordered = [...candidates].sort(
+      (a, b) => Number(b.category === targetCategory) - Number(a.category === targetCategory),
+    );
+
+    const applied = applyModification(
+      active.stops.map((s) => ({
+        position: s.position,
+        destinationId: s.destinationId ?? "",
+        name: s.name,
+        category: s.category,
+      })),
+      input.mod,
+      ordered,
+    );
+
+    const pool = new Map<
+      string,
+      { latitude: number; longitude: number; category: string | null; arrivalTime: string | null; visitDurationMin: number | null }
+    >();
+    for (const s of active.stops) {
+      if (s.destinationId) {
+        pool.set(s.destinationId, {
+          latitude: s.latitude,
+          longitude: s.longitude,
+          category: s.category,
+          arrivalTime: s.arrivalTime,
+          visitDurationMin: s.visitDurationMin,
+        });
+      }
+    }
+    for (const c of ordered) {
+      if (!pool.has(c.destinationId)) {
+        pool.set(c.destinationId, {
+          latitude: c.latitude!,
+          longitude: c.longitude!,
+          category: c.category,
+          arrivalTime: null,
+          visitDurationMin: 60,
+        });
+      }
+    }
+
+    const baseArrival = active.stops[active.stops.length - 1]?.arrivalTime ?? active.startTime;
+    const stops = applied.stops.map((s) => {
+      const geo = pool.get(s.destinationId);
+      if (!geo) throw new HttpError(422, "MODIFY_CANDIDATE_MISSING", "Destination details are unavailable");
+      const arrivalTime = geo.arrivalTime ?? addMinutes(baseArrival, 60 * Math.max(1, s.position - active.stops.length));
+      return {
+        position: s.position,
+        destinationId: s.destinationId,
+        name: s.name,
+        latitude: geo.latitude,
+        longitude: geo.longitude,
+        arrivalTime,
+        visitDurationMin: geo.visitDurationMin ?? 60,
+        category: s.category ?? geo.category,
+      };
+    });
+
+    const route = buildRouteJson(stops);
+    const saved = await gateway.saveDraftVersion({
+      userId: input.userId,
+      sessionId: input.sessionId,
+      travelDate: active.travelDate,
+      startTime: active.startTime,
+      endTime: active.endTime,
+      stops,
+      routeJson: route.json,
+      changeType: input.mod.operation,
+      changeInstruction: input.content,
+      basedOnVersion: active.versionNumber,
+      sourceMessageId: input.sourceMessageId ?? null,
+    });
+
+    return {
+      intent: "modify_itinerary",
+      message: `Versi ${saved.versionNumber} siap: ${saved.stops.length} destinasi.`,
+      draft: versionToDraft(saved),
+      usage: {},
+    };
+  }
+
   async function computeAssistantReply(input: {
     sessionId: string;
     userId: string;
     content: string;
     history: AiMessage[];
+    sourceMessageId?: string;
   }): Promise<{ intent: Intent; message: string; draft: ItineraryDraftResponse | null; usage: { inputTokens?: number; outputTokens?: number } }> {
     const classified = await doClassify(input.content, process.env);
     let intent: Intent = classified.intent;
@@ -483,14 +719,52 @@ export function createChatService(deps: ChatDeps) {
     const isConfirm = intent === "confirm_itinerary";
     const usesTripFlow = isGeneratorIntent || (contributes && merged.pending && !isConfirm);
 
+    const modification = parseModification(input.content);
+    const isModificationIntent =
+      intent === "modify_itinerary" ||
+      intent === "replace_destination" ||
+      intent === "remove_destination" ||
+      intent === "add_destination" ||
+      intent === "select_itinerary_version" ||
+      intent === "clarify_modification";
+    if (modification && isModificationIntent && deps.itinerary) {
+      const applied = await applyChatModification({
+        userId: input.userId,
+        sessionId: input.sessionId,
+        content: input.content,
+        categories: merged.params.categories,
+        sourceMessageId: input.sourceMessageId,
+        mod: modification,
+      });
+      if (applied) return { intent: applied.intent, message: applied.message, draft: applied.draft, usage: applied.usage };
+    }
+
     if (usesTripFlow) {
       if (outcome.kind === "ready") {
         if (!isGeneratorIntent) intent = "modify_itinerary";
         const result = await runItineraryToolFlow({ deps, history: input.history, userMessage: input.content, sessionId: input.sessionId, request: outcome.trip });
         draft = result.draft;
         usage = result.usage;
-        const draftId = await draftStore.replaceSessionDraft({ userId: input.userId, sessionId: input.sessionId, itinerary: draft });
-        draft = await draftStore.getDraft({ draftId, userId: input.userId, sessionId: input.sessionId });
+        if (deps.itinerary) {
+          const route = buildRouteJson(
+            draft.destinations.map((d) => ({ position: d.order, latitude: d.latitude, longitude: d.longitude })),
+          );
+          const saved = await deps.itinerary.saveDraftVersion({
+            userId: input.userId,
+            sessionId: input.sessionId,
+            travelDate: draft.travelDate,
+            startTime: draft.startTime,
+            endTime: draft.endTime,
+            stops: draftStops(draft),
+            routeJson: route.json,
+            changeType: "generate",
+            sourceMessageId: input.sourceMessageId ?? null,
+          });
+          draft = versionToDraft(saved);
+        } else {
+          const draftId = await draftStore.replaceSessionDraft({ userId: input.userId, sessionId: input.sessionId, itinerary: draft });
+          draft = await draftStore.getDraft({ draftId, userId: input.userId, sessionId: input.sessionId });
+        }
         message = `Draft itinerary ${draft.travelDate} untuk ${draft.destinations.length} destinasi di Padang siap dikonfirmasi.`;
       } else if (outcome.kind === "general_time") {
         intent = "missing_information";
@@ -607,7 +881,7 @@ export function createChatService(deps: ChatDeps) {
       productionGate();
       await requireActiveUser(deps, input.userId);
       const session = await requireOwnedSession(input.userId, input.sessionId);
-      await chatRepository.insertMessage({ sessionId: session.id, role: "user", content: input.content, metadata: {}, status: "completed" });
+      const userMessage = await chatRepository.insertMessage({ sessionId: session.id, role: "user", content: input.content, metadata: {}, status: "completed" });
       const historyRows = await chatRepository.findRecentMessages(session.id, HISTORY_LIMIT);
       const history = buildConversationContext({ systemPrompt: SYSTEM_PROMPT, history: asAiHistory(historyRows) });
 
@@ -616,6 +890,7 @@ export function createChatService(deps: ChatDeps) {
         userId: input.userId,
         content: input.content,
         history,
+        sourceMessageId: userMessage.id,
       });
 
       const saved = await chatRepository.appendMessage({
@@ -630,11 +905,23 @@ export function createChatService(deps: ChatDeps) {
         mode: "chat",
       });
 
+      const mapPoints = (draft?.destinations ?? [])
+        .filter((d) => isCoordinate(d))
+        .map((d) => ({
+          position: d.order,
+          destinationId: d.destinationId,
+          name: d.name,
+          latitude: d.latitude,
+          longitude: d.longitude,
+        }));
+
       return {
         data: {
           message,
           intent,
           draft,
+          version: draft ? { id: draft.draftId } : null,
+          map: draft ? { versionId: draft.draftId, points: mapPoints } : null,
           assistantMessageId: saved.id,
           sessionId: session.id,
         },
@@ -678,6 +965,7 @@ export function createChatService(deps: ChatDeps) {
           userId: input.userId,
           content: trigger.content,
           history,
+          sourceMessageId: trigger.id,
         });
         const inTok = usage.inputTokens ?? 0;
         const outTok = usage.outputTokens ?? 0;

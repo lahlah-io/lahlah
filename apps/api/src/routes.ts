@@ -37,8 +37,22 @@ const toolSelect = {
 
 const draftStore = createDraftStore();
 
+const routeCache = createRouteCache({ ttlMs: env.OSRM_CACHE_TTL_HOURS * 3_600_000 });
+const routingService = createRoutingService({
+  osrmBaseUrl: env.OSRM_BASE_URL,
+  timeoutMs: env.OSRM_TIMEOUT_MS,
+  cache: routeCache,
+});
+
+const itineraryService = createItineraryService({
+  getDraft: (input) => draftStore.getDraft(input),
+  findUserById: (id) => usersRepository.findUserById(id).then((u) => (u ? { id: u.id, isActive: u.isActive } : null)),
+  getRoute: (input) => routingService.getRoute(input),
+});
+
 const chatService = createChatService({
   draftStore,
+  itinerary: itineraryService,
   findUserById: (id) => usersRepository.findUserById(id).then((u) => (u ? { id: u.id, isActive: u.isActive } : null)),
   searchDestinations: async (input) => {
     const q = input.keywords?.trim();
@@ -62,19 +76,6 @@ const chatService = createChatService({
     });
     return rows.map(toToolRow);
   },
-});
-
-const routeCache = createRouteCache({ ttlMs: env.OSRM_CACHE_TTL_HOURS * 3_600_000 });
-const routingService = createRoutingService({
-  osrmBaseUrl: env.OSRM_BASE_URL,
-  timeoutMs: env.OSRM_TIMEOUT_MS,
-  cache: routeCache,
-});
-
-const itineraryService = createItineraryService({
-  getDraft: (input) => draftStore.getDraft(input),
-  findUserById: (id) => usersRepository.findUserById(id).then((u) => (u ? { id: u.id, isActive: u.isActive } : null)),
-  getRoute: (input) => routingService.getRoute(input),
 });
 
 const apiV1 = new Hono();
