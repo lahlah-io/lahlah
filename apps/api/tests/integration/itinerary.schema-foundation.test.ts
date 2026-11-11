@@ -27,7 +27,6 @@ const createdUserIds: string[] = [];
 
 afterAll(async () => {
   for (const userId of createdUserIds) {
-    await prisma.itineraryRoute.deleteMany({ where: { version: { itinerary: { userId } } } });
     await prisma.itineraryStop.deleteMany({ where: { version: { itinerary: { userId } } } });
     await prisma.itineraryVersion.deleteMany({ where: { itinerary: { userId } } });
     await prisma.itineraryDraft.deleteMany({ where: { userId } });
@@ -149,16 +148,18 @@ test("itinerary schema foundation: 1:1 session, versions/stops/route constraints
   });
   assert.deepEqual(stops.map((s) => s.position), [1, 2]);
 
-  await prisma.itineraryRoute.create({
+  const withRoute = await prisma.itineraryVersion.update({
+    where: { id: v1.id },
     data: {
-      itineraryVersionId: v1.id,
-      fromStopId: s1.id,
-      toStopId: s2.id,
-      transportMode: "driving",
-      fallback: false,
-    } as any,
-    select: { id: true },
+      routeJson: {
+        type: "LineString",
+        coordinates: [[100.37, -0.97]],
+        legs: [],
+      },
+    },
+    select: { routeJson: true },
   });
+  assert.ok(withRoute.routeJson);
 
   await prisma.itineraryDraft.create({
     data: {

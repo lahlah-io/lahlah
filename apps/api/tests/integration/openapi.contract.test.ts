@@ -505,7 +505,7 @@ test("new chat session, message version, and itinerary version endpoints match t
       "itinerary version detail",
     );
     assert.equal(versionDetailBody.data.version, 1);
-    assert.equal(versionDetailBody.data.routes.length, 1);
+    assert.equal(versionDetailBody.data.routeJson.legs.length, 1);
 
     const restoreRes = await itineraryApp.request(
       `/api/v1/itineraries/${itineraryId}/restore/1`,
