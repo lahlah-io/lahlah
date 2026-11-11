@@ -23,6 +23,7 @@ apps/api/
     ├── app.ts                   # Hono, middleware, health, error
     ├── env.ts                   # Validasi konfigurasi runtime
     ├── routes.ts                # Komposisi /api/v1
+    ├── openapi/                  # Dokumen OpenAPI 3.1 dan halaman Swagger UI
     ├── db/client.ts             # Prisma client dan adapter PostgreSQL
     ├── generated/prisma/        # Hasil generate; jangan diedit atau commit
     ├── modules/<fitur>/
@@ -40,7 +41,7 @@ apps/api/
         └── schemas/             # Skema lintas fitur, misalnya pagination
 ```
 
-Modul yang ada: `auth`, `users`, `models`, `subscription-plans`, dan `subscriptions`. Fitur `chat`, `itinerary`, dan `destination` belum dibuat.
+Modul yang ada: `auth`, `users`, `models`, `subscription-plans`, `subscriptions`, dan `destinations` (berisi destinations sekaligus categories). Fitur `chat` dan `itinerary` belum dibuat.
 
 Session, billing, dan audit ditaruh di `shared/` karena dipakai beberapa modul sekaligus dan modul tidak boleh saling mengimpor. `shared/` boleh mengakses Prisma melalui repository-nya sendiri, tetapi tidak boleh mengimpor `modules/`.
 
@@ -92,6 +93,21 @@ File di `prisma/schema/` mencakup seluruh 14 tabel ERD: users, models, subscript
 
 List dibatasi hingga 1–100 data per halaman. Respons hanya memilih field yang boleh terlihat oleh API; jangan pernah mengekspos token atau rahasia.
 
+## Fitur destinations dan categories
+
+Satu modul `destinations` mengekspor dua router: `categoriesApi` dan `destinationsApi`. Keduanya dipasang di `/api/v1/categories` dan `/api/v1/destinations` dan seluruh route memakai `requireAdmin` (termasuk `GET`).
+
+- `api/categories.ts`: `GET /`, `GET /:id`, `POST /`, `PATCH /:id`, dan `DELETE /:id`.
+- `schemas/category.schema.ts`: nama 1–255 karakter, slug opsional dengan pola `^[a-z0-9]+(?:-[a-z0-9]+)*$`, query pencarian `q`, dan pagination bersama.
+- `services/categories.service.ts`: membuat slug otomatis dari nama bila tidak dikirim, memetakan slug duplikat ke `409 CATEGORY_SLUG_EXISTS`, dan mencatat `activity_logs` untuk create/update/delete.
+- Hapus kategori bersifat hard delete. Join table `destination_categories` memakai `onDelete: Cascade`, jadi destination tetap ada dan hanya kehilangan tag tersebut.
+- `api/destinations.ts`: `GET /`, `GET /:id`, `POST /`, `PATCH /:id`, dan `DELETE /:id`.
+- `schemas/destination.schema.ts`: koordinat menerima angka atau string desimal, divalidasi pada rentang lintang ±90 dan bujur ±180, lalu dinormalisasi ke 7 desimal sesuai `decimal(10,7)`. `details` digabung saat update, bukan ditimpa.
+- Create dan update menerima `categoryIds[]`. ID yang tidak ada ditolak `404 CATEGORY_NOT_FOUND`; duplikat di dalam array dihilangkan sebelum disimpan.
+- `GET /` mendukung filter `q` (nama/alamat), `source`, `categoryId`, `isActive`, serta `page`/`limit`.
+- Destination baru selalu memakai `source=admin` dan `createdBy` dari sesi admin. Hapus destination bersifat soft delete (`isActive=false`) karena `itinerary_destinations` memakai `onDelete: Restrict`; gunakan `PATCH` untuk mengaktifkan kembali.
+- `tests/integration/destinations.test.ts` menguji CRUD kategori, cascade unlink, CRUD destination, filter, soft delete, dan guard admin.
+
 ## Billing, plan, dan kuota
 
 - `subscription_plans.details` (JSONB) menyimpan batas plan: `chatMessagesPerMonth`, `maxChatSessions`, `maxItineraries`, dan `allowedModelIds`. `null` berarti tanpa batas, dan key lain dipertahankan untuk kompatibilitas. Validasi ada di `src/shared/billing/plan-limits.schema.ts`.
@@ -111,4 +127,4 @@ List dibatasi hingga 1–100 data per halaman. Respons hanya memilih field yang 
 
 ## Belum termasuk
 
-Klien model OpenAI-compatible dan API key provider, Cloudflare R2, integrasi pembayaran, endpoint chat/itinerary/destination, serta deployment production belum dibuat. Tambahkan masing-masing ketika perilaku dan kredensialnya memang dibutuhkan.
+Klien model OpenAI-compatible dan API key provider, Cloudflare R2, integrasi pembayaran, endpoint chat/itinerary, serta deployment production belum dibuat. Tambahkan masing-masing ketika perilaku dan kredensialnya memang dibutuhkan.

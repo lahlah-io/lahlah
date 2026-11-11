@@ -6,6 +6,7 @@ import { secureHeaders } from "hono/secure-headers";
 import { Hono } from "hono";
 import { env } from "./env.js";
 import { prisma } from "./db/client.js";
+import { openApiDocument, swaggerUiHtml } from "./openapi/index.js";
 import { errorHandler } from "./shared/http/errors.js";
 import { routes } from "./routes.js";
 
@@ -37,6 +38,8 @@ app.get("/health/ready", async (c) => {
     return c.json({ status: "not_ready", dependencies: { database: "unavailable" }, requestId: c.get("requestId") }, 503);
   }
 });
+app.get("/openapi.json", (c) => c.json(openApiDocument));
+app.get("/docs", (c) => c.html(swaggerUiHtml));
 app.route("/", routes);
 
 export { app };

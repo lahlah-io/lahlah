@@ -99,7 +99,7 @@ Login end-to-end lewat PeridotID baru bisa diuji setelah `PERIDOT_CLIENT_ID` asl
 
 ## Endpoint admin dan kuota
 
-- Admin: `/api/v1/users`, `/api/v1/models`, dan operasi tulis `/api/v1/subscription-plans`. `GET /api/v1/subscription-plans` dan `GET /api/v1/subscription-plans/:id` publik untuk halaman pricing.
+- Admin: `/api/v1/users`, `/api/v1/models`, `/api/v1/categories`, `/api/v1/destinations`, dan operasi tulis `/api/v1/subscription-plans`. `GET /api/v1/subscription-plans` dan `GET /api/v1/subscription-plans/:id` publik untuk halaman pricing.
 - User login: `/api/v1/subscriptions/me`, `/api/v1/subscriptions/me/history`, `/api/v1/subscriptions/me/models`, `/api/v1/subscriptions/me/quota`, `/api/v1/subscriptions/me/quota/check`.
 - Plan `free` disisipkan oleh migrasi data (`30` pesan/bulan, `10` sesi chat, `3` itinerary) dan tidak bisa dihapus. Batas plan lain diatur lewat `details` pada CRUD plan; model di `allowedModelIds` harus ada dan aktif, dan `defaultModelId` harus termasuk daftar itu bila daftarnya tidak `null`.
 - Langganan yang lewat masa aktif diubah menjadi `expired` otomatis saat login dan saat membaca langganan/kuota. Untuk data yang tidak pernah dibuka, jalankan job `pnpm --filter api db:expire-subscriptions` secara berkala.
@@ -181,9 +181,26 @@ pnpm --filter api db:deploy
 
 Jangan mengedit SQL migrasi yang telah diterapkan ke lingkungan bersama. Jika status migrasi berbeda, hentikan dan selidiki; jangan menjalankan reset pada database berisi data tanpa persetujuan eksplisit.
 
+## Dokumentasi API (OpenAPI & Swagger UI)
+
+Spesifikasi OpenAPI 3.1 berada di `apps/api/src/openapi/` dan disajikan oleh API itu sendiri:
+
+- `GET /openapi.json` — dokumen OpenAPI 3.1.
+- `GET /docs` — Swagger UI interaktif.
+
+Keduanya publik di semua environment karena hanya berisi kontrak API, bukan rahasia. Aset Swagger UI dimuat dari CDN jsDelivr; tanpa koneksi internet halaman `/docs` kosong, tetapi `/openapi.json` tetap bisa dibaca.
+
+Mencoba endpoint yang butuh sesi:
+
+1. Buat sesi uji: `pnpm --filter api dev:session` (atau `-- --admin` untuk endpoint admin).
+2. Buka `http://localhost:8787/docs`, klik **Authorize**, lalu isi `bearerAuth` dengan token dari langkah 1.
+3. Endpoint yang memakai cookie `lahlah_session` juga berfungsi otomatis bila browser sudah login pada origin yang sama.
+
+Saat menambah atau mengubah route, perbarui juga `src/openapi/document.ts`. Tes `tests/unit/features/openapi/document.test.ts` akan gagal bila ada route terdaftar yang belum didokumentasikan, atau bila ada `$ref` yang menunjuk komponen tidak ada.
+
 ## Menguji auth, admin, dan kuota
 
-Tes integrasi mengirim request melalui API dan menyimpan perubahan ke PostgreSQL lokal. Tes membuat user dan sesi langsung lewat Prisma dengan email/UUID unik, memeriksa auth, CRUD admin, plan, model, kuota, pembacaan plan publik, pemilihan model per plan, dan kedaluwarsa langganan, lalu menghapus data uji di blok `finally`. Alur `pid_code` diuji dengan `fetch` PeridotID yang di-stub sehingga tidak memerlukan kredensial nyata. Jalankan dengan:
+Tes integrasi mengirim request melalui API dan menyimpan perubahan ke PostgreSQL lokal. Tes membuat user dan sesi langsung lewat Prisma dengan email/UUID unik, memeriksa auth, CRUD admin, plan, model, kategori, destination, kuota, pembacaan plan publik, pemilihan model per plan, dan kedaluwarsa langganan, lalu menghapus data uji di blok `finally`. Alur `pid_code` diuji dengan `fetch` PeridotID yang di-stub sehingga tidak memerlukan kredensial nyata. Jalankan dengan:
 
 ```sh
 pnpm --filter api test:integration
@@ -197,4 +214,4 @@ pnpm --filter api test:unit
 
 Tes unit tetap membaca `DATABASE_URL` dari `.env` karena modul dimuat bersama `src/env.ts`, tetapi tidak membuka koneksi atau query ke database.
 
-Route users dan models mewajibkan sesi admin (`401` tanpa sesi, `403` untuk role `user`). Route `subscription-plans` hanya mewajibkan admin untuk `POST`/`PATCH`/`DELETE`; kedua `GET` bersifat publik.
+Route users, models, categories, dan destinations mewajibkan sesi admin (`401` tanpa sesi, `403` untuk role `user`). Route `subscription-plans` hanya mewajibkan admin untuk `POST`/`PATCH`/`DELETE`; kedua `GET` bersifat publik.

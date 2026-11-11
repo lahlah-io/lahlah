@@ -60,3 +60,22 @@ pnpm dlx shadcn@latest add dialog --cwd apps/admin
 ```
 
 Periksa file hasil generator sebelum menyimpan. Komponen atau blok yang merupakan bagian dari satu fitur harus ditempatkan di `feat/<nama-fitur>/`, bukan otomatis dianggap kode `shared/`. Jalankan lint dan build setelah penambahan.
+
+## Autentikasi admin
+
+`apps/admin` memakai fondasi auth di `src/feat/auth/`:
+
+- `services/auth.api.ts` — `GET /api/v1/auth/me` dan `POST /api/v1/auth/logout`.
+- `hooks/auth-provider.tsx` — satu sumber status sesi. Token dari `sessionStorage` (`lahlah.admin.token`) dipasang ke klien API melalui `setApiSessionToken`, lalu diverifikasi ke `/auth/me` saat halaman dimuat.
+- `components/require-admin.tsx` — mengalihkan sesi anonim ke `/login` dan menolak role selain `admin`.
+- `shared/api/client.ts` — satu-satunya tempat `fetch` ke API: base URL dari `VITE_API_BASE_URL` (default `http://localhost:8787`), envelope `{ error: { code, message } }` dipetakan ke `ApiError`.
+
+Login saat ini memakai token sesi pengembangan:
+
+```sh
+pnpm --filter api dev:session -- --admin
+```
+
+Tempel nilai `token` dari output pada halaman `/login`. Setelah `PERIDOT_CLIENT_ID` asli tersedia, ganti formulir token dengan `peridot.auth.loginPopup()` lalu kirim `pid_code` ke `POST /api/v1/auth/peridot/exchange` (header `X-Session-Mode: bearer`). Provider, guard, dan halaman tidak perlu berubah: cukup tambah fungsi login baru yang memanggil `storeToken` dengan token hasil exchange.
+
+Sesi disimpan di `sessionStorage`, bukan `localStorage`, supaya token hilang ketika tab ditutup. Cookie `lahlah_session` tetap didukung karena setiap request memakai `credentials: "include"`. Salin `apps/admin/.env.example` menjadi `apps/admin/.env` bila API tidak berjalan di port `8787`.
