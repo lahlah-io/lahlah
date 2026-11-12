@@ -174,6 +174,64 @@ export async function selectVersion(input: { itineraryId: string; version: numbe
   return getVersionSnapshot({ itineraryId: input.itineraryId, version: input.version });
 }
 
+export type ActiveDestinationInput = {
+  destinationId: string;
+  visitAt: Date | null;
+  estimatedCost: number | null;
+  notes: string | null;
+  position: number | null;
+};
+
+/**
+ * Sets the active destination set without deleting rows, so destination
+ * checkpoints stay attached to the destination they were recorded on.
+ * shortcut: one stop per destination per version; duplicate destination stops collapse into one row.
+ */
+async function syncActiveDestinations(
+  tx: Prisma.TransactionClient,
+  input: { itineraryId: string; destinations: ActiveDestinationInput[] },
+) {
+  const existing = await tx.itineraryDestination.findMany({
+    where: { itineraryId: input.itineraryId },
+    select: { id: true, destinationId: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const byDestination = new Map<string, string>();
+  for (const row of existing) {
+    if (!byDestination.has(row.destinationId)) byDestination.set(row.destinationId, row.id);
+  }
+
+  const keep: string[] = [];
+  for (const destination of input.destinations) {
+    if (keep.includes(destination.destinationId)) continue;
+    keep.push(destination.destinationId);
+    const id = byDestination.get(destination.destinationId);
+    if (id) {
+      await tx.itineraryDestination.update({
+        where: { id },
+        data: {
+          visitAt: destination.visitAt,
+          estimatedCost: destination.estimatedCost,
+          notes: destination.notes,
+          position: destination.position,
+          isActive: true,
+        },
+      });
+      continue;
+    }
+    const created = await tx.itineraryDestination.create({
+      data: { itineraryId: input.itineraryId, ...destination, isActive: true },
+      select: { id: true },
+    });
+    byDestination.set(destination.destinationId, created.id);
+  }
+
+  await tx.itineraryDestination.updateMany({
+    where: { itineraryId: input.itineraryId, isActive: true, destinationId: { notIn: keep } },
+    data: { isActive: false },
+  });
+}
+
 export async function confirmVersionTx(input: {
   itineraryId: string;
   versionId: string;
@@ -185,15 +243,14 @@ export async function confirmVersionTx(input: {
     visitAt: Date | null;
     estimatedCost: number | null;
     notes: string | null;
+    position: number | null;
   }>;
 }) {
   return prisma.$transaction(async (tx) => {
-    await tx.itineraryDestination.deleteMany({ where: { itineraryId: input.itineraryId } });
-    if (input.destinations.length > 0) {
-      await tx.itineraryDestination.createMany({
-        data: input.destinations.map((d) => ({ itineraryId: input.itineraryId, ...d })),
-      });
-    }
+    await syncActiveDestinations(tx, {
+      itineraryId: input.itineraryId,
+      destinations: input.destinations,
+    });
     await tx.itineraryVersion.update({
       where: { id: input.versionId },
       data: { status: "confirmed", changeType: "confirm", routeJson: input.routeJson },
@@ -214,6 +271,7 @@ export async function publishVersionTx(input: {
     visitAt: Date | null;
     estimatedCost: number | null;
     notes: string | null;
+    position: number | null;
   }>;
 }) {
   return prisma.$transaction(async (tx) => {
@@ -222,12 +280,10 @@ export async function publishVersionTx(input: {
       select: { id: true },
     });
     if (!target) return null;
-    await tx.itineraryDestination.deleteMany({ where: { itineraryId: input.itineraryId } });
-    if (input.destinations.length > 0) {
-      await tx.itineraryDestination.createMany({
-        data: input.destinations.map((d) => ({ itineraryId: input.itineraryId, ...d })),
-      });
-    }
+    await syncActiveDestinations(tx, {
+      itineraryId: input.itineraryId,
+      destinations: input.destinations,
+    });
     return tx.itinerary.update({
       where: { id: input.itineraryId },
       data: { currentVersion: input.version },
@@ -249,6 +305,7 @@ export async function createConfirmed(input: {
     visitAt: Date | null;
     estimatedCost: number | null;
     notes: string | null;
+    position: number | null;
   }>;
   version: {
     version: number;
@@ -280,17 +337,10 @@ export async function createConfirmed(input: {
       },
       select: { id: true },
     });
-    if (input.destinations.length > 0) {
-      await tx.itineraryDestination.createMany({
-        data: input.destinations.map((d) => ({
-          itineraryId: itinerary.id,
-          destinationId: d.destinationId,
-          visitAt: d.visitAt,
-          estimatedCost: d.estimatedCost,
-          notes: d.notes,
-        })),
-      });
-    }
+    await syncActiveDestinations(tx, {
+      itineraryId: itinerary.id,
+      destinations: input.destinations,
+    });
 
     const version = await tx.itineraryVersion.create({
       data: {

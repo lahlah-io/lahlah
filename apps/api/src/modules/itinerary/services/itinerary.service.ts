@@ -157,6 +157,7 @@ export function createItineraryService(deps: ItineraryDeps) {
         visitAt: visitAtDate(draft.travelDate, d.visitAt),
         estimatedCost: null,
         notes: null,
+        position: d.order,
       }));
 
       const stops = draft.destinations.map((d) => ({
@@ -396,6 +397,7 @@ export function createItineraryService(deps: ItineraryDeps) {
           visitAt: s.arrivalTime ? visitAtDate(travelDate, s.arrivalTime) : null,
           estimatedCost: null,
           notes: s.notes,
+          position: s.position,
         }));
       const published = await itineraryRepository.publishVersionTx({
         itineraryId: row.id,
