@@ -238,6 +238,14 @@
         font-size: 0.75rem; padding: 4px 10px; border-radius: 999px;
         pointer-events: none; letter-spacing: 0.01em;
       }
+      .map-version-select {
+        position: absolute; right: 10px; top: 10px; z-index: 6;
+        max-width: 62%; font-size: 0.78rem; padding: 5px 8px;
+        border: 1px solid var(--border); border-radius: 8px;
+        background: rgba(255, 255, 255, 0.96); color: var(--text);
+        box-shadow: 0 2px 8px rgba(15, 23, 42, 0.18);
+      }
+      .map-version-select.hidden { display: none; }
       .map-error { padding: 12px; font-size: 0.85rem; color: var(--danger); }
       .map-popup { font-size: 0.8rem; line-height: 1.4; }
       .map-popup strong { display: block; font-size: 0.85rem; }
@@ -454,6 +462,7 @@
           <p id="draftMeta" class="status">Belum ada draft. Minta itinerary lewat chat.</p>
           <div id="mapWrap" class="map-wrap hidden">
             <div id="map" class="map" role="img" aria-label="Peta rute itinerary"></div>
+            <select id="mapVersionSelect" class="map-version-select hidden" aria-label="Lihat versi itinerary di peta"></select>
             <div id="mapSrc" class="map-src">Peta © OpenStreetMap · CARTO · Rute OSRM</div>
             <div id="mapLegend" class="map-legend" aria-hidden="true">
               <div class="legend-row"><span class="legend-swatch"></span><span>Rute jalan</span></div>
@@ -515,6 +524,7 @@
         draftMeta: document.getElementById("draftMeta"),
         mapWrap: document.getElementById("mapWrap"),
         map: document.getElementById("map"),
+        mapVersionSelect: document.getElementById("mapVersionSelect"),
         routeNote: document.getElementById("routeNote"),
         routeProfile: document.getElementById("routeProfile"),
         stops: document.getElementById("stops"),
@@ -1370,6 +1380,32 @@
         });
       }
 
+      function syncMapVersionSelect(entry) {
+        const select = els.mapVersionSelect;
+        select.textContent = "";
+        const detail = entry && entry.itinerary ? entry.itinerary : null;
+        if (!detail) {
+          select.classList.add("hidden");
+          return;
+        }
+        const history = state.itineraryVersions.get(detail.id);
+        const versions = history && history.versions ? history.versions : [];
+        if (!versions.length) {
+          select.classList.add("hidden");
+          return;
+        }
+        versions.slice().reverse().forEach(function (version) {
+          const opt = document.createElement("option");
+          opt.value = String(version.version);
+          opt.textContent = "v" + version.version + " · " + version.changeType + " · " + version.stopCount + " titik" +
+            (version.version === detail.currentVersion ? " · aktif" : "");
+          select.append(opt);
+        });
+        const preview = entry.previewVersion ? entry.previewVersion.version : null;
+        select.value = String(preview != null ? preview : detail.currentVersion);
+        select.classList.remove("hidden");
+      }
+
       function formatKm(km) {
         return Number(km).toLocaleString("id-ID", { maximumFractionDigits: 1 }) + " km";
       }
@@ -1448,6 +1484,7 @@
 
         els.mapWrap.classList.remove("hidden");
         renderVersionList(entry);
+        syncMapVersionSelect(entry);
         updateMap(entry);
       }
 
@@ -1662,6 +1699,17 @@
             } else if (sessionId) {
               renderItinerary();
             }
+          });
+        }
+        if (els.mapVersionSelect) {
+          els.mapVersionSelect.addEventListener("change", function () {
+            const entry = state.drafts.get(state.activeId);
+            const detail = entry && entry.itinerary ? entry.itinerary : null;
+            if (!detail) return;
+            const version = Number(els.mapVersionSelect.value);
+            if (!Number.isFinite(version)) return;
+            if (version === detail.currentVersion) exitVersionPreview();
+            else previewItineraryVersion(detail.id, version);
           });
         }
         state.userId = els.userId.value.trim();

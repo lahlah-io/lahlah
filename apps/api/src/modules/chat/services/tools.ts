@@ -127,3 +127,19 @@ export function createToolExecutor(deps: ToolDeps) {
 export async function executeTool(name: string, rawArgs: unknown, deps: ToolDeps): Promise<unknown> {
   return createToolExecutor(deps)(name, rawArgs);
 }
+
+export function mergeDestinationRows(
+  acc: Map<string, Record<string, unknown>>,
+  result: unknown,
+): Map<string, Record<string, unknown>> {
+  if (!Array.isArray(result)) return acc;
+  for (const item of result) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const id = row.id;
+    if (typeof id === "string" && id.length > 0 && !acc.has(id)) {
+      acc.set(id, row);
+    }
+  }
+  return acc;
+}

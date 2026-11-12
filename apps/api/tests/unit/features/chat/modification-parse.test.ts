@@ -24,6 +24,19 @@ describe("parseModification", () => {
     });
   });
 
+  test("replace by name accepts 'jadi/menjadi' but keeps schedule/count out", () => {
+    expect(parseModification("ganti gedung joang jadi mesjid terdekat")).toMatchObject({
+      operation: "replace_destination",
+      targetName: "gedung joang",
+    });
+    expect(parseModification("ganti gedung joang menjadi mesjid terdekat")).toMatchObject({
+      operation: "replace_destination",
+      targetName: "gedung joang",
+    });
+    expect(parseModification("ubah jadwal jadi sore")).toBeNull();
+    expect(parseModification("ubah jadi 3 destinasi")).toBeNull();
+  });
+
   test("remove by position and by last", () => {
     expect(parseModification("hapus destinasi nomor 4")).toMatchObject({
       operation: "remove_destination",
@@ -88,5 +101,38 @@ describe("parseModification", () => {
     expect(parseModification("ubah jadi 3 destinasi")).toBeNull();
     expect(parseModification("ganti destinasi")).toBeNull();
     expect(parseModification("hapus destinasi")).toBeNull();
+  });
+
+  test("colloquial verbs parse to destination modifications", () => {
+    expect(parseModification("tuker destinasi ke-4")).toMatchObject({
+      operation: "replace_destination",
+      targetPosition: 4,
+    });
+    expect(parseModification("hapusin destinasi nomor 3")).toMatchObject({
+      operation: "remove_destination",
+      targetPosition: 3,
+    });
+    expect(parseModification("tambahin 2 tempat")).toMatchObject({
+      operation: "add_destination",
+      quantity: 2,
+    });
+  });
+
+  test("compound destination nouns keep the real name on remove", () => {
+    expect(parseModification("hapus objek wisata Pantai Air Manis")).toMatchObject({
+      operation: "remove_destination",
+      targetName: "Pantai Air Manis",
+    });
+    expect(parseModification("hapus tempat wisata Pantai Air Manis")).toMatchObject({
+      operation: "remove_destination",
+      targetName: "Pantai Air Manis",
+    });
+  });
+
+  test("slang dislike asks for clarification with its target", () => {
+    expect(parseModification("destinasi ke-4 gak menarik")).toMatchObject({
+      operation: "clarify_modification",
+      targetPosition: 4,
+    });
   });
 });

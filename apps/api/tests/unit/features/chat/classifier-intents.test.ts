@@ -91,4 +91,28 @@ describe("modification intents (rule layer)", () => {
       restore();
     }
   });
+
+  test("colloquial verbs still map to destination intents via rule", async () => {
+    const restore = forbidProvider();
+    try {
+      expect(await classify("tuker destinasi ke-4", env)).toMatchObject({
+        intent: "replace_destination",
+        source: "rule",
+      });
+      expect(await classify("hapusin destinasi nomor 3", env)).toMatchObject({
+        intent: "remove_destination",
+        source: "rule",
+      });
+      expect(await classify("tambahin 2 tempat", env)).toMatchObject({
+        intent: "add_destination",
+        source: "rule",
+      });
+      expect(await classify("destinasi ke-4 gak menarik", env)).toMatchObject({
+        intent: "clarify_modification",
+        source: "rule",
+      });
+    } finally {
+      restore();
+    }
+  });
 });

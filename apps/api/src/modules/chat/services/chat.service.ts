@@ -7,9 +7,9 @@ import { classify, type Intent } from "./classifier.js";
 import { buildConversationContext } from "./conversation-context.js";
 import { generateItinerary } from "./itinerary-generator.js";
 import { createDraftStore, type DraftStore, type ItineraryDraftResponse } from "./draft-store.js";
-import { createToolExecutor } from "./tools.js";
+import { createToolExecutor, mergeDestinationRows } from "./tools.js";
 import { parseModification } from "./modification.js";
-import { applyModification } from "./modification-ops.js";
+import { applyModification, orderCandidates } from "./modification-ops.js";
 import { haversineMeters, isCoordinate, routeLineString } from "./route-geometry.js";
 import { activateVersion, appendVersion, type MessageVersion } from "./message-versioning.js";
 import type { ItineraryModification } from "../../../shared/schemas/itinerary-modification.js";
@@ -448,7 +448,7 @@ async function runItineraryToolFlow(input: {
     { role: "user", content: `User request (Padang, single day): ${input.userMessage}\nUse tools to fetch destinations. Required categories: ${input.request.categories.join(", ")}.` },
   ];
   const maxRounds = Math.max(1, Math.min(env.AI_TOOL_MAX_ROUNDS, 10));
-  let structured: unknown[] = [];
+  const collected = new Map<string, Record<string, unknown>>();
   let last: Awaited<ReturnType<typeof run>> | null = null;
 
   for (let round = 0; round < maxRounds; round++) {
@@ -496,7 +496,7 @@ async function runItineraryToolFlow(input: {
         const result = await executeTool(call.name, call.arguments);
         const toolLatencyMs = Date.now() - toolStarted;
         if (call.name === "search_destinations" || call.name === "get_destination_details") {
-          structured = Array.isArray(result) ? result : structured;
+          mergeDestinationRows(collected, result);
         }
         await chatRepository.appendMessage({
           sessionId: input.sessionId,
@@ -533,7 +533,7 @@ async function runItineraryToolFlow(input: {
   }
   if (!last) throw new HttpError(502, "AI_UPSTREAM_ERROR", "Tool loop did not complete");
 
-  const candidates = structured.map((r) => {
+  const candidates = [...collected.values()].map((r) => {
     const row = r as Record<string, unknown>;
     return { id: String(row.id), name: String(row.name ?? ""), latitude: (row.latitude as number | null) ?? null, longitude: (row.longitude as number | null) ?? null, details: row.details };
   }).filter((c) => c.id && c.name);
@@ -546,6 +546,11 @@ async function runItineraryToolFlow(input: {
 export function createChatService(deps: ChatDeps) {
   const draftStore = deps.draftStore ?? createDraftStore();
   const doClassify = deps.classifyMessage ?? classify;
+
+  /** Picks one friendly phrasing so hardcoded replies stay polite and not robotic. */
+  function oneOf(...variants: string[]): string {
+    return variants[Math.floor(Math.random() * variants.length)]!;
+  }
 
   async function applyChatModification(input: {
     userId: string;
@@ -563,7 +568,10 @@ export function createChatService(deps: ChatDeps) {
     if (input.mod.operation === "clarify_modification") {
       return {
         intent: "modify_itinerary",
-        message: "Mau ganti atau hapus destinasi itu? Contoh: \"ganti destinasi ke-3\" atau \"hapus destinasi ke-3\".",
+        message: oneOf(
+          "Baik, destinasi mana yang ingin diubah? Sebutkan nomor atau namanya, misal \"ganti destinasi ke-3\" atau \"hapus destinasi ke-3\".",
+          "Siap! Mau diganti atau dihapus destinasi itu? Contohnya \"ganti destinasi ke-3\" atau \"hapus destinasi ke-3\".",
+        ),
         draft: versionToDraft(active),
         usage: {},
       };
@@ -578,7 +586,10 @@ export function createChatService(deps: ChatDeps) {
       if (!selected) throw new HttpError(422, "VERSION_NOT_FOUND", "Versi itinerary tidak ditemukan");
       return {
         intent: "modify_itinerary",
-        message: `Versi ${selected.versionNumber} sekarang aktif dengan ${selected.stops.length} destinasi.`,
+        message: oneOf(
+          `Siap, versi ${selected.versionNumber} sudah saya aktifkan — berisi ${selected.stops.length} destinasi.`,
+          `Baik, sekarang versi ${selected.versionNumber} yang aktif dengan ${selected.stops.length} destinasi.`,
+        ),
         draft: versionToDraft(selected),
         usage: {},
       };
@@ -597,9 +608,7 @@ export function createChatService(deps: ChatDeps) {
           ? active.stops.find((s) => s.name.toLowerCase() === scoped.targetName!.trim().toLowerCase())
           : undefined;
     const targetCategory = target?.category ?? null;
-    const ordered = [...candidates].sort(
-      (a, b) => Number(b.category === targetCategory) - Number(a.category === targetCategory),
-    );
+    const ordered = orderCandidates(candidates, targetCategory);
 
     let applied: ReturnType<typeof applyModification>;
     try {
@@ -614,11 +623,23 @@ export function createChatService(deps: ChatDeps) {
         ordered,
       );
     } catch (err) {
+      if (err instanceof HttpError && err.code === "MODIFY_TARGET_AMBIGUOUS") {
+        const needle = (input.mod as { targetName?: string }).targetName?.trim().toLowerCase() ?? "";
+        const matches = active.stops.filter((s) => s.name.toLowerCase().includes(needle));
+        const list = matches.map((s) => `${s.position}. ${s.name}`).join("; ");
+        const verb = input.mod.operation === "remove_destination" ? "hapus" : "ganti";
+        return {
+          intent: "modify_itinerary",
+          message: `Ada beberapa destinasi yang cocok dengan "${needle}": ${list}. Sebutkan nomornya (misal "${verb} destinasi ke-2") atau nama lengkapnya ya.`,
+          draft: versionToDraft(active),
+          usage: {},
+        };
+      }
       if (err instanceof HttpError && err.code === "MODIFY_TARGET_NOT_FOUND") {
         const list = active.stops.map((s) => `${s.position}. ${s.name}`).join("; ");
         return {
           intent: "modify_itinerary",
-          message: `Destinasi itu tidak ada di itinerary saat ini. Destinasi aktif: ${list}. Sebutkan nomor (misal "hapus destinasi ke-3") atau nama yang persis.`,
+          message: `Hmm, destinasi itu tidak saya temukan di itinerary saat ini. Destinasi aktif: ${list}. Sebutkan nomornya (misal "hapus destinasi ke-3") atau nama persisnya ya.`,
           draft: versionToDraft(active),
           usage: {},
         };
@@ -687,7 +708,10 @@ export function createChatService(deps: ChatDeps) {
 
     return {
       intent: "modify_itinerary",
-      message: `Versi ${saved.versionNumber} siap: ${saved.stops.length} destinasi.`,
+      message: oneOf(
+        `Siap! Versi ${saved.versionNumber} sudah saya susun dengan ${saved.stops.length} destinasi.`,
+        `Baik, versi ${saved.versionNumber} siap — sekarang ${saved.stops.length} destinasi.`,
+      ),
       draft: versionToDraft(saved),
       usage: {},
     };
@@ -767,7 +791,10 @@ export function createChatService(deps: ChatDeps) {
       const defaults: string[] = [];
       if (merged.params.travelDate == null) defaults.push(`tanggal hari ini (${draft.travelDate})`);
       if (merged.params.startTime == null) defaults.push(`jam ${draft.startTime}-${draft.endTime}`);
-      message = `Draft itinerary ${draft.travelDate} untuk ${draft.destinations.length} destinasi di Padang siap dikonfirmasi.`;
+      message = oneOf(
+        `Draft itinerary ${draft.travelDate} untuk ${draft.destinations.length} destinasi di Padang sudah siap ditinjau. Konfirmasi kapan saja ya.`,
+        `Selesai! Itinerary ${draft.travelDate} dengan ${draft.destinations.length} destinasi di Padang sudah saya siapkan.`,
+      );
       if (defaults.length) message += ` Dipakai default ${defaults.join(", ")} (bisa diubah).`;
     } else if (intent === "general_chat" || isConfirm) {
       message = isConfirm

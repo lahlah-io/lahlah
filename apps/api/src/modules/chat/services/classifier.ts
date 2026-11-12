@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { completeChat, resolveAiRoleConfig } from "../../../integrations/ai/chat-completions.js";
 import { appendLog } from "../../../shared/logging/file-logger.js";
+import { ADD_VERB, DESTINATION_NOUN, DISLIKE, REMOVE_VERB, REPLACE_VERB } from "./vocab.js";
 
 export const intentLabels = [
   "general_chat",
@@ -57,17 +58,17 @@ const RULE_PATTERNS: Array<{ intent: Intent; pattern: RegExp }> = [
   { intent: "publish_itinerary_version", pattern: /\b(?:publish|publikasikan|simpan\s+final)\b/ },
   {
     intent: "replace_destination",
-    pattern: /\b(?:ganti|ubah|gantikan)\b[^.]*\b(?:destinasi|tempat|lokasi|spot|nomor|ke-\d)/,
+    pattern: new RegExp(`${REPLACE_VERB.source}[^.]*(?:${DESTINATION_NOUN.source}|nomor|ke-\\d)`),
   },
   {
     intent: "remove_destination",
-    pattern: /\b(?:hapus|hilangkan|buang)\b[^.]*\b(?:destinasi|tempat|lokasi|spot|nomor|ke-\d|\d)/,
+    pattern: new RegExp(`${REMOVE_VERB.source}[^.]*(?:${DESTINATION_NOUN.source}|nomor|ke-\\d|\\d)`),
   },
   {
     intent: "add_destination",
-    pattern: /\btambah(?:kan)?\s+(?:\d+\s+)?(?:destinasi|tempat|lokasi|spot)\b/,
+    pattern: new RegExp(`${ADD_VERB.source}\\s+(?:\\d+\\s+)?${DESTINATION_NOUN.source}`),
   },
-  { intent: "clarify_modification", pattern: /\b(?:tidak|kurang)\s+(?:suka|cocok)\b/ },
+  { intent: "clarify_modification", pattern: DISLIKE },
 ];
 
 function matchRule(message: string): ClassificationResult | null {

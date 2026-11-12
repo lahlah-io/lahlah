@@ -24,13 +24,28 @@ function findTarget(stops: ActiveStop[], mod: { targetPosition?: number; targetN
   if (mod.targetPosition != null) return stops.find((s) => s.position === mod.targetPosition);
   if (mod.targetName) {
     const needle = mod.targetName.trim().toLowerCase();
-    return stops.find((s) => s.name.toLowerCase() === needle) ?? stops.find((s) => s.name.toLowerCase().includes(needle));
+    const matches = stops.filter((s) => s.name.toLowerCase() === needle || s.name.toLowerCase().includes(needle));
+    if (matches.length === 1) return matches[0];
+    if (matches.length > 1) throw new HttpError(422, "MODIFY_TARGET_AMBIGUOUS", "Destination name matches multiple stops");
+    return undefined;
   }
   return undefined;
 }
 
 function renumber(stops: ActiveStop[]): ActiveStop[] {
   return stops.map((s, i) => ({ ...s, position: i + 1 }));
+}
+
+export function orderCandidates<T extends { destinationId: string; category?: string | null }>(
+  candidates: T[],
+  targetCategory: string | null,
+): T[] {
+  return [...candidates].sort((a, b) => {
+    const ca = Number(a.category === targetCategory);
+    const cb = Number(b.category === targetCategory);
+    if (cb !== ca) return cb - ca;
+    return a.destinationId.localeCompare(b.destinationId);
+  });
 }
 
 /**

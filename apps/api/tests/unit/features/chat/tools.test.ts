@@ -14,6 +14,7 @@ async function loadTools() {
     toolDefinitions: Array<{ type: string; function: { name: string } }>;
     createToolExecutor: (deps: ToolDeps) => (name: string, rawArgs: unknown) => Promise<unknown>;
     executeTool: (name: string, rawArgs: unknown, deps: ToolDeps) => Promise<unknown>;
+    mergeDestinationRows: (acc: Map<string, Record<string, unknown>>, result: unknown) => Map<string, Record<string, unknown>>;
   };
 }
 
@@ -114,4 +115,21 @@ test("filters out inactive/non-Padang detail rows returned by repo", async () =>
   assert.equal(result[0]?.city, "Padang");
   assert.equal(result[0]?.isActive, true);
   assert.equal("canonicalKey" in result[0]!, false);
+});
+
+test("mergeDestinationRows accumulates across calls and dedupes by id", async () => {
+  const { mergeDestinationRows } = await loadTools();
+  const acc = new Map<string, Record<string, unknown>>();
+  mergeDestinationRows(acc, [
+    { id: "a", name: "A", latitude: -0.9, longitude: 100.35 },
+    { id: "b", name: "B", latitude: -0.91, longitude: 100.36 },
+  ]);
+  mergeDestinationRows(acc, [
+    { id: "b", name: "B-second", latitude: -0.91, longitude: 100.36 },
+    { id: "c", name: "C", latitude: -0.92, longitude: 100.37 },
+  ]);
+  mergeDestinationRows(acc, { id: "ignored", name: "not an array" });
+
+  assert.deepEqual([...acc.keys()].sort(), ["a", "b", "c"]);
+  assert.equal((acc.get("b") as Record<string, unknown>).name, "B");
 });

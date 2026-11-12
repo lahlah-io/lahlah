@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { applyModification } from "../../../../src/modules/chat/services/modification-ops.js";
+import { applyModification, orderCandidates } from "../../../../src/modules/chat/services/modification-ops.js";
 
 const active = [1, 2, 3, 4, 5, 6].map((p) => ({
   position: p,
@@ -9,6 +9,18 @@ const active = [1, 2, 3, 4, 5, 6].map((p) => ({
 }));
 
 const replacement = { destinationId: "n1", name: "New Place", category: "Budaya" };
+
+test("orderCandidates puts category matches first, then id ascending", () => {
+  const out = orderCandidates(
+    [
+      { destinationId: "c", name: "C", category: "Budaya" },
+      { destinationId: "a", name: "A", category: "Pantai" },
+      { destinationId: "b", name: "B", category: "Pantai" },
+    ],
+    "Pantai",
+  );
+  expect(out.map((c) => c.destinationId)).toEqual(["a", "b", "c"]);
+});
 
 describe("applyModification", () => {
   test("replace keeps the count and every other row", () => {
@@ -66,5 +78,11 @@ describe("applyModification", () => {
     expect(() =>
       applyModification(active, { operation: "remove_destination", targetName: "Nowhere" }, []),
     ).toThrowError(expect.objectContaining({ status: 422 }));
+  });
+
+  test("ambiguous name is a 422 with MODIFY_TARGET_AMBIGUOUS", () => {
+    expect(() =>
+      applyModification(active, { operation: "remove_destination", targetName: "Place" }, []),
+    ).toThrowError(expect.objectContaining({ code: "MODIFY_TARGET_AMBIGUOUS", status: 422 }));
   });
 });

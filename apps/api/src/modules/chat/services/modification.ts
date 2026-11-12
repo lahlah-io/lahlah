@@ -1,4 +1,5 @@
 import type { ItineraryModification } from "../../../shared/schemas/itinerary-modification.js";
+import { ADD_VERB, DESTINATION_NOUN, DISLIKE, REMOVE_VERB, REPLACE_VERB } from "./vocab.js";
 
 export type { ItineraryModification };
 
@@ -27,8 +28,7 @@ const WORD_NUMBERS: Record<string, number> = {
   sepuluh: 10,
 };
 const WORD_ALT = Object.keys(WORD_NUMBERS).join("|");
-const DESTINATION_NOUN = /\b(?:destinasi|tempat|lokasi|spot)\b/i;
-const DISLIKE = /\b(?:tidak|kurang)\s+(?:suka|cocok)\b/i;
+const SCHEDULE_NOUN = /\b(?:jadwal|jam|waktu|pukul|tanggal|hari|durasi|kategori)\b/i;
 
 function toCount(raw: string | undefined): number | null {
   if (!raw) return null;
@@ -45,13 +45,14 @@ function targetPosition(text: string): number | null {
 }
 
 function targetName(text: string): string | undefined {
-  const m = /\b(?:ganti|ubah|gantikan)\s+(?:destinasi\s+)?(.+?)\s+dengan\b/i.exec(text);
+  const m = new RegExp(`${REPLACE_VERB.source}\\s+(?:destinasi\\s+)?(.+?)\\s+(?:dengan|jadi|menjadi)\\b`, "i").exec(text);
   const name = m?.[1]?.trim();
-  return name ? name : undefined;
+  if (!name || SCHEDULE_NOUN.test(name)) return undefined;
+  return name;
 }
 
 function targetRemoveName(text: string): string | undefined {
-  const m = /\b(?:hapus|hilangkan|buang)\s+(?:destinasi|tempat|lokasi|spot)\s+(.+)$/i.exec(text);
+  const m = new RegExp(`${REMOVE_VERB.source}\\s+${DESTINATION_NOUN.source}\\s+(.+)$`, "i").exec(text);
   const name = m?.[1]?.trim();
   if (!name || /\bterakhir\b/i.test(name)) return undefined;
   return name;
@@ -68,16 +69,16 @@ export function parseModification(text: string): ItineraryModification | null {
   const select = /\b(?:pilih|kembali\s+ke|buka|lihat)\s+versi\s*(\d+)/i.exec(text);
   if (select) return { operation: "select_version", version: Number(select[1]) };
 
-  const replaceVerb = /\b(?:ganti|ubah|gantikan)\b/i.test(text);
+  const replaceVerb = REPLACE_VERB.test(text);
   const scoped = DESTINATION_NOUN.test(text) || position != null;
-  if (replaceVerb && scoped) {
+  if (replaceVerb) {
     const name = at.targetPosition ? undefined : targetName(text);
-    // "ubah jadi/menjadi N destinasi" is a count change, not a replace — leave it to the trip flow.
+    // Count/schedule changes ("ubah jadi 3 destinasi", "ubah jadwal jadi sore") yield no target here.
     if (!at.targetPosition && !name) return null;
     return { operation: "replace_destination", ...at, ...(name ? { targetName: name } : {}) };
   }
 
-  const removeVerb = /\b(?:hapus|hilangkan|buang)\b/i.test(text);
+  const removeVerb = REMOVE_VERB.test(text);
   const last = /\bterakhir\b/i.test(text);
   if (removeVerb && (scoped || last)) {
     const name = !at.targetPosition ? targetRemoveName(text) : undefined;
@@ -91,7 +92,7 @@ export function parseModification(text: string): ItineraryModification | null {
   }
 
   const add = new RegExp(
-    `\\btambah(?:kan)?\\s+(?:(\\d{1,2}|${WORD_ALT})\\s*)?(?:destinasi|tempat|lokasi|spot)\\b`,
+    `${ADD_VERB.source}\\s+(?:(\\d{1,2}|${WORD_ALT})\\s*)?${DESTINATION_NOUN.source}`,
     "i",
   ).exec(text);
   if (add) return { operation: "add_destination", quantity: toCount(add[1]) ?? 1 };
