@@ -5,6 +5,8 @@ const destinationSelect = {
   id: true,
   itineraryId: true,
   destinationId: true,
+  position: true,
+  isActive: true,
   visitAt: true,
   estimatedCost: true,
   notes: true,
@@ -28,7 +30,11 @@ const itinerarySelect = {
   metadata: true,
   createdAt: true,
   updatedAt: true,
-  destinations: { select: destinationSelect, orderBy: { createdAt: "asc" } },
+  destinations: {
+    where: { isActive: true },
+    select: destinationSelect,
+    orderBy: [{ position: "asc" }, { createdAt: "asc" }],
+  },
 } satisfies Prisma.ItinerarySelect;
 
 const stopSelect = {
