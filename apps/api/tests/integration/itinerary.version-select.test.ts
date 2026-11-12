@@ -42,9 +42,6 @@ async function createSession(userId: string) {
 
 function buildService() {
   return createItineraryService({
-    getDraft: () => {
-      throw new Error("unused");
-    },
     findUserById: (id) => prisma.user.findUnique({ where: { id }, select: { id: true, isActive: true } }),
   });
 }

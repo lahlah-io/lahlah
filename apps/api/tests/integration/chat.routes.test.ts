@@ -25,9 +25,6 @@ function buildApp(providerBaseUrl = "http://127.0.0.1:9/v1") {
     return u ? { id: u.id, isActive: u.isActive } : null;
   };
   const itinerary = createItineraryService({
-    getDraft: () => {
-      throw new Error("draft store should not be used by the version flow");
-    },
     findUserById,
   });
   const chatService = createChatService({

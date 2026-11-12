@@ -5,7 +5,7 @@ import { Hono } from "hono";
 import { prisma } from "../../src/db/client.js";
 import { errorHandler } from "../../src/shared/http/errors.js";
 import { createItineraryApi, createItineraryService } from "../../src/modules/itinerary/index.js";
-import { createDraftStore, type ItineraryDraftResponse } from "../../src/modules/chat/services/draft-store.js";
+import type { ItineraryVersionStop } from "../../src/shared/schemas/itinerary-version.js";
 
 const json = { "content-type": "application/json" };
 const PREV_NODE_ENV = process.env.NODE_ENV;
@@ -38,31 +38,46 @@ async function createSession(userId: string) {
   return prisma.chatSession.create({ data: { userId, modelId: model.id, title: "t" }, select: { id: true } });
 }
 
-function draftFor(rows: Awaited<ReturnType<typeof padangDestinations>>): ItineraryDraftResponse {
+function stopsFrom(rows: Awaited<ReturnType<typeof padangDestinations>>): ItineraryVersionStop[] {
+  return rows.map((r, i) => ({
+    position: i + 1,
+    destinationId: r.id,
+    name: r.name,
+    latitude: r.latitude,
+    longitude: r.longitude,
+    arrivalTime: `${String(8 + i).padStart(2, "0")}:30`,
+    visitDurationMin: 60,
+    category: null,
+  }));
+}
+
+function routeFor(rows: Awaited<ReturnType<typeof padangDestinations>>) {
   return {
-    draftId: "pending",
-    status: "pending_confirmation",
-    travelDate: "2026-12-01",
-    startTime: "08:00",
-    endTime: "17:00",
-    destinations: rows.map((r, i) => ({
-      order: i + 1,
-      destinationId: r.id,
-      name: r.name,
-      latitude: r.latitude,
-      longitude: r.longitude,
-      visitAt: i === 0 ? "08:00" : "09:30",
-      durationMinutes: 60,
-    })),
-    route: { type: "LineString", coordinates: rows.map((r) => [r.longitude, r.latitude] as [number, number]) },
+    type: "LineString",
+    coordinates: rows.map((r) => [r.longitude, r.latitude]),
+    legs: [
+      {
+        fromPosition: 1,
+        toPosition: 2,
+        transportMode: "car",
+        distanceM: null,
+        durationSec: null,
+        geometry: { type: "LineString", coordinates: rows.map((r) => [r.longitude, r.latitude]) },
+        provider: "fallback",
+        profile: "straight_line",
+        fallback: true,
+      },
+    ],
   };
 }
 
-function buildApp(store: ReturnType<typeof createDraftStore>) {
-  const service = createItineraryService({
-    getDraft: (input) => store.getDraft(input),
+function buildService() {
+  return createItineraryService({
     findUserById: (id) => prisma.user.findUnique({ where: { id }, select: { id: true, isActive: true } }),
   });
+}
+
+function buildApp(service = buildService()) {
   const app = new Hono();
   app.onError(errorHandler);
   app.route("/api/v1/itineraries", createItineraryApi(service));
@@ -87,20 +102,30 @@ afterAll(() => {
   else process.env.NODE_ENV = PREV_NODE_ENV;
 });
 
-test("confirm persists immutable version, stops and routes (DB-sourced, restart-safe, idempotent)", async () => {
+test("activation persists immutable version, stops and routes (DB-sourced, restart-safe)", async () => {
   process.env.NODE_ENV = "test";
   const user = await createUser();
   const session = await createSession(user.id);
   const rows = await padangDestinations(2);
-  const store = createDraftStore();
-  const draftId = await store.replaceSessionDraft({ userId: user.id, sessionId: session.id, itinerary: draftFor(rows) });
-  const app = buildApp(store);
+  const service = buildService();
+  const app = buildApp(service);
   try {
-    const res = await app.request("/api/v1/itineraries/confirm", {
-      method: "POST", headers: json, body: JSON.stringify({ draftId, userId: user.id, sessionId: session.id }),
+    const v1 = await service.saveDraftVersion({
+      userId: user.id,
+      sessionId: session.id,
+      travelDate: "2026-12-01",
+      startTime: "08:00",
+      endTime: "17:00",
+      stops: stopsFrom(rows),
+      routeJson: routeFor(rows),
+      changeType: "generate",
     });
-    const body = await res.json() as { data?: { id: string; sessionId: string | null; status?: string } };
-    assert.equal(res.status, 201, JSON.stringify(body));
+
+    const res = await app.request(`/api/v1/itineraries/${v1.itineraryId}/versions/1/select`, {
+      method: "POST", headers: json, body: JSON.stringify({ userId: user.id }),
+    });
+    const body = await res.json() as { data?: { id: string; sessionId: string | null } };
+    assert.equal(res.status, 200, JSON.stringify(body));
     assert.equal(body.data?.sessionId, session.id);
 
     const inDb = await prisma.itinerary.findUnique({
@@ -114,23 +139,22 @@ test("confirm persists immutable version, stops and routes (DB-sourced, restart-
     assert.equal(inDb.sessionId, session.id);
     assert.equal(inDb.currentVersion, 1);
     assert.equal(inDb.versions.length, 1);
-    const v1 = inDb.versions[0]!;
-    assert.equal(v1.version, 1);
-    assert.equal(v1.status, "confirmed");
-    assert.equal(v1.stops.length, 2);
-    assert.deepEqual(v1.stops.map((s) => s.position), [1, 2]);
-    assert.deepEqual(v1.stops.map((s) => s.name), rows.map((r) => r.name));
-    assert.equal((v1.routeJson as { legs: unknown[] }).legs.length, 1);
+    const ver = inDb.versions[0]!;
+    assert.equal(ver.version, 1);
+    assert.equal(ver.status, "generated");
+    assert.equal(ver.stops.length, 2);
+    assert.deepEqual(ver.stops.map((s) => s.position), [1, 2]);
+    assert.deepEqual(ver.stops.map((s) => s.name), rows.map((r) => r.name));
+    assert.equal((ver.routeJson as { legs: unknown[] }).legs.length, 1);
     assert.equal(inDb.destinations.length, 2);
 
-    // restart-safe: fresh store/app reads same DB-backed draft/state; idempotent repeat returns existing
-    const freshApp = buildApp(createDraftStore());
-    const again = await freshApp.request("/api/v1/itineraries/confirm", {
-      method: "POST", headers: json, body: JSON.stringify({ draftId, userId: user.id, sessionId: session.id }),
-    });
+    // restart-safe: a fresh service/app reads the same DB-backed state
+    const freshApp = buildApp();
+    const again = await freshApp.request(`/api/v1/itineraries/${body.data!.id}?userId=${user.id}`);
     assert.equal(again.status, 200);
-    const againBody = await again.json() as { data: { id: string } };
+    const againBody = await again.json() as { data: { id: string; currentVersion: number } };
     assert.equal(againBody.data.id, body.data!.id);
+    assert.equal(againBody.data.currentVersion, 1);
     assert.equal(await prisma.itinerary.count({ where: { sessionId: session.id } }), 1);
     const versionsAfter = await prisma.itineraryVersion.count({ where: { itineraryId: body.data!.id } });
     assert.equal(versionsAfter, 1);
@@ -139,35 +163,35 @@ test("confirm persists immutable version, stops and routes (DB-sourced, restart-
   }
 });
 
-test("confirm rejects invalid/inactive destination and ownership/invalid draft safely (F3.2 compat)", async () => {
+test("select-based activation rejects ownership and missing version safely", async () => {
   process.env.NODE_ENV = "test";
   const user = await createUser();
   const user2 = await createUser();
   const session = await createSession(user.id);
-  const session2 = await createSession(user2.id);
   const rows = await padangDestinations(2);
-  const store = createDraftStore();
-  const app = buildApp(store);
+  const service = buildService();
+  const app = buildApp(service);
   try {
-    const draftId = await store.replaceSessionDraft({ userId: user.id, sessionId: session.id, itinerary: draftFor(rows) });
-    let res = await app.request("/api/v1/itineraries/confirm", { method: "POST", headers: json, body: JSON.stringify({ draftId, userId: user2.id, sessionId: session.id }) });
-    assert.equal(res.status, 403);
-    res = await app.request("/api/v1/itineraries/confirm", { method: "POST", headers: json, body: JSON.stringify({ draftId, userId: user.id, sessionId: session2.id }) });
-    assert.equal(res.status, 403);
-
-    const missing = await app.request("/api/v1/itineraries/confirm", { method: "POST", headers: json, body: JSON.stringify({ draftId: randomUUID(), userId: user.id, sessionId: session.id }) });
-    assert.equal(missing.status, 404);
-
-    const inactiveDest = await prisma.destination.create({
-      data: { name: `Inactive ${randomUUID()}`, source: "manual", city: "Padang", isActive: false, latitude: -0.9, longitude: 100.3, details: {} },
-      select: { id: true, name: true, latitude: true, longitude: true },
+    const v1 = await service.saveDraftVersion({
+      userId: user.id,
+      sessionId: session.id,
+      travelDate: "2026-12-01",
+      startTime: "08:00",
+      endTime: "17:00",
+      stops: stopsFrom(rows),
+      routeJson: routeFor(rows),
+      changeType: "generate",
     });
-    const session3 = await createSession(user2.id);
-    const badDraft = draftFor([{ ...rows[0]!, id: inactiveDest.id, name: inactiveDest.name, latitude: Number(inactiveDest.latitude), longitude: Number(inactiveDest.longitude) }, rows[1]!]);
-    const badId = await store.replaceSessionDraft({ userId: user2.id, sessionId: session3.id, itinerary: badDraft });
-    res = await app.request("/api/v1/itineraries/confirm", { method: "POST", headers: json, body: JSON.stringify({ draftId: badId, userId: user2.id, sessionId: session3.id }) });
-    assert.equal(res.status, 422);
-    await prisma.destination.delete({ where: { id: inactiveDest.id } }).catch(() => undefined);
+
+    const forbidden = await app.request(`/api/v1/itineraries/${v1.itineraryId}/versions/1/select`, {
+      method: "POST", headers: json, body: JSON.stringify({ userId: user2.id }),
+    });
+    assert.equal(forbidden.status, 404);
+
+    const missing = await app.request(`/api/v1/itineraries/${v1.itineraryId}/versions/99/select`, {
+      method: "POST", headers: json, body: JSON.stringify({ userId: user.id }),
+    });
+    assert.equal(missing.status, 404);
   } finally {
     await cleanup([user.id, user2.id]);
   }

@@ -105,14 +105,6 @@ export async function findBySessionId(sessionId: string) {
   return prisma.itinerary.findUnique({ where: { sessionId }, select: itinerarySelect });
 }
 
-export async function findActivePadangDestinationIds(ids: string[]) {
-  const rows = await prisma.destination.findMany({
-    where: { id: { in: ids }, city: "Padang", isActive: true },
-    select: { id: true },
-  });
-  return new Set(rows.map((r) => r.id));
-}
-
 export async function upsertDraftRoot(input: {
   userId: string;
   sessionId: string;
@@ -165,18 +157,6 @@ export async function upsertDraftRoot(input: {
       },
       select: { id: true, currentVersion: true },
     });
-  });
-}
-
-export async function findVersionById(versionId: string) {
-  return prisma.itineraryVersion.findUnique({
-    where: { id: versionId },
-    select: {
-      ...versionSelect,
-      itinerary: {
-        select: { userId: true, sessionId: true, tripDate: true, currentVersion: true, metadata: true, status: true },
-      },
-    },
   });
 }
 
@@ -294,37 +274,6 @@ async function syncActiveDestinations(
   });
 }
 
-export async function confirmVersionTx(input: {
-  itineraryId: string;
-  versionId: string;
-  version: number;
-  metadata: Prisma.InputJsonValue;
-  routeJson: Prisma.InputJsonValue;
-  destinations: Array<{
-    destinationId: string;
-    visitAt: Date | null;
-    estimatedCost: number | null;
-    notes: string | null;
-    position: number | null;
-  }>;
-}) {
-  return prisma.$transaction(async (tx) => {
-    await syncActiveDestinations(tx, {
-      itineraryId: input.itineraryId,
-      destinations: input.destinations,
-    });
-    await tx.itineraryVersion.update({
-      where: { id: input.versionId },
-      data: { status: "confirmed", changeType: "confirm", routeJson: input.routeJson },
-    });
-    return tx.itinerary.update({
-      where: { id: input.itineraryId },
-      data: { status: "confirmed", currentVersion: input.version, metadata: input.metadata },
-      select: itinerarySelect,
-    });
-  });
-}
-
 export async function publishVersionTx(input: {
   itineraryId: string;
   version: number;
@@ -353,103 +302,6 @@ export async function publishVersionTx(input: {
     });
   });
 }
-
-export async function createConfirmed(input: {
-  userId: string;
-  sessionId: string;
-  title: string;
-  content: string;
-  metadata: Prisma.InputJsonValue;
-  tripDate?: Date | null;
-  transportMode?: string | null;
-  destinations: Array<{
-    destinationId: string;
-    visitAt: Date | null;
-    estimatedCost: number | null;
-    notes: string | null;
-    position: number | null;
-  }>;
-  version: {
-    version: number;
-    basedOnVersion?: number | null;
-    changeInstruction?: string | null;
-    changeType: string;
-    totalDistanceM?: number | null;
-    totalDurationMin?: number | null;
-    totalEstimatedMin?: number | null;
-    status: string;
-    sourceMessageId?: string | null;
-    routeJson?: Prisma.InputJsonValue | null;
-    expiresAt?: Date | null;
-    stops: SnapshotStopInput[];
-  };
-}) {
-  return prisma.$transaction(async (tx) => {
-    const itinerary = await tx.itinerary.create({
-      data: {
-        userId: input.userId,
-        sessionId: input.sessionId,
-        title: input.title,
-        content: input.content,
-        status: "confirmed",
-        currentVersion: input.version.version,
-        tripDate: input.tripDate ?? undefined,
-        transportMode: input.transportMode ?? undefined,
-        metadata: input.metadata,
-      },
-      select: { id: true },
-    });
-    await syncActiveDestinations(tx, {
-      itineraryId: itinerary.id,
-      destinations: input.destinations,
-    });
-
-    const version = await tx.itineraryVersion.create({
-      data: {
-        itineraryId: itinerary.id,
-        version: input.version.version,
-        basedOnVersion: input.version.basedOnVersion ?? undefined,
-        changeInstruction: input.version.changeInstruction ?? undefined,
-        changeType: input.version.changeType,
-        totalDistanceM: input.version.totalDistanceM ?? undefined,
-        totalDurationMin: input.version.totalDurationMin ?? undefined,
-        totalEstimatedMin: input.version.totalEstimatedMin ?? undefined,
-        status: input.version.status,
-        sourceMessageId: input.version.sourceMessageId ?? undefined,
-        routeJson: input.version.routeJson ?? undefined,
-        expiresAt: input.version.expiresAt ?? undefined,
-      },
-      select: { id: true },
-    });
-
-    for (const stop of [...input.version.stops].sort((a, b) => a.position - b.position)) {
-      await tx.itineraryStop.create({
-        data: {
-          itineraryVersionId: version.id,
-          destinationId: stop.destinationId ?? undefined,
-          position: stop.position,
-          name: stop.name,
-          latitude: stop.latitude as any,
-          longitude: stop.longitude as any,
-          arrivalTime: stop.arrivalTime ?? undefined,
-          departureTime: stop.departureTime ?? undefined,
-          visitDurationMin: stop.visitDurationMin ?? undefined,
-          travelDurationMin: stop.travelDurationMin ?? undefined,
-          notes: stop.notes ?? undefined,
-          category: stop.category ?? undefined,
-          snapshotJson: stop.snapshotJson ?? undefined,
-        },
-        select: { id: true, position: true },
-      });
-    }
-
-    await tx.itinerary.update({ where: { id: itinerary.id }, data: { currentVersion: input.version.version } });
-    return tx.itinerary.findUniqueOrThrow({ where: { id: itinerary.id }, select: itinerarySelect });
-  });
-}
-
-// compat alias: older callers/tests used createFinal (legacy "final" status) - now writes confirmed snapshot
-export const createFinal = createConfirmed;
 
 export type SnapshotStopInput = {
   position: number;

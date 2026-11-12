@@ -52,9 +52,6 @@ async function seedItinerary() {
 
 function buildApp() {
   const service = createItineraryService({
-    getDraft: () => {
-      throw new Error("unused");
-    },
     findUserById: (id) => prisma.user.findUnique({ where: { id }, select: { id: true, isActive: true } }),
   });
   const app = new Hono();

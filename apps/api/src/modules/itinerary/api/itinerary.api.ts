@@ -2,7 +2,6 @@
 import { zValidator } from "../../../shared/http/validator.js";
 import type { ItineraryService } from "../services/itinerary.service.js";
 import {
-  confirmItinerarySchema,
   itineraryIdParamSchema,
   itineraryOwnerQuerySchema,
   itinerarySessionParamSchema,
@@ -14,11 +13,6 @@ import {
 
 export function createItineraryApi(service: ItineraryService) {
   const api = new Hono();
-
-  api.post("/confirm", zValidator("json", confirmItinerarySchema), async (c) => {
-    const result = await service.confirm(c.req.valid("json"));
-    return c.json({ data: result.data }, result.created ? 201 : 200);
-  });
 
   api.get(
     "/by-session/:sessionId",

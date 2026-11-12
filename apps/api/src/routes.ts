@@ -4,7 +4,6 @@ import { createChatApi, createChatService } from "./modules/chat/index.js";
 import { destinationsApi } from "./modules/destinations/index.js";
 import { createItineraryApi, createItineraryService } from "./modules/itinerary/index.js";
 import { usersApi } from "./modules/users/index.js";
-import { HttpError } from "./shared/http/errors.js";
 import { createRouteCache, createRoutingApi, createRoutingService } from "./modules/routing/index.js";
 import { env } from "./env.js";
 import * as usersRepository from "./modules/users/repositories/users.repository.js";
@@ -43,10 +42,7 @@ const routingService = createRoutingService({
 });
 
 const itineraryService = createItineraryService({
-  // removed in Task 4
-  getDraft: () => { throw new HttpError(501, "DRAFT_REMOVED", "Draft confirmation was removed"); },
   findUserById: (id) => usersRepository.findUserById(id).then((u) => (u ? { id: u.id, isActive: u.isActive } : null)),
-  getRoute: (input) => routingService.getRoute(input),
 });
 
 const chatService = createChatService({

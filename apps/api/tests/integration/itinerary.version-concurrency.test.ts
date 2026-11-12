@@ -55,9 +55,6 @@ function stopsFrom(rows: Awaited<ReturnType<typeof padangDestinations>>): Itiner
 
 function buildService() {
   return createItineraryService({
-    getDraft: () => {
-      throw new Error("unused");
-    },
     findUserById: (id) => prisma.user.findUnique({ where: { id }, select: { id: true, isActive: true } }),
   });
 }

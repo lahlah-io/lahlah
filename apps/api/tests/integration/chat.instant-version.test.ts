@@ -58,7 +58,6 @@ test("chat generation immediately creates Version 1 in DB without draft records"
     prisma.user.findUnique({ where: { id }, select: { id: true, isActive: true } });
 
   const itineraryService = createItineraryService({
-    getDraft: () => { throw new Error("no drafts"); },
     findUserById,
   });
 

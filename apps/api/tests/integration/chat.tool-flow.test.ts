@@ -69,7 +69,6 @@ test("generate keeps every tool result instead of the last one", async () => {
     usersRepository.findUserById(id).then((u) => (u ? { id: u.id, isActive: u.isActive } : null));
 
   const itinerary = createItineraryService({
-    getDraft: () => { throw new Error("draft store should not be used by the version flow"); },
     findUserById,
   });
 

@@ -36,9 +36,6 @@ const findUserById = async (id: string) =>
 
 export function createServices(rows: Row[]) {
   const itinerary = createItineraryService({
-    getDraft: () => {
-      throw new Error("draft store should not be used by the version flow");
-    },
     findUserById,
   });
   const chat = createChatService({

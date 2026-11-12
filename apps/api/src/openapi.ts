@@ -17,7 +17,6 @@ import {
 } from "./modules/chat/schemas/chat.schema.js";
 import { destinationIdSchema, listDestinationsQuerySchema } from "./modules/destinations/schemas/destination.schema.js";
 import {
-  confirmItinerarySchema,
   itineraryIdParamSchema,
   itineraryOwnerQuerySchema,
   itinerarySessionParamSchema,
@@ -708,29 +707,6 @@ const openApiDocument = {
           "401": errorResponse("User tidak aktif"),
           "403": errorResponse("Pesan milik user lain"),
           "404": errorResponse("Pesan atau versi tidak ditemukan"),
-          "503": errorResponse("Auth belum dikonfigurasi"),
-        },
-      },
-    },
-    "/api/v1/itineraries/confirm": {
-      post: {
-        tags: ["itineraries"],
-        summary: "Konfirmasi draft itinerary",
-        description:
-          "Menyimpan draft dari database menjadi itinerary berstatus `confirmed` dengan snapshot versi pertama " +
-          "(stops dan route legs). Dapat mengirim `profile` (`car|motorcycle|foot`, default `car`) untuk menghitung rute jalan per leg saat konfirmasi; " +
-          "hasil rute persisten per leg (geometry/totals/provider/mode/profile) dengan `fallback` per leg jika tidak tersedia. " +
-          "Idempoten per `sessionId`: konfirmasi ulang mengembalikan 200 dengan data yang sudah ada. Field `status` di respons memakai alias legacy `final`.",
-        requestBody: jsonBody(confirmItinerarySchema),
-        responses: {
-          "200": response("Itinerary sudah ada", envelope("Itinerary")),
-          "201": response("Itinerary dibuat", envelope("Itinerary")),
-          "400": errorResponse("Validasi body gagal"),
-          "401": errorResponse("User tidak aktif"),
-          "403": errorResponse("Sesi milik user lain atau draft bukan milik user"),
-          "404": errorResponse("Draft tidak ditemukan atau kedaluwarsa"),
-          "409": errorResponse("Konfirmasi bentrok"),
-          "422": errorResponse("Destinasi draft tidak tersedia"),
           "503": errorResponse("Auth belum dikonfigurasi"),
         },
       },

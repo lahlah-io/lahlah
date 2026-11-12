@@ -328,7 +328,6 @@ test("chat and itinerary response shapes match the OpenAPI contract", async () =
     const itineraryApp = new Hono();
     itineraryApp.onError(errorHandler);
     itineraryApp.route("/api/v1/itineraries", createItineraryApi(createItineraryService({
-      getDraft: (input) => draftStore.getDraft(input),
       findUserById: (id) => prisma.user.findUnique({ where: { id }, select: { id: true, isActive: true } }),
     })));
 
@@ -465,7 +464,6 @@ test("new chat session, message version, and itinerary version endpoints match t
     const itineraryApp = new Hono();
     itineraryApp.onError(errorHandler);
     itineraryApp.route("/api/v1/itineraries", createItineraryApi(createItineraryService({
-      getDraft: (input) => draftStore.getDraft(input),
       findUserById: (id) => prisma.user.findUnique({ where: { id }, select: { id: true, isActive: true } }),
     })));
 
