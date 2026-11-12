@@ -471,6 +471,20 @@ export function createItineraryService(deps: ItineraryDeps) {
       return { data: version };
     },
 
+    async setVersionSaved(input: { id: string; userId: string; version: number; isSaved: boolean }) {
+      productionGate();
+      await requireActiveUser(deps, input.userId);
+      const row = await itineraryRepository.findByIdAndUser(input.id, input.userId);
+      if (!row) throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
+      const snapshot = await itineraryRepository.setVersionSaved({
+        itineraryId: row.id,
+        version: input.version,
+        isSaved: input.isSaved,
+      });
+      if (!snapshot) throw new HttpError(404, "VERSION_NOT_FOUND", "Itinerary version not found");
+      return { data: snapshot };
+    },
+
     async restoreVersion(input: { id: string; userId: string; version: number; expectedVersion?: number }) {
       productionGate();
       await requireActiveUser(deps, input.userId);

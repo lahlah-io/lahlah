@@ -280,3 +280,75 @@ test("restoring a version selects the new version and syncs its destinations", a
     [rows[0]!.id, rows[1]!.id],
   );
 });
+
+test("save and unsave a version without touching version history", async () => {
+  process.env.NODE_ENV = "test";
+  const user = await createUser();
+  const session = await createSession(user.id);
+  const rows = await padangDestinations(3);
+  const service = buildService();
+  const app = buildApp(service);
+
+  const v1 = await service.saveDraftVersion({
+    userId: user.id,
+    sessionId: session.id,
+    travelDate: "2026-12-01",
+    startTime: "08:00",
+    endTime: "17:00",
+    stops: stopsFrom(rows, [0, 1]),
+    routeJson: null,
+    changeType: "generate",
+  });
+  await service.saveDraftVersion({
+    userId: user.id,
+    sessionId: session.id,
+    travelDate: "2026-12-01",
+    startTime: "08:00",
+    endTime: "17:00",
+    stops: stopsFrom(rows, [1, 2]),
+    routeJson: null,
+    changeType: "regenerate",
+  });
+
+  const saved = await app.request(`/api/v1/itineraries/${v1.itineraryId}/versions/1/save`, {
+    method: "POST",
+    headers: json,
+    body: JSON.stringify({ userId: user.id }),
+  });
+  assert.equal(saved.status, 200, await saved.text());
+
+  const list = await app.request(`/api/v1/itineraries/${v1.itineraryId}/versions?userId=${user.id}`);
+  const listBody = (await list.json()) as { data: Array<{ version: number; isSaved: boolean; isSelected: boolean }> };
+  assert.deepEqual(
+    listBody.data.map((row) => [row.version, row.isSaved, row.isSelected]),
+    [
+      [1, true, false],
+      [2, false, false],
+    ],
+  );
+
+  const unsaved = await app.request(`/api/v1/itineraries/${v1.itineraryId}/versions/1/save?userId=${user.id}`, {
+    method: "DELETE",
+  });
+  assert.equal(unsaved.status, 200, await unsaved.text());
+
+  const after = await app.request(`/api/v1/itineraries/${v1.itineraryId}/versions?userId=${user.id}`);
+  const afterBody = (await after.json()) as { data: Array<{ version: number; isSaved: boolean }> };
+  assert.equal(afterBody.data.length, 2, "unsave keeps version history");
+  assert.equal(afterBody.data[0]!.isSaved, false);
+
+  const missing = await app.request(`/api/v1/itineraries/${v1.itineraryId}/versions/99/save`, {
+    method: "POST",
+    headers: json,
+    body: JSON.stringify({ userId: user.id }),
+  });
+  assert.equal(missing.status, 404);
+
+  const other = await createUser();
+  const forbidden = await app.request(`/api/v1/itineraries/${v1.itineraryId}/versions/1/save`, {
+    method: "POST",
+    headers: json,
+    body: JSON.stringify({ userId: other.id }),
+  });
+  assert.equal(forbidden.status, 404);
+});

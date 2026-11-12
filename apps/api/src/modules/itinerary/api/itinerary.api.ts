@@ -72,6 +72,36 @@ export function createItineraryApi(service: ItineraryService) {
   );
 
   api.post(
+    "/:id/versions/:version/save",
+    zValidator("param", itineraryVersionParamSchema),
+    zValidator("json", itineraryVersionOwnerSchema),
+    async (c) =>
+      c.json(
+        await service.setVersionSaved({
+          id: c.req.valid("param").id,
+          version: c.req.valid("param").version,
+          userId: c.req.valid("json").userId,
+          isSaved: true,
+        }),
+      ),
+  );
+
+  api.delete(
+    "/:id/versions/:version/save",
+    zValidator("param", itineraryVersionParamSchema),
+    zValidator("query", itineraryOwnerQuerySchema),
+    async (c) =>
+      c.json(
+        await service.setVersionSaved({
+          id: c.req.valid("param").id,
+          version: c.req.valid("param").version,
+          userId: c.req.valid("query").userId,
+          isSaved: false,
+        }),
+      ),
+  );
+
+  api.post(
     "/:id/restore/:version",
     zValidator("param", itineraryVersionParamSchema),
     zValidator("json", restoreItineraryVersionSchema),
