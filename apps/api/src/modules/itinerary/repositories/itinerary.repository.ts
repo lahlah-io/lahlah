@@ -1,5 +1,6 @@
-﻿import type { Prisma } from "../../../generated/prisma/client.js";
+import type { Prisma } from "../../../generated/prisma/client.js";
 import { prisma } from "../../../db/client.js";
+import { ensureTripForSessionTx } from "./trip.repository.js";
 
 const destinationSelect = {
   id: true,
@@ -121,36 +122,49 @@ export async function upsertDraftRoot(input: {
   tripDate?: Date | null;
   transportMode?: string | null;
 }) {
-  const existing = await prisma.itinerary.findUnique({
-    where: { sessionId: input.sessionId },
-    select: { id: true, userId: true },
-  });
-  if (existing) {
-    if (existing.userId !== input.userId) return null;
-    return prisma.itinerary.update({
-      where: { id: existing.id },
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.itinerary.findUnique({
+      where: { sessionId: input.sessionId },
+      select: { id: true, userId: true, tripId: true },
+    });
+    if (existing && existing.userId !== input.userId) return null;
+
+    const trip = await ensureTripForSessionTx(tx, {
+      sessionId: input.sessionId,
+      userId: input.userId,
+      title: input.title,
+      tripDate: input.tripDate,
+    });
+
+    if (existing) {
+      return tx.itinerary.update({
+        where: { id: existing.id },
+        data: {
+          tripId: existing.tripId ?? trip.id,
+          title: input.title,
+          content: input.content,
+          metadata: input.metadata,
+          tripDate: input.tripDate ?? undefined,
+          transportMode: input.transportMode ?? undefined,
+        },
+        select: { id: true, currentVersion: true },
+      });
+    }
+
+    return tx.itinerary.create({
       data: {
+        userId: input.userId,
+        sessionId: input.sessionId,
+        tripId: trip.id,
         title: input.title,
         content: input.content,
         metadata: input.metadata,
+        status: "draft",
         tripDate: input.tripDate ?? undefined,
         transportMode: input.transportMode ?? undefined,
       },
       select: { id: true, currentVersion: true },
     });
-  }
-  return prisma.itinerary.create({
-    data: {
-      userId: input.userId,
-      sessionId: input.sessionId,
-      title: input.title,
-      content: input.content,
-      metadata: input.metadata,
-      status: "draft",
-      tripDate: input.tripDate ?? undefined,
-      transportMode: input.transportMode ?? undefined,
-    },
-    select: { id: true, currentVersion: true },
   });
 }
 
@@ -177,11 +191,19 @@ export async function selectVersionTx(input: {
   destinations: ActiveDestinationInput[];
 }): Promise<SelectVersionResult> {
   return prisma.$transaction(async (tx) => {
-    const itinerary = await tx.itinerary.findFirst({
-      where: { id: input.itineraryId, userId: input.userId },
-      select: { id: true },
+    const itinerary = await tx.itinerary.findUnique({
+      where: { id: input.itineraryId },
+      select: { id: true, userId: true, tripId: true },
     });
     if (!itinerary) return { ok: false, reason: "not_found" };
+    if (itinerary.userId !== input.userId) {
+      if (!itinerary.tripId) return { ok: false, reason: "not_found" };
+      const member = await tx.userTrip.findUnique({
+        where: { userId_tripId: { userId: input.userId, tripId: itinerary.tripId } },
+        select: { id: true },
+      });
+      if (!member) return { ok: false, reason: "not_found" };
+    }
 
     const target = await tx.itineraryVersion.findUnique({
       where: { itineraryId_version: { itineraryId: input.itineraryId, version: input.version } },
@@ -462,6 +484,23 @@ export type CreateVersionSnapshotInput = {
 
 export async function createVersionSnapshotTx(input: CreateVersionSnapshotInput) {
   return prisma.$transaction(async (tx) => {
+    const itinerary = await tx.itinerary.findUnique({
+      where: { id: input.itineraryId },
+      select: { id: true, userId: true, sessionId: true, tripId: true, title: true, city: true, tripDate: true },
+    });
+
+    let tripId = itinerary?.tripId;
+    if (itinerary?.sessionId && !tripId) {
+      const trip = await ensureTripForSessionTx(tx, {
+        sessionId: itinerary.sessionId,
+        userId: itinerary.userId,
+        title: itinerary.title,
+        city: itinerary.city,
+        tripDate: itinerary.tripDate,
+      });
+      tripId = trip.id;
+    }
+
     const version = await tx.itineraryVersion.create({
       data: {
         itineraryId: input.itineraryId,
@@ -503,7 +542,10 @@ export async function createVersionSnapshotTx(input: CreateVersionSnapshotInput)
 
     await tx.itinerary.update({
       where: { id: input.itineraryId },
-      data: { currentVersion: input.version },
+      data: {
+        currentVersion: input.version,
+        ...(tripId ? { tripId } : {}),
+      },
     });
 
     return tx.itineraryVersion.findUniqueOrThrow({

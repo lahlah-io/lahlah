@@ -1,10 +1,11 @@
-﻿import type { Prisma } from "../../../generated/prisma/client.js";
+import type { Prisma } from "../../../generated/prisma/client.js";
 import { HttpError } from "../../../shared/http/errors.js";
 import type {
   ItineraryVersionView,
   SaveDraftVersionInput,
 } from "../../../shared/schemas/itinerary-version.js";
 import * as itineraryRepository from "../repositories/itinerary.repository.js";
+import { checkUserItineraryAccess } from "../repositories/trip.repository.js";
 
 type DraftStop = {
   order: number;
@@ -322,7 +323,9 @@ export function createItineraryService(deps: ItineraryDeps) {
       productionGate();
       await requireActiveUser(deps, input.userId);
       const root = await itineraryRepository.findBySessionId(input.sessionId);
-      if (!root || root.userId !== input.userId) return null;
+      if (!root) return null;
+      const hasAccess = await checkUserItineraryAccess(input.userId, root.id);
+      if (!hasAccess) return null;
       const snapshot = await itineraryRepository.getCurrentSnapshot({ itineraryId: root.id });
       if (!snapshot?.version) return null;
       const times = draftTimes(root.metadata);
@@ -336,7 +339,9 @@ export function createItineraryService(deps: ItineraryDeps) {
       productionGate();
       await requireActiveUser(deps, input.userId);
       const root = await itineraryRepository.findBySessionId(input.sessionId);
-      if (!root || root.userId !== input.userId) return null;
+      if (!root) return null;
+      const hasAccess = await checkUserItineraryAccess(input.userId, root.id);
+      if (!hasAccess) return null;
       const times = draftTimes(root.metadata);
       const travelDate = root.tripDate ? ymd(root.tripDate) : times.travelDate;
       const snapshot = await activateVersion({
@@ -352,7 +357,9 @@ export function createItineraryService(deps: ItineraryDeps) {
     async selectVersionById(input: { id: string; userId: string; version: number }) {
       productionGate();
       await requireActiveUser(deps, input.userId);
-      const row = await itineraryRepository.findByIdAndUser(input.id, input.userId);
+      const hasAccess = await checkUserItineraryAccess(input.userId, input.id);
+      if (!hasAccess) throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
+      const row = await itineraryRepository.findById(input.id);
       if (!row) throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
       const times = draftTimes(row.metadata);
       const travelDate = row.tripDate ? ymd(row.tripDate) : times.travelDate;
@@ -366,7 +373,9 @@ export function createItineraryService(deps: ItineraryDeps) {
     async publishVersion(input: { id: string; userId: string; version: number }) {
       productionGate();
       await requireActiveUser(deps, input.userId);
-      const row = await itineraryRepository.findByIdAndUser(input.id, input.userId);
+      const hasAccess = await checkUserItineraryAccess(input.userId, input.id);
+      if (!hasAccess) throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
+      const row = await itineraryRepository.findById(input.id);
       if (!row) throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
       const snapshot = await itineraryRepository.getVersionSnapshot({
         itineraryId: row.id,
@@ -395,7 +404,9 @@ export function createItineraryService(deps: ItineraryDeps) {
     async getById(input: { id: string; userId: string }) {
       productionGate();
       await requireActiveUser(deps, input.userId);
-      const row = await itineraryRepository.findByIdAndUser(input.id, input.userId);
+      const hasAccess = await checkUserItineraryAccess(input.userId, input.id);
+      if (!hasAccess) throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
+      const row = await itineraryRepository.findById(input.id);
       if (!row) throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
       return { data: await withCurrentVersion(row) };
     },
@@ -413,7 +424,9 @@ export function createItineraryService(deps: ItineraryDeps) {
     async listVersions(input: { id: string; userId: string }) {
       productionGate();
       await requireActiveUser(deps, input.userId);
-      const row = await itineraryRepository.findByIdAndUser(input.id, input.userId);
+      const hasAccess = await checkUserItineraryAccess(input.userId, input.id);
+      if (!hasAccess) throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
+      const row = await itineraryRepository.findById(input.id);
       if (!row) throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
       return {
         data: (await itineraryRepository.listVersionSummaries(row.id)).map((v) => {
@@ -431,7 +444,9 @@ export function createItineraryService(deps: ItineraryDeps) {
     async getVersion(input: { id: string; userId: string; version: number }) {
       productionGate();
       await requireActiveUser(deps, input.userId);
-      const row = await itineraryRepository.findByIdAndUser(input.id, input.userId);
+      const hasAccess = await checkUserItineraryAccess(input.userId, input.id);
+      if (!hasAccess) throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
+      const row = await itineraryRepository.findById(input.id);
       if (!row) throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
       const version = await itineraryRepository.getVersionSnapshot({ itineraryId: row.id, version: input.version });
       if (!version) throw new HttpError(404, "VERSION_NOT_FOUND", "Itinerary version not found");
@@ -441,7 +456,9 @@ export function createItineraryService(deps: ItineraryDeps) {
     async setVersionSaved(input: { id: string; userId: string; version: number; isSaved: boolean }) {
       productionGate();
       await requireActiveUser(deps, input.userId);
-      const row = await itineraryRepository.findByIdAndUser(input.id, input.userId);
+      const hasAccess = await checkUserItineraryAccess(input.userId, input.id);
+      if (!hasAccess) throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
+      const row = await itineraryRepository.findById(input.id);
       if (!row) throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
       const snapshot = await itineraryRepository.setVersionSaved({
         itineraryId: row.id,
