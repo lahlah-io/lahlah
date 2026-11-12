@@ -9,6 +9,7 @@ model Itinerary {
   id             String                 @id @default(uuid()) @db.Uuid
   userId         String                 @map("user_id") @db.Uuid
   sessionId      String?                @unique @map("session_id") @db.Uuid // keep 1:1
+  tripId         String?                @map("trip_id") @db.Uuid
   currentVersion Int                    @default(1) @map("current_version")
   tripDate       DateTime?              @map("trip_date") @db.Date
   durationDays   Int                    @default(1) @map("duration_days")
@@ -24,9 +25,9 @@ model Itinerary {
   updatedAt      DateTime               @updatedAt @map("updated_at") @db.Timestamptz
   user           User                   @relation(fields: [userId], references: [id], onDelete: Restrict)
   session        ChatSession?           @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  trip           Trip?                  @relation(fields: [tripId], references: [id], onDelete: Cascade)
   destinations   ItineraryDestination[] // KEEP for legacy compat
   versions       ItineraryVersion[]
-  drafts         ItineraryDraft[]
 
   @@map("itinerary")
 }
@@ -114,20 +115,44 @@ model ItineraryStop {
   @@map("itinerary_stops")
 }
 
-model ItineraryDraft {
-  id          String       @id @default(uuid()) @db.Uuid // exposed as draftId compat
-  sessionId   String       @unique @map("session_id") @db.Uuid
-  userId      String       @map("user_id") @db.Uuid
-  itineraryId String?      @map("itinerary_id") @db.Uuid
-  payload     Json
-  status      String       @default("pending_confirmation") @db.VarChar
+enum TripRole {
+  owner
+  editor
+  viewer
+}
+
+model Trip {
+  id          String       @id @default(uuid()) @db.Uuid
+  sessionId   String?      @unique @map("session_id") @db.Uuid
+  title       String       @db.VarChar
+  description String?      @db.Text
+  city        String       @default("Padang") @db.VarChar(100)
+  startDate   DateTime?    @map("start_date") @db.Date
+  endDate     DateTime?    @map("end_date") @db.Date
+  isArchived  Boolean      @default(false) @map("is_archived")
+  metadata    Json         @default("{}")
   createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz
   updatedAt   DateTime     @updatedAt @map("updated_at") @db.Timestamptz
-  expiresAt   DateTime?    @map("expires_at") @db.Timestamptz
-  session     ChatSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  itinerary   Itinerary?   @relation(fields: [itineraryId], references: [id])
-  user        User         @relation(fields: [userId], references: [id])
 
-  @@index([sessionId])
-  @@map("itinerary_drafts")
+  session     ChatSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  members     UserTrip[]
+  itineraries Itinerary[]
+
+  @@map("trips")
+}
+
+model UserTrip {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  tripId    String   @map("trip_id") @db.Uuid
+  role      TripRole @default(owner)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  trip      Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, tripId])
+  @@index([userId])
+  @@index([tripId])
+  @@map("user_trips")
 }
