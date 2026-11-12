@@ -6,6 +6,7 @@ import {
   parseFlexibleDate,
   parseFlexibleTimeRange,
   parseGeneralTimeOfDay,
+  wantsMultipleItineraries,
 } from "../../../../src/modules/chat/services/chat.service.js";
 import { loadFixture } from "../../../helpers/fixtures.js";
 
@@ -99,6 +100,17 @@ describe(`parameter extraction matrix (${fixture.datasetVersion}, ${fixture.prom
     expect(extractDestinationCount("jadikan 3")).toBe(3);
     expect(extractDestinationCount("3 destinasi saja")).toBe(3);
     expect(extractDestinationCount("ganti jadi lima")).toBe(5);
+  });
+
+  test("distinguishes destination count from multiple-itinerary request", () => {
+    expect(extractDestinationCount("buat 3 destinasi")).toBe(3);
+    expect(extractDestinationCount("buat 3 itinerary")).toBeNull();
+    expect(extractDestinationCount("3 alternatif")).toBeNull();
+    expect(wantsMultipleItineraries("buat 3 itinerary")).toBe(true);
+    expect(wantsMultipleItineraries("buat 3 pilihan rute")).toBe(true);
+    expect(wantsMultipleItineraries("buat 3 alternatif")).toBe(true);
+    expect(wantsMultipleItineraries("buat 3 destinasi")).toBe(false);
+    expect(wantsMultipleItineraries("tiga destinasi")).toBe(false);
   });
 
   test("extracts relative and explicit dates (Jakarta)", () => {

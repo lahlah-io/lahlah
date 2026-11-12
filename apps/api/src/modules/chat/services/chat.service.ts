@@ -145,7 +145,7 @@ export function parseFlexibleTimeRange(text: string): { startTime: string; endTi
 }
 
 const WORD_NUMBERS: Record<string, number> = { satu: 1, dua: 2, tiga: 3, empat: 4, lima: 5, enam: 6, tujuh: 7, delapan: 8, sembilan: 9, sepuluh: 10 };
-const COUNT_NOUN = "destinasi|tempat(?:\\s+wisata)?|lokasi|spot|titik|itinerary|itinerari|itenerary";
+const COUNT_NOUN = "destinasi|tempat(?:\\s+wisata)?|lokasi|spot|titik";
 
 export function extractDestinationCount(text: string): number | null {
   const digit = new RegExp(`\\b(\\d+)\\s+(?:${COUNT_NOUN})\\b`, "i").exec(text);
@@ -161,6 +161,12 @@ export function extractDestinationCount(text: string): number | null {
   // shortcut: "jadikan/ubah jadi/ubah menjadi/ganti jadi 3" tanpa kata jumlah (CTX-008 + percakapan).
   const setCount = /\b(?:jadikan|ubah(?:kan)?\s+(?:jadi|menjadi)|ganti\s+(?:jadi|menjadi))\s+(satu|dua|tiga|empat|lima|enam|tujuh|delapan|sembilan|sepuluh|\d{1,2})\b/i.exec(text);
   return pick(setCount);
+}
+
+// "3 itinerary / alternatif / opsi / pilihan" berarti minta beberapa susunan, bukan jumlah destinasi.
+const ALTERNATIVES_NOUN = "itinerary|itinerari|itenerary|alternatif|opsi|pilihan";
+export function wantsMultipleItineraries(text: string): boolean {
+  return new RegExp(`\\b\\d+\\s+(?:${ALTERNATIVES_NOUN})\\b`, "i").test(text);
 }
 
 export function extractCategories(text: string): string[] {
@@ -683,9 +689,8 @@ export function createChatService(deps: ChatDeps) {
     const outcome = resolveEffectiveRequest(merged.params);
     const contributes = messageContributesParams(input.content);
     const isGeneratorIntent = intent === "generate_itinerary" || intent === "modify_itinerary" || intent === "regenerate_itinerary";
-    const isConfirm = intent === "confirm_itinerary";
     const wantsItinerary = /\b(buat|buatkan|rencana|rencanakan|itinerary|itinerari|itenerary|destinasi|susun|bikin|generate|minta)\b/i.test(input.content);
-  const usesTripFlow = isGeneratorIntent || (contributes && (merged.pending || wantsItinerary) && !isConfirm);
+  const usesTripFlow = isGeneratorIntent || (contributes && (merged.pending || wantsItinerary));
 
     const modification = parseModification(input.content);
     const isModificationIntent =
@@ -705,6 +710,11 @@ export function createChatService(deps: ChatDeps) {
         mod: modification,
       });
       if (applied) return { intent: applied.intent, message: applied.message, version: applied.version, usage };
+    }
+
+    if (wantsMultipleItineraries(input.content) && isGeneratorIntent) {
+      message = "Satu perjalanan = satu itinerary yang tersimpan sebagai beberapa versi. Mau alternatif lain? Minta \"buat ulang\" — setiap kali saya susun versi baru, nanti tinggal pilih versi yang paling cocok.";
+      return { intent, message, version: null, usage };
     }
 
     if (usesTripFlow && outcome.kind === "ready") {
@@ -737,14 +747,12 @@ export function createChatService(deps: ChatDeps) {
       if (merged.params.travelDate == null) defaults.push(`tanggal hari ini (${outcome.trip.travelDate})`);
       if (merged.params.startTime == null) defaults.push(`jam ${outcome.trip.startTime}-${outcome.trip.endTime}`);
       message = oneOf(
-        `Draft itinerary ${outcome.trip.travelDate} untuk ${stopCount} destinasi di Padang sudah siap ditinjau. Konfirmasi kapan saja ya.`,
+        `Itinerary ${outcome.trip.travelDate} untuk ${stopCount} destinasi di Padang sudah siap ditinjau.`,
         `Selesai! Itinerary ${outcome.trip.travelDate} dengan ${stopCount} destinasi di Padang sudah saya siapkan.`,
       );
       if (defaults.length) message += ` Dipakai default ${defaults.join(", ")} (bisa diubah).`;
-    } else if (intent === "general_chat" || isConfirm) {
-      message = isConfirm
-        ? "Untuk menyimpan itinerary, gunakan aksi konfirmasi draft yang tersedia."
-        : "Halo! Saya bisa bantu menyusun itinerary satu hari di Kota Padang. Sebutkan saja kategori wisata yang kamu suka — misalnya pantai, kuliner, atau alam. Mau mulai dari mana?";
+    } else if (intent === "general_chat") {
+      message = "Halo! Saya bisa bantu menyusun itinerary satu hari di Kota Padang. Sebutkan saja kategori wisata yang kamu suka — misalnya pantai, kuliner, atau alam. Mau mulai dari mana?";
     } else {
       intent = "missing_information";
       message = "Sebutkan kategori wisata di Padang (misalnya pantai, budaya, kuliner, alam, sejarah, santai, belanja) — tanggal dan jam bisa saya isi otomatis.";

@@ -43,8 +43,9 @@
       "id": "INT-006",
       "input": "Saya setuju dengan itinerary ini",
       "expectedIntent": "confirm_itinerary",
-      "mode": "rule",
-      "priority": "critical"
+      "mode": "todo",
+      "note": "Intent confirm_itinerary dihapus; konfirmasi kini via pilih/simpan versi (POST /itineraries/:id/versions/:version/select), bukan pesan chat.",
+      "priority": "high"
     },
     {
       "id": "INT-007",

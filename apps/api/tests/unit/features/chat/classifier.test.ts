@@ -47,10 +47,6 @@ test("maps explicit command keywords to intents via rule", async () => {
     intent: "regenerate_itinerary",
     source: "rule",
   });
-  assert.deepEqual(await classify("ya konfirmasi draft ini"), {
-    intent: "confirm_itinerary",
-    source: "rule",
-  });
 });
 
 test("returns model intent with confidence when output is valid", async () => {
@@ -89,7 +85,7 @@ test("maps broken JSON to missing_information", async () => {
 
 test("maps low confidence to missing_information", async () => {
   await withFetch(
-    async () => modelResponse(JSON.stringify({ intent: "confirm_itinerary", confidence: 0.4 })),
+    async () => modelResponse(JSON.stringify({ intent: "generate_itinerary", confidence: 0.4 })),
     async () => {
       assert.deepEqual(await classify("lanjut saja ya", env), {
         intent: "missing_information",

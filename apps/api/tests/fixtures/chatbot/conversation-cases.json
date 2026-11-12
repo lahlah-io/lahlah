@@ -50,9 +50,9 @@
     {
       "id": "CTX-007",
       "followUp": "Saya setuju",
-      "expected": "Mengonfirmasi draft aktif",
+      "expected": "Menyimpan/memilih versi aktif",
       "mode": "endpoint",
-      "note": "Konfirmasi via POST /itineraries/confirm, bukan pesan chat."
+      "note": "Konfirmasi kini via pilih versi (POST /itineraries/:id/versions/:version/select), bukan pesan chat."
     },
     {
       "id": "CTX-008",

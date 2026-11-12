@@ -14,7 +14,6 @@ export const intentLabels = [
   "select_itinerary_version",
   "publish_itinerary_version",
   "clarify_modification",
-  "confirm_itinerary",
   "missing_information",
 ] as const;
 
@@ -37,7 +36,7 @@ const classifierOutputSchema = z.object({
 });
 
 export const CLASSIFIER_SYSTEM_PROMPT =
-  'Classify the user message into exactly one intent. Respond with ONLY a JSON object in the form {"intent":"<label>","confidence":<0..1>}. Labels: general_chat, generate_itinerary, modify_itinerary, replace_destination, remove_destination, add_destination, regenerate_itinerary, select_itinerary_version, publish_itinerary_version, clarify_modification, confirm_itinerary, missing_information.';
+  'Classify the user message into exactly one intent. Respond with ONLY a JSON object in the form {"intent":"<label>","confidence":<0..1>}. Labels: general_chat, generate_itinerary, modify_itinerary, replace_destination, remove_destination, add_destination, regenerate_itinerary, select_itinerary_version, publish_itinerary_version, clarify_modification, missing_information.';
 
 const GREETINGS = ["halo", "hai", "hi", "hello", "assalamualaikum", "selamat pagi", "selamat siang", "selamat sore", "selamat malam"];
 
@@ -49,7 +48,6 @@ const RULE_KEYWORDS: Array<{ intent: Intent; keywords: string[] }> = [
     intent: "generate_itinerary",
     keywords: ["buat itinerary", "buatkan itinerary", "buat jadwal", "buatkan jadwal", "buat rencana", "rencanakan", "generate itinerary", "bikin itinerary", "bikin jadwal"],
   },
-  { intent: "confirm_itinerary", keywords: ["konfirmasi", "confirm", "setuju"] },
 ];
 
 // Destination-scoped verbs need a target; plain "ubah jadwal" stays modify_itinerary.
@@ -100,7 +98,7 @@ function parseClassifierOutput(content: string | null): ClassificationResult | n
 }
 
 // shortcut: natural language and ambiguous messages always hit the model; malformed output
-// is treated as missing info so a bad classifier never runs a tool or writes a draft.
+// is treated as missing info so a bad classifier never runs a tool or writes a version.
 export async function classify(message: string, env: EnvLike = process.env, sessionId?: string | null): Promise<ClassificationResult> {
   const rule = matchRule(message);
   if (rule) return rule;
