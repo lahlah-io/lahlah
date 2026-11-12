@@ -365,7 +365,7 @@ export function createItineraryService(deps: ItineraryDeps) {
       const travelDate = row.tripDate ? ymd(row.tripDate) : times.travelDate;
       const snapshot = await activateVersion({ itineraryId: row.id, userId: input.userId, version: input.version, travelDate });
       if (!snapshot) throw new HttpError(404, "VERSION_NOT_FOUND", "Itinerary version not found");
-      const fresh = await itineraryRepository.findByIdAndUser(row.id, input.userId);
+      const fresh = await itineraryRepository.findById(row.id);
       if (!fresh) throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
       return { data: await withCurrentVersion(fresh) };
     },
@@ -472,9 +472,10 @@ export function createItineraryService(deps: ItineraryDeps) {
     async restoreVersion(input: { id: string; userId: string; version: number; expectedVersion?: number }) {
       productionGate();
       await requireActiveUser(deps, input.userId);
+      const hasAccess = await checkUserItineraryAccess(input.userId, input.id);
+      if (!hasAccess) throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
       const row = await itineraryRepository.findById(input.id);
       if (!row) throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
-      if (row.userId !== input.userId) throw new HttpError(403, "FORBIDDEN", "Itinerary access denied");
 
       const snapshot = await itineraryRepository.getVersionSnapshot({
         itineraryId: row.id,
@@ -504,7 +505,7 @@ export function createItineraryService(deps: ItineraryDeps) {
         throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
       }
 
-      const fresh = await itineraryRepository.findByIdAndUser(row.id, input.userId);
+      const fresh = await itineraryRepository.findById(row.id);
       if (!fresh) throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
       return { data: await withCurrentVersion(fresh) };
     },
