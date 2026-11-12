@@ -21,6 +21,7 @@ import {
   itineraryIdParamSchema,
   itineraryOwnerQuerySchema,
   itinerarySessionParamSchema,
+  itineraryVersionOwnerSchema,
   itineraryVersionParamSchema,
   publishItineraryVersionSchema,
   restoreItineraryVersionSchema,
@@ -769,6 +770,24 @@ const openApiDocument = {
         responses: {
           "200": response("OK", envelope("ItineraryVersion")),
           "400": errorResponse("Validasi parameter gagal"),
+          "401": errorResponse("User tidak aktif"),
+          "404": errorResponse("Itinerary atau versi tidak ditemukan"),
+          "503": errorResponse("Auth belum dikonfigurasi"),
+        },
+      },
+    },
+    "/api/v1/itineraries/{id}/versions/{version}/select": {
+      post: {
+        tags: ["itineraries"],
+        summary: "Pilih versi itinerary sebagai versi aktif",
+        description:
+          "Menandai versi sebagai `is_selected` dan menyusun ulang destinasi aktif dari stops versi itu dalam satu transaksi. " +
+          "Baris destinasi tidak dihapus, sehingga checkpoint tetap menempel pada destinasi asalnya.",
+        parameters: params(itineraryVersionParamSchema, "path"),
+        requestBody: jsonBody(itineraryVersionOwnerSchema),
+        responses: {
+          "200": response("Versi dipilih", envelope("ItineraryDetail")),
+          "400": errorResponse("Validasi parameter atau body gagal"),
           "401": errorResponse("User tidak aktif"),
           "404": errorResponse("Itinerary atau versi tidak ditemukan"),
           "503": errorResponse("Auth belum dikonfigurasi"),

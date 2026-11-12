@@ -65,6 +65,8 @@ const versionSelect = {
   totalDurationMin: true,
   totalEstimatedMin: true,
   status: true,
+  isSaved: true,
+  isSelected: true,
   sourceMessageId: true,
   routeJson: true,
   expiresAt: true,
@@ -164,14 +166,49 @@ export async function findVersionById(versionId: string) {
   });
 }
 
-export async function selectVersion(input: { itineraryId: string; version: number }) {
-  const target = await prisma.itineraryVersion.findUnique({
-    where: { itineraryId_version: { itineraryId: input.itineraryId, version: input.version } },
-    select: { id: true },
+export type SelectVersionResult =
+  | { ok: true; snapshot: NonNullable<Awaited<ReturnType<typeof getVersionSnapshot>>> }
+  | { ok: false; reason: "not_found" | "version_not_found" };
+
+export async function selectVersionTx(input: {
+  itineraryId: string;
+  userId: string;
+  version: number;
+  destinations: ActiveDestinationInput[];
+}): Promise<SelectVersionResult> {
+  return prisma.$transaction(async (tx) => {
+    const itinerary = await tx.itinerary.findFirst({
+      where: { id: input.itineraryId, userId: input.userId },
+      select: { id: true },
+    });
+    if (!itinerary) return { ok: false, reason: "not_found" };
+
+    const target = await tx.itineraryVersion.findUnique({
+      where: { itineraryId_version: { itineraryId: input.itineraryId, version: input.version } },
+      select: { id: true },
+    });
+    if (!target) return { ok: false, reason: "version_not_found" };
+
+    await tx.itineraryVersion.updateMany({
+      where: { itineraryId: input.itineraryId, isSelected: true, id: { not: target.id } },
+      data: { isSelected: false },
+    });
+    await tx.itineraryVersion.update({ where: { id: target.id }, data: { isSelected: true } });
+    await syncActiveDestinations(tx, {
+      itineraryId: input.itineraryId,
+      destinations: input.destinations,
+    });
+    await tx.itinerary.update({
+      where: { id: input.itineraryId },
+      data: { currentVersion: input.version, status: "confirmed" },
+    });
+
+    const snapshot = await tx.itineraryVersion.findUniqueOrThrow({
+      where: { id: target.id },
+      select: versionSelect,
+    });
+    return { ok: true as const, snapshot };
   });
-  if (!target) return null;
-  await prisma.itinerary.update({ where: { id: input.itineraryId }, data: { currentVersion: input.version } });
-  return getVersionSnapshot({ itineraryId: input.itineraryId, version: input.version });
 }
 
 export type ActiveDestinationInput = {
@@ -476,6 +513,20 @@ export async function createVersionSnapshotTx(input: CreateVersionSnapshotInput)
   });
 }
 
+export async function getActiveVersionSnapshot(itineraryId: string) {
+  const selected = await prisma.itineraryVersion.findFirst({
+    where: { itineraryId, isSelected: true },
+    select: versionSelect,
+  });
+  if (selected) return selected;
+  const itinerary = await prisma.itinerary.findUnique({
+    where: { id: itineraryId },
+    select: { currentVersion: true },
+  });
+  if (!itinerary) return null;
+  return getVersionSnapshot({ itineraryId, version: itinerary.currentVersion });
+}
+
 export async function getCurrentSnapshot(input: { itineraryId: string }) {
   const itinerary = await prisma.itinerary.findUnique({
     where: { id: input.itineraryId },
@@ -496,10 +547,7 @@ export async function getCurrentSnapshot(input: { itineraryId: string }) {
     },
   });
   if (!itinerary) return null;
-  const version = await prisma.itineraryVersion.findUnique({
-    where: { itineraryId_version: { itineraryId: input.itineraryId, version: itinerary.currentVersion } },
-    select: versionSelect,
-  });
+  const version = await getActiveVersionSnapshot(input.itineraryId);
   return { ...itinerary, version };
 }
 
