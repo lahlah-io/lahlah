@@ -842,7 +842,7 @@ export function createChatService(deps: ChatDeps) {
       });
 
       const mapPoints = (version?.stops ?? [])
-        .filter((s) => isCoordinate(s))
+        .filter((s) => s.destinationId != null && isCoordinate(s))
         .map((s) => ({
           position: s.position,
           destinationId: s.destinationId ?? "",

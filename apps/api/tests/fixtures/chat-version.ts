@@ -4,13 +4,13 @@ import { prisma } from "../../src/db/client.js";
 import { createChatService } from "../../src/modules/chat/index.js";
 import { createItineraryService } from "../../src/modules/itinerary/index.js";
 import * as usersRepository from "../../src/modules/users/repositories/users.repository.js";
+import type { ItineraryVersionView } from "../../src/shared/schemas/itinerary-version.js";
 
 export type Row = { id: string; name: string; latitude: number; longitude: number; category: string };
 export type ChatServiceLike = ReturnType<typeof createChatService>;
 export type SentReply = {
   intent: string;
-  draft: { draftId: string; travelDate: string; destinations: Array<{ order: number; destinationId: string }> };
-  version: { id: string } | null;
+  version: ItineraryVersionView | null;
   map: { versionId: string; points: Array<{ position: number; destinationId: string }> } | null;
 };
 

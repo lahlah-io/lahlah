@@ -31,10 +31,9 @@ test("replace keeps count, writes V2, and returns every map point", async () => 
   const out = await send(chat, user.id, session.id, "ganti destinasi ke-4");
 
   assert.equal(out.intent, "modify_itinerary");
-  assert.equal(out.draft.destinations.length, 6);
-  assert.notEqual(out.draft.draftId, v1.versionId);
-  assert.equal(out.version!.id, out.draft.draftId);
-  assert.equal(out.map!.versionId, out.draft.draftId);
+  assert.equal(out.version!.stops.length, 6);
+  assert.notEqual(out.version!.versionId, v1.versionId);
+  assert.equal(out.map!.versionId, out.version!.versionId);
   assert.equal(out.map!.points.length, 6);
 
   const v2 = await itinerary.getActiveVersion({ userId: user.id, sessionId: session.id });
@@ -51,10 +50,10 @@ test("replace keeps count, writes V2, and returns every map point", async () => 
 test("remove drops one row, add appends, and versions stay immutable", async () => {
   const { user, session, chat, itinerary } = await setup();
   const removed = await send(chat, user.id, session.id, "hapus destinasi nomor 4");
-  assert.equal(removed.draft.destinations.length, 5);
+  assert.equal(removed.version!.stops.length, 5);
 
   const added = await send(chat, user.id, session.id, "tambah 1 destinasi");
-  assert.equal(added.draft.destinations.length, 6);
+  assert.equal(added.version!.stops.length, 6);
 
   const itineraryId = (
     await itinerary.getActiveVersion({ userId: user.id, sessionId: session.id })

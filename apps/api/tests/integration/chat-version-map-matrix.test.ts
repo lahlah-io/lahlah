@@ -34,21 +34,21 @@ test("MOD-002/003/005 + MAP-V001..004/V010: counts and markers follow the return
   const { user, session, chat, itinerary } = await setup(8);
 
   const replaced = await send(chat, user.id, session.id, "ganti destinasi ke-4");
-  assert.equal(replaced.draft.destinations.length, 8, "MOD-002 replace keeps the count");
+  assert.equal(replaced.version!.stops.length, 8, "MOD-002 replace keeps the count");
   assert.equal(replaced.map!.points.length, 8, "MAP-V002");
-  assert.equal(replaced.map!.versionId, replaced.draft.draftId);
+  assert.equal(replaced.map!.versionId, replaced.version!.versionId);
 
   const removed = await send(chat, user.id, session.id, "hapus destinasi nomor 2");
-  assert.equal(removed.draft.destinations.length, 7, "MOD-003 remove drops one row");
+  assert.equal(removed.version!.stops.length, 7, "MOD-003 remove drops one row");
   assert.equal(removed.map!.points.length, 7, "MAP-V003");
   assert.deepEqual(
     removed.map!.points.map((p) => p.position),
-    removed.draft.destinations.map((d) => d.order),
+    removed.version!.stops.map((s) => s.position),
     "MAP-V010 markers come only from the returned version",
   );
 
   const added = await send(chat, user.id, session.id, "tambah 1 destinasi");
-  assert.equal(added.draft.destinations.length, 8, "MOD-005 add appends one row");
+  assert.equal(added.version!.stops.length, 8, "MOD-005 add appends one row");
   assert.equal(added.map!.points.length, 8, "MAP-V004");
 
   const active = await itinerary.getActiveVersion({ userId: user.id, sessionId: session.id });
@@ -62,8 +62,8 @@ test("VER-008 + MAP-V005: selecting an older version reloads its markers", async
   await send(chat, user.id, session.id, "hapus destinasi nomor 2");
 
   const selected = await send(chat, user.id, session.id, "pilih versi 1");
-  assert.equal(selected.draft.destinations.length, 8, "VER-008 selection uses V1 stops");
-  assert.equal(selected.draft.draftId, v1.versionId);
+  assert.equal(selected.version!.stops.length, 8, "VER-008 selection uses V1 stops");
+  assert.equal(selected.version!.versionId, v1.versionId);
   assert.equal(selected.map!.versionId, v1.versionId, "MAP-V005");
   assert.equal(selected.map!.points.length, 8);
 
@@ -151,6 +151,6 @@ test("MAP-V009: a version without mapped stops returns an empty marker list", as
   });
 
   const selected = await send(chat, user.id, session.id, "pilih versi 1");
-  assert.equal(selected.draft.destinations.length, 0);
+  assert.equal(selected.version!.stops.filter((s) => s.destinationId).length, 0);
   assert.deepEqual(selected.map!.points, []);
 });

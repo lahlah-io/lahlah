@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import { Hono } from "hono";
 import { errorHandler } from "../../src/shared/http/errors.js";
 import { createChatApi, createChatService } from "../../src/modules/chat/index.js";
+import { createItineraryService } from "../../src/modules/itinerary/index.js";
 import { prisma } from "../../src/db/client.js";
 
 const json = { "content-type": "application/json" };
@@ -17,13 +18,21 @@ function buildApp(providerBaseUrl = "http://127.0.0.1:9/v1") {
   process.env.AI_TOOL_PROVIDER = "test";
   process.env.AI_TOOL_MAX_ROUNDS = "3";
 
-  const chatService = createChatService({
-    findUserById: async (id) => {
-      if (id === "missing-user") return null;
-      if (id === "inactive-user") return { id, isActive: false };
-      const u = await prisma.user.findUnique({ where: { id }, select: { id: true, isActive: true } });
-      return u ? { id: u.id, isActive: u.isActive } : null;
+  const findUserById = async (id: string) => {
+    if (id === "missing-user") return null;
+    if (id === "inactive-user") return { id, isActive: false };
+    const u = await prisma.user.findUnique({ where: { id }, select: { id: true, isActive: true } });
+    return u ? { id: u.id, isActive: u.isActive } : null;
+  };
+  const itinerary = createItineraryService({
+    getDraft: () => {
+      throw new Error("draft store should not be used by the version flow");
     },
+    findUserById,
+  });
+  const chatService = createChatService({
+    findUserById,
+    itinerary,
     searchDestinations: async (input) => {
       const q = input.keywords?.trim();
       const cats = input.categories?.filter(Boolean) ?? [];
@@ -158,9 +167,9 @@ test("greeting returns general_chat without provider answer call and persists hi
     const session = (await created.json() as { data: { id: string } }).data;
     const sent = await app.request(`/api/v1/chat/sessions/${session.id}/messages`, { method: "POST", headers: json, body: JSON.stringify({ userId: user.id, content: "halo" }) });
     assert.equal(sent.status, 200);
-    const body = await sent.json() as { data: { intent: string; draft: unknown; message: string } };
+    const body = await sent.json() as { data: { intent: string; version: unknown; message: string } };
     assert.equal(body.data.intent, "general_chat");
-    assert.equal(body.data.draft, null);
+    assert.equal(body.data.version, null);
     assert.ok(body.data.message.length > 0);
 
     const history = await app.request(`/api/v1/chat/sessions/${session.id}/messages?userId=${user.id}&limit=20`);
@@ -192,12 +201,12 @@ test("minimal itinerary request still generates a draft with defaults", async ()
     const session = (await created.json() as { data: { id: string } }).data;
     const sent = await app.request(`/api/v1/chat/sessions/${session.id}/messages`, { method: "POST", headers: json, body: JSON.stringify({ userId: user.id, content: "buat itinerary di padang" }) });
     assert.equal(sent.status, 200);
-    const body = await sent.json() as { data: { intent: string; draft: { travelDate: string; startTime: string; endTime: string; destinations: unknown[] } | null } };
+    const body = await sent.json() as { data: { intent: string; version: { travelDate: string; startTime: string; endTime: string; stops: unknown[] } | null } };
     assert.equal(body.data.intent, "generate_itinerary");
-    assert.ok(body.data.draft);
-    assert.match(body.data.draft.travelDate, /^\d{4}-\d{2}-\d{2}$/);
-    assert.equal(body.data.draft.startTime, "08:00");
-    assert.equal(body.data.draft.endTime, "21:00");
+    assert.ok(body.data.version);
+    assert.match(body.data.version.travelDate, /^\d{4}-\d{2}-\d{2}$/);
+    assert.equal(body.data.version.startTime, "08:00");
+    assert.equal(body.data.version.endTime, "21:00");
     assert.ok(toolCalls >= 1);
   } finally {
     await provider.close();
@@ -205,7 +214,7 @@ test("minimal itinerary request still generates a draft with defaults", async ()
   }
 });
 
-test("itinerary request performs tool call, returns draft, and does not save itinerary row before confirm", async () => {
+test("itinerary request performs tool call and persists an instant version", async () => {
   process.env.NODE_ENV = "test";
   let toolCallsSeen = 0;
   const provider = await startFakeProvider((body) => {
@@ -223,25 +232,25 @@ test("itinerary request performs tool call, returns draft, and does not save iti
       method: "POST", headers: json,
       body: JSON.stringify({ userId: user.id, content: "buat itinerary 2026-12-01 08:00 17:00 pantai di Padang" }),
     });
-    const body = await sent.json() as { data?: { intent: string; draft: { draftId: string; destinations: Array<{ destinationId: string; latitude: number; longitude: number; order: number; visitAt: string }>; route: { type: string; coordinates: unknown[] } | null } | null }; error?: unknown };
+    const body = await sent.json() as { data?: { intent: string; version: { versionId: string; stops: Array<{ destinationId: string | null; latitude: number; longitude: number; position: number; arrivalTime: string | null }>; routeJson: unknown } | null }; error?: unknown };
     assert.equal(sent.status, 200, JSON.stringify(body));
 
     assert.equal(body.data.intent, "generate_itinerary");
     assert.ok(toolCallsSeen >= 1);
-    assert.ok(body.data.draft);
-    assert.ok(body.data.draft.destinations.length >= 1);
-    assert.ok(typeof body.data.draft.draftId === "string" && body.data.draft.draftId.length > 0);
-    for (const d of body.data.draft.destinations) {
+    assert.ok(body.data.version);
+    assert.ok(body.data.version.stops.length >= 1);
+    assert.ok(typeof body.data.version.versionId === "string" && body.data.version.versionId.length > 0);
+    for (const d of body.data.version.stops) {
       assert.equal(typeof d.destinationId, "string");
       assert.equal(typeof d.latitude, "number");
       assert.equal(typeof d.longitude, "number");
-      assert.ok(d.order >= 1);
-      assert.match(d.visitAt, /^\d{2}:\d{2}$/);
+      assert.ok(d.position >= 1);
+      assert.match(d.arrivalTime!, /^\d{2}:\d{2}$/);
     }
-    if (body.data.draft.route) assert.equal(body.data.draft.route.type, "LineString");
+    if (body.data.version.routeJson) assert.equal((body.data.version.routeJson as { type: string }).type, "LineString");
 
     const itineraryCount = await prisma.itinerary.count({ where: { sessionId: session.id } });
-    assert.equal(itineraryCount, 0);
+    assert.equal(itineraryCount, 1);
   } finally {
     await provider.close();
     await cleanupUser(user.id);
@@ -285,7 +294,7 @@ test("provider/model/tool errors map to controlled envelopes", async () => {
 async function sendMessage(app: Hono, sessionId: string, userId: string, content: string) {
   const res = await app.request(`/api/v1/chat/sessions/${sessionId}/messages`, { method: "POST", headers: json, body: JSON.stringify({ userId, content }) });
   assert.equal(res.status, 200);
-  return await res.json() as { data: { intent: string; message: string; draft: { travelDate: string; destinations: Array<{ destinationId: string }> } | null } };
+  return await res.json() as { data: { intent: string; message: string; version: { travelDate: string; stops: Array<{ destinationId: string }> } | null } };
 }
 
 test("acceptance #1: date -> category -> time accumulates continuously with defaults", async () => {
@@ -303,16 +312,16 @@ test("acceptance #1: date -> category -> time accumulates continuously with defa
     const session = (await created.json() as { data: { id: string } }).data;
 
     const turn1 = await sendMessage(app, session.id, user.id, "buat itinerary besok");
-    assert.ok(turn1.data.draft);
-    assert.match(turn1.data.draft.travelDate, /^\d{4}-\d{2}-\d{2}$/);
+    assert.ok(turn1.data.version);
+    assert.match(turn1.data.version.travelDate, /^\d{4}-\d{2}-\d{2}$/);
     assert.match(turn1.data.intent, /itinerary/);
 
     const turn2 = await sendMessage(app, session.id, user.id, "Kuliner");
-    assert.ok(turn2.data.draft);
+    assert.ok(turn2.data.version);
 
     const turn3 = await sendMessage(app, session.id, user.id, "Sore");
-    assert.ok(turn3.data.draft);
-    assert.match(turn3.data.draft.travelDate, /^\d{4}-\d{2}-\d{2}$/);
+    assert.ok(turn3.data.version);
+    assert.match(turn3.data.version.travelDate, /^\d{4}-\d{2}-\d{2}$/);
     assert.match(turn3.data.intent, /itinerary/);
     assert.equal(toolCalls, 3);
   } finally {
@@ -336,8 +345,8 @@ test("acceptance #2: single message with destination count returns a capped draf
     const session = (await created.json() as { data: { id: string } }).data;
 
     const turn = await sendMessage(app, session.id, user.id, "buat itinerary 3 destinasi untuk besok");
-    assert.ok(turn.data.draft);
-    assert.ok(turn.data.draft.destinations.length >= 1 && turn.data.draft.destinations.length <= 3);
+    assert.ok(turn.data.version);
+    assert.ok(turn.data.version.stops.length >= 1 && turn.data.version.stops.length <= 3);
     assert.match(turn.data.intent, /itinerary/);
     assert.equal(toolCalls, 1);
   } finally {
@@ -361,14 +370,14 @@ test("acceptance #3: category union then destination count cap", async () => {
     const session = (await created.json() as { data: { id: string } }).data;
 
     const turn1 = await sendMessage(app, session.id, user.id, "buat itinerary besok");
-    assert.ok(turn1.data.draft);
+    assert.ok(turn1.data.version);
 
     const turn2 = await sendMessage(app, session.id, user.id, "Kuliner dan alam");
-    assert.ok(turn2.data.draft);
+    assert.ok(turn2.data.version);
 
     const turn3 = await sendMessage(app, session.id, user.id, "3 destinasi saja");
-    assert.ok(turn3.data.draft);
-    assert.ok(turn3.data.draft.destinations.length >= 1 && turn3.data.draft.destinations.length <= 3);
+    assert.ok(turn3.data.version);
+    assert.ok(turn3.data.version.stops.length >= 1 && turn3.data.version.stops.length <= 3);
     assert.match(turn3.data.intent, /itinerary/);
     assert.equal(toolCalls, 3);
   } finally {
@@ -392,11 +401,11 @@ test("E2E-004: replacing category keeps accumulated parameters", async () => {
     const session = (await created.json() as { data: { id: string } }).data;
 
     const turn1 = await sendMessage(app, session.id, user.id, "Buat itinerary besok kategori kuliner");
-    assert.ok(turn1.data.draft);
+    assert.ok(turn1.data.version);
 
     const turn2 = await sendMessage(app, session.id, user.id, "Ganti kategori jadi alam");
-    assert.ok(turn2.data.draft);
-    assert.match(turn2.data.draft.travelDate, /^\d{4}-\d{2}-\d{2}$/);
+    assert.ok(turn2.data.version);
+    assert.match(turn2.data.version.travelDate, /^\d{4}-\d{2}-\d{2}$/);
   } finally {
     await provider.close();
     await cleanupUser(user.id);
@@ -418,12 +427,12 @@ test("E2E-005: modify reduces destination count on active draft", async () => {
     const session = (await created.json() as { data: { id: string } }).data;
 
     const turn1 = await sendMessage(app, session.id, user.id, "Buat itinerary 5 destinasi untuk besok kategori kuliner sore");
-    assert.ok(turn1.data.draft);
-    assert.ok(turn1.data.draft.destinations.length <= 5);
+    assert.ok(turn1.data.version);
+    assert.ok(turn1.data.version.stops.length <= 5);
 
     const turn2 = await sendMessage(app, session.id, user.id, "Ubah menjadi 3 destinasi");
-    assert.ok(turn2.data.draft);
-    assert.ok(turn2.data.draft.destinations.length >= 1 && turn2.data.draft.destinations.length <= 3);
+    assert.ok(turn2.data.version);
+    assert.ok(turn2.data.version.stops.length >= 1 && turn2.data.version.stops.length <= 3);
     assert.match(turn2.data.intent, /itinerary/);
     assert.ok(toolCalls >= 2);
   } finally {
@@ -447,12 +456,12 @@ test("E2E-006: regenerate keeps context and produces capped draft", async () => 
     const session = (await created.json() as { data: { id: string } }).data;
 
     const turn1 = await sendMessage(app, session.id, user.id, "Buat itinerary 3 destinasi untuk besok kategori kuliner sore");
-    assert.ok(turn1.data.draft);
-    assert.ok(turn1.data.draft.destinations.length <= 3);
+    assert.ok(turn1.data.version);
+    assert.ok(turn1.data.version.stops.length <= 3);
 
     const turn2 = await sendMessage(app, session.id, user.id, "Buat ulang itinerary ini");
-    assert.ok(turn2.data.draft);
-    assert.ok(turn2.data.draft.destinations.length >= 1 && turn2.data.draft.destinations.length <= 3);
+    assert.ok(turn2.data.version);
+    assert.ok(turn2.data.version.stops.length >= 1 && turn2.data.version.stops.length <= 3);
     assert.match(turn2.data.intent, /itinerary/);
     assert.ok(toolCalls >= 2);
   } finally {
@@ -476,11 +485,11 @@ test("E2E-007: non-actionable follow-up does not generate a draft", async () => 
     const session = (await created.json() as { data: { id: string } }).data;
 
     const turn1 = await sendMessage(app, session.id, user.id, "Buat itinerary besok");
-    assert.ok(turn1.data.draft);
+    assert.ok(turn1.data.version);
 
     const before = toolCalls;
     const turn2 = await sendMessage(app, session.id, user.id, "Terima kasih");
-    assert.equal(turn2.data.draft, null);
+    assert.equal(turn2.data.version, null);
     assert.ok(turn2.data.message.length > 0);
     assert.equal(toolCalls, before);
   } finally {
@@ -507,13 +516,13 @@ test("E2E-008: sessions are isolated across users", async () => {
     const sessionB = (await createdB.json() as { data: { id: string } }).data;
 
     const a = await sendMessage(app, sessionA.id, userA.id, "Buat itinerary 3 destinasi untuk besok");
-    assert.ok(a.data.draft);
-    assert.ok(a.data.draft.destinations.length <= 3);
+    assert.ok(a.data.version);
+    assert.ok(a.data.version.stops.length <= 3);
 
     const b1 = await sendMessage(app, sessionB.id, userB.id, "Buat itinerary kuliner untuk lusa");
-    assert.ok(b1.data.draft);
-    assert.ok(b1.data.draft.destinations.length >= 1);
-    assert.match(b1.data.draft.travelDate, /^\d{4}-\d{2}-\d{2}$/);
+    assert.ok(b1.data.version);
+    assert.ok(b1.data.version.stops.length >= 1);
+    assert.match(b1.data.version.travelDate, /^\d{4}-\d{2}-\d{2}$/);
     assert.equal(toolCalls, 2);
     // shortcut: destinationCount is not exposed on draft response; isolation proven by independent outcomes.
   } finally {
