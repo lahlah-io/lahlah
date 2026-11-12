@@ -478,10 +478,27 @@ export function createItineraryService(deps: ItineraryDeps) {
       if (!row) throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
       if (row.userId !== input.userId) throw new HttpError(403, "FORBIDDEN", "Itinerary access denied");
 
+      const snapshot = await itineraryRepository.getVersionSnapshot({
+        itineraryId: row.id,
+        version: input.version,
+      });
+      if (!snapshot) throw new HttpError(404, "VERSION_NOT_FOUND", "Itinerary version not found");
+      const travelDate = row.tripDate ? ymd(row.tripDate) : "";
+      const destinations = snapshot.stops
+        .filter((s): s is typeof s & { destinationId: string } => s.destinationId != null)
+        .map((s) => ({
+          destinationId: s.destinationId,
+          visitAt: s.arrivalTime ? visitAtDate(travelDate, s.arrivalTime) : null,
+          estimatedCost: null,
+          notes: s.notes,
+          position: s.position,
+        }));
+
       const result = await itineraryRepository.restoreVersionTx({
         itineraryId: row.id,
         targetVersion: input.version,
         expectedVersion: input.expectedVersion,
+        destinations,
       });
       if (!result.ok) {
         if (result.reason === "conflict") throw new HttpError(409, "VERSION_CONFLICT", "Itinerary version changed");

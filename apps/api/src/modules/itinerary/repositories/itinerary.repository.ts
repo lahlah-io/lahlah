@@ -595,6 +595,7 @@ export async function restoreVersionTx(input: {
   itineraryId: string;
   targetVersion: number;
   expectedVersion?: number;
+  destinations: ActiveDestinationInput[];
 }): Promise<RestoreVersionResult> {
   return prisma.$transaction(async (tx) => {
     const itinerary = await tx.itinerary.findUnique({
@@ -656,6 +657,16 @@ export async function restoreVersionTx(input: {
         select: { id: true, position: true },
       });
     }
+
+    await tx.itineraryVersion.updateMany({
+      where: { itineraryId: input.itineraryId, isSelected: true, id: { not: created.id } },
+      data: { isSelected: false },
+    });
+    await tx.itineraryVersion.update({ where: { id: created.id }, data: { isSelected: true } });
+    await syncActiveDestinations(tx, {
+      itineraryId: input.itineraryId,
+      destinations: input.destinations,
+    });
 
     const updated = await tx.itinerary.updateMany({
       where: { id: input.itineraryId, currentVersion: itinerary.currentVersion },

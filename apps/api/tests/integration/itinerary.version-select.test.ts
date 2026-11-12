@@ -180,3 +180,103 @@ test("selecting a version switches the active destination set and keeps checkpoi
   assert.equal(detailBody.data.currentVersion, 2);
   assert.equal(detailBody.data.destinations.length, 2);
 });
+
+test("restoring a version selects the new version and syncs its destinations", async () => {
+  process.env.NODE_ENV = "test";
+  const user = await createUser();
+  const session = await createSession(user.id);
+  const rows = await padangDestinations(3);
+  const service = buildService();
+  const app = buildApp(service);
+
+  const v1 = await service.saveDraftVersion({
+    userId: user.id,
+    sessionId: session.id,
+    travelDate: "2026-12-01",
+    startTime: "08:00",
+    endTime: "17:00",
+    stops: stopsFrom(rows, [0, 1]),
+    routeJson: null,
+    changeType: "generate",
+  });
+
+  const selected = await app.request(`/api/v1/itineraries/${v1.itineraryId}/versions/1/select`, {
+    method: "POST",
+    headers: json,
+    body: JSON.stringify({ userId: user.id }),
+  });
+  assert.equal(selected.status, 200, await selected.text());
+
+  const keptRow = await prisma.itineraryDestination.findFirstOrThrow({
+    where: { itineraryId: v1.itineraryId, destinationId: rows[0]!.id },
+    select: { id: true },
+  });
+  await prisma.destinationCheckpoint.create({
+    data: { itineraryDestinationId: keptRow.id, userId: user.id, imageUrl: "https://example.test/a.jpg" },
+  });
+
+  const v2 = await service.saveDraftVersion({
+    userId: user.id,
+    sessionId: session.id,
+    travelDate: "2026-12-01",
+    startTime: "08:00",
+    endTime: "17:00",
+    stops: stopsFrom(rows, [1, 2]),
+    routeJson: null,
+    changeType: "regenerate",
+  });
+  assert.equal(v2.versionNumber, 2);
+
+  const restored = await app.request(`/api/v1/itineraries/${v1.itineraryId}/restore/1`, {
+    method: "POST",
+    headers: json,
+    body: JSON.stringify({ userId: user.id }),
+  });
+  assert.equal(restored.status, 200, await restored.text());
+
+  const versions = await prisma.itineraryVersion.findMany({
+    where: { itineraryId: v1.itineraryId },
+    select: { version: true, isSelected: true },
+    orderBy: { version: "asc" },
+  });
+  assert.deepEqual(versions, [
+    { version: 1, isSelected: false },
+    { version: 2, isSelected: false },
+    { version: 3, isSelected: true },
+  ]);
+
+  const active = await prisma.itineraryDestination.findMany({
+    where: { itineraryId: v1.itineraryId, isActive: true },
+    select: { destinationId: true, position: true },
+    orderBy: { position: "asc" },
+  });
+  assert.deepEqual(
+    active.map((row) => [row.destinationId, row.position]),
+    [
+      [rows[0]!.id, 1],
+      [rows[1]!.id, 2],
+    ],
+  );
+
+  const rowsAfter = await prisma.itineraryDestination.findMany({
+    where: { itineraryId: v1.itineraryId },
+    select: { destinationId: true, isActive: true },
+  });
+  assert.equal(rowsAfter.length, 2, "no destination row is deleted");
+  assert.equal(rowsAfter.find((row) => row.destinationId === rows[0]!.id)?.isActive, true);
+  assert.equal(
+    await prisma.destinationCheckpoint.count({ where: { itineraryDestination: { itineraryId: v1.itineraryId } } }),
+    1,
+  );
+
+  const detail = await app.request(`/api/v1/itineraries/${v1.itineraryId}?userId=${user.id}`);
+  const detailBody = (await detail.json()) as {
+    data: { currentVersion: number; version: { version: number }; destinations: Array<{ destinationId: string }> };
+  };
+  assert.equal(detailBody.data.currentVersion, 3);
+  assert.equal(detailBody.data.version.version, 3);
+  assert.deepEqual(
+    detailBody.data.destinations.map((row) => row.destinationId),
+    [rows[0]!.id, rows[1]!.id],
+  );
+});
