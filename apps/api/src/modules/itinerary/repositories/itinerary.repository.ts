@@ -1,6 +1,7 @@
 import type { Prisma } from "../../../generated/prisma/client.js";
 import { prisma } from "../../../db/client.js";
 import { ensureTripForSessionTx } from "./trip.repository.js";
+import { recordActivityLog } from "./activity-log.repository.js";
 
 const destinationSelect = {
   id: true,
@@ -203,6 +204,12 @@ export async function selectVersionTx(input: {
     await tx.itinerary.update({
       where: { id: input.itineraryId },
       data: { currentVersion: input.version, status: "confirmed" },
+    });
+    await recordActivityLog(tx, {
+      userId: input.userId,
+      action: "version_selected",
+      entityType: "itinerary_version",
+      entityId: target.id,
     });
 
     const snapshot = await tx.itineraryVersion.findUniqueOrThrow({
@@ -460,17 +467,26 @@ export async function getVersionSnapshot(input: { itineraryId: string; version: 
   });
 }
 
-export async function setVersionSaved(input: { itineraryId: string; version: number; isSaved: boolean }) {
+export async function setVersionSaved(input: { itineraryId: string; version: number; isSaved: boolean; userId?: string }) {
   const row = await prisma.itineraryVersion.findUnique({
     where: { itineraryId_version: { itineraryId: input.itineraryId, version: input.version } },
     select: { id: true },
   });
   if (!row) return null;
-  return prisma.itineraryVersion.update({
+  const snapshot = await prisma.itineraryVersion.update({
     where: { id: row.id },
     data: { isSaved: input.isSaved },
     select: versionSelect,
   });
+  if (input.userId) {
+    await recordActivityLog(prisma, {
+      userId: input.userId,
+      action: input.isSaved ? "version_saved" : "version_unsaved",
+      entityType: "itinerary_version",
+      entityId: row.id,
+    });
+  }
+  return snapshot;
 }
 
 export async function listVersionSummaries(itineraryId: string) {

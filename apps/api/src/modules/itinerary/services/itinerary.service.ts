@@ -231,6 +231,7 @@ export function createItineraryService(deps: ItineraryDeps) {
         itineraryId: row.id,
         version: input.version,
         isSaved: input.isSaved,
+        userId: input.userId,
       });
       if (!snapshot) throw new HttpError(404, "VERSION_NOT_FOUND", "Itinerary version not found");
       return { data: snapshot };
