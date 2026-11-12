@@ -625,6 +625,12 @@ export async function restoreVersionTx(input: {
     });
     const nextVersion = (maxVersion._max.version ?? 0) + 1;
 
+    const updated = await tx.itinerary.updateMany({
+      where: { id: input.itineraryId, currentVersion: itinerary.currentVersion },
+      data: { currentVersion: nextVersion },
+    });
+    if (updated.count === 0) return { ok: false, reason: "conflict" };
+
     const created = await tx.itineraryVersion.create({
       data: {
         itineraryId: input.itineraryId,
@@ -667,12 +673,6 @@ export async function restoreVersionTx(input: {
       itineraryId: input.itineraryId,
       destinations: input.destinations,
     });
-
-    const updated = await tx.itinerary.updateMany({
-      where: { id: input.itineraryId, currentVersion: itinerary.currentVersion },
-      data: { currentVersion: nextVersion },
-    });
-    if (updated.count === 0) return { ok: false, reason: "conflict" };
 
     const version = await tx.itineraryVersion.findUniqueOrThrow({ where: { id: created.id }, select: versionSelect });
     return { ok: true, version };
