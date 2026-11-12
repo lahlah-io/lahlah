@@ -35,6 +35,8 @@ model ItineraryDestination {
   id            String                  @id @default(uuid()) @db.Uuid
   itineraryId   String                  @map("itinerary_id") @db.Uuid
   destinationId String                  @map("destination_id") @db.Uuid
+  position      Int?
+  isActive      Boolean                 @default(true) @map("is_active")
   visitAt       DateTime?               @map("visit_at") @db.Timestamptz
   estimatedCost Float?                  @map("estimated_cost")
   notes         String?                 @db.Text
@@ -44,6 +46,7 @@ model ItineraryDestination {
   checkpoints   DestinationCheckpoint[]
 
   @@index([itineraryId, visitAt])
+  @@index([itineraryId, isActive])
   @@map("itinerary_destinations")
 }
 
@@ -71,6 +74,8 @@ model ItineraryVersion {
   totalDurationMin  Int?             @map("total_duration_min")
   totalEstimatedMin Int?             @map("total_estimated_min")
   status            String           @db.VarChar
+  isSaved           Boolean          @default(false) @map("is_saved")
+  isSelected        Boolean          @default(false) @map("is_selected")
   sourceMessageId   String?          @map("source_message_id") @db.Uuid
   routeJson         Json?            @map("route_json")
   expiresAt         DateTime?        @map("expires_at") @db.Timestamptz
@@ -81,6 +86,8 @@ model ItineraryVersion {
 
   @@unique([itineraryId, version])
   @@index([itineraryId, version])
+  @@index([itineraryId, isSelected])
+  @@index([itineraryId, isSaved])
   @@map("itinerary_versions")
 }
 
