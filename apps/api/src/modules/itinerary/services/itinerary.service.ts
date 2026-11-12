@@ -43,6 +43,10 @@ function productionGate() {
   }
 }
 
+function isUniqueViolation(error: unknown): boolean {
+  return typeof error === "object" && error !== null && (error as { code?: string }).code === "P2002";
+}
+
 async function requireActiveUser(deps: ItineraryDeps, userId: string) {
   const user = await deps.findUserById(userId);
   if (!user || user.isActive !== true) throw new HttpError(401, "AUTH_REQUIRED", "Active user required");
@@ -305,50 +309,13 @@ export function createItineraryService(deps: ItineraryDeps) {
     async saveDraftVersion(input: SaveDraftVersionInput): Promise<ItineraryVersionView> {
       productionGate();
       await requireActiveUser(deps, input.userId);
-      const root = await itineraryRepository.upsertDraftRoot({
-        userId: input.userId,
-        sessionId: input.sessionId,
-        title: `Draft itinerary Padang ${input.travelDate}`,
-        content: input.stops.map((s) => `${s.position}. ${s.name} (${s.arrivalTime ?? "-"})`).join("\n"),
-        metadata: {
-          date: input.travelDate,
-          startTime: input.startTime,
-          endTime: input.endTime,
-          mode: "straight_line",
-          distanceType: "straight_line",
-          profile: "straight_line",
-        },
-        tripDate: visitAtDate(input.travelDate, "00:00"),
-        transportMode: "straight_line",
-      });
-      if (!root) throw new HttpError(403, "FORBIDDEN", "Session access denied");
-      const version = await itineraryRepository.nextVersionNumber(root.id);
-      const snapshot = await itineraryRepository.createVersionSnapshotTx({
-        itineraryId: root.id,
-        version,
-        basedOnVersion: input.basedOnVersion ?? (version > 1 ? version - 1 : null),
-        changeInstruction: input.changeInstruction ?? null,
-        changeType: input.changeType,
-        status: "draft",
-        sourceMessageId: input.sourceMessageId ?? null,
-        routeJson: input.routeJson as Prisma.InputJsonValue,
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-        stops: input.stops.map((s) => ({
-          position: s.position,
-          destinationId: s.destinationId,
-          name: s.name,
-          latitude: s.latitude,
-          longitude: s.longitude,
-          arrivalTime: s.arrivalTime,
-          visitDurationMin: s.visitDurationMin,
-          category: s.category,
-        })),
-      });
-      return asVersionView(snapshot, {
-        travelDate: input.travelDate,
-        startTime: input.startTime,
-        endTime: input.endTime,
-      });
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          return await saveDraftVersionOnce(input);
+        } catch (error) {
+          if (attempt >= 1 || !isUniqueViolation(error)) throw error;
+        }
+      }
     },
 
     async getActiveVersion(input: { userId: string; sessionId: string }): Promise<ItineraryVersionView | null> {
@@ -553,14 +520,67 @@ export function createItineraryService(deps: ItineraryDeps) {
         notes: s.notes,
         position: s.position,
       }));
-    const result = await itineraryRepository.selectVersionTx({
-      itineraryId: input.itineraryId,
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        const result = await itineraryRepository.selectVersionTx({
+          itineraryId: input.itineraryId,
+          userId: input.userId,
+          version: input.version,
+          destinations,
+        });
+        if (!result.ok) return null;
+        return result.snapshot;
+      } catch (error) {
+        if (attempt >= 1 || !isUniqueViolation(error)) throw error;
+      }
+    }
+  }
+
+  async function saveDraftVersionOnce(input: SaveDraftVersionInput): Promise<ItineraryVersionView> {
+    const root = await itineraryRepository.upsertDraftRoot({
       userId: input.userId,
-      version: input.version,
-      destinations,
+      sessionId: input.sessionId,
+      title: `Draft itinerary Padang ${input.travelDate}`,
+      content: input.stops.map((s) => `${s.position}. ${s.name} (${s.arrivalTime ?? "-"})`).join("\n"),
+      metadata: {
+        date: input.travelDate,
+        startTime: input.startTime,
+        endTime: input.endTime,
+        mode: "straight_line",
+        distanceType: "straight_line",
+        profile: "straight_line",
+      },
+      tripDate: visitAtDate(input.travelDate, "00:00"),
+      transportMode: "straight_line",
     });
-    if (!result.ok) return null;
-    return result.snapshot;
+    if (!root) throw new HttpError(403, "FORBIDDEN", "Session access denied");
+    const version = await itineraryRepository.nextVersionNumber(root.id);
+    const snapshot = await itineraryRepository.createVersionSnapshotTx({
+      itineraryId: root.id,
+      version,
+      basedOnVersion: input.basedOnVersion ?? (version > 1 ? version - 1 : null),
+      changeInstruction: input.changeInstruction ?? null,
+      changeType: input.changeType,
+      status: "draft",
+      sourceMessageId: input.sourceMessageId ?? null,
+      routeJson: input.routeJson as Prisma.InputJsonValue,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      stops: input.stops.map((s) => ({
+        position: s.position,
+        destinationId: s.destinationId,
+        name: s.name,
+        latitude: s.latitude,
+        longitude: s.longitude,
+        arrivalTime: s.arrivalTime,
+        visitDurationMin: s.visitDurationMin,
+        category: s.category,
+      })),
+    });
+    return asVersionView(snapshot, {
+      travelDate: input.travelDate,
+      startTime: input.startTime,
+      endTime: input.endTime,
+    });
   }
 }
 
