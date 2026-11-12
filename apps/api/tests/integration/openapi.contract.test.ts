@@ -166,6 +166,8 @@ test("health and openapi docs return their documented shapes", async () => {
     "/api/v1/itineraries/by-session/{sessionId}",
     "/api/v1/itineraries/{id}/versions",
     "/api/v1/itineraries/{id}/versions/{version}",
+    "/api/v1/itineraries/{id}/versions/{version}/select",
+    "/api/v1/itineraries/{id}/versions/{version}/save",
     "/api/v1/itineraries/{id}/restore/{version}",
   ]) {
     assert.ok(specBody.paths?.[path], `missing OpenAPI path ${path}`);
@@ -494,6 +496,8 @@ test("new chat session, message version, and itinerary version endpoints match t
       "itinerary versions",
     );
     assert.deepEqual(versionsListBody.data.map((version) => version.version), [1]);
+    assert.equal(typeof versionsListBody.data[0]!.isSaved, "boolean");
+    assert.equal(typeof versionsListBody.data[0]!.isSelected, "boolean");
 
     const versionDetailRes = await itineraryApp.request(
       `/api/v1/itineraries/${itineraryId}/versions/1?userId=${userId}`,
