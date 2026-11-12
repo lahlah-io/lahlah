@@ -156,3 +156,42 @@ test("publishing a version keeps checkpointed destinations and deactivates the r
   );
   assert.equal(await prisma.destinationCheckpoint.count({ where: { itineraryDestination: { itineraryId } } }), 1);
 });
+
+test("publishing a version deactivates sibling rows for the same destination", async () => {
+  const { user, rows, itineraryId } = await seedItinerary();
+  const version = await prisma.itineraryVersion.create({
+    data: { itineraryId, version: 1, changeType: "generate", status: "generated" },
+    select: { id: true },
+  });
+  await prisma.itineraryDestination.createMany({
+    data: [
+      { itineraryId, destinationId: rows[0]!.id, position: 1, isActive: true },
+      { itineraryId, destinationId: rows[0]!.id, position: 2, isActive: true },
+    ],
+  });
+  await prisma.itineraryStop.create({
+    data: {
+      itineraryVersionId: version.id,
+      destinationId: rows[0]!.id,
+      position: 1,
+      name: rows[0]!.name,
+      latitude: 0,
+      longitude: 0,
+    },
+  });
+
+  const res = await buildApp().request(`/api/v1/itineraries/${itineraryId}/publish/1`, {
+    method: "POST",
+    headers: json,
+    body: JSON.stringify({ userId: user.id }),
+  });
+  assert.equal(res.status, 200);
+
+  const all = await prisma.itineraryDestination.findMany({
+    where: { itineraryId },
+    select: { destinationId: true, isActive: true },
+  });
+  assert.equal(all.length, 2, "no itinerary destination row may be deleted");
+  assert.equal(all.filter((row) => row.destinationId === rows[0]!.id && row.isActive).length, 1);
+  assert.equal(all.filter((row) => !row.isActive).length, 1);
+});

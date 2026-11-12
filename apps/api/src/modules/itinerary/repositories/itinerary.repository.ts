@@ -202,6 +202,7 @@ async function syncActiveDestinations(
   }
 
   const keep: string[] = [];
+  const keptIds: string[] = [];
   for (const destination of input.destinations) {
     if (keep.includes(destination.destinationId)) continue;
     keep.push(destination.destinationId);
@@ -217,6 +218,7 @@ async function syncActiveDestinations(
           isActive: true,
         },
       });
+      keptIds.push(id);
       continue;
     }
     const created = await tx.itineraryDestination.create({
@@ -224,10 +226,11 @@ async function syncActiveDestinations(
       select: { id: true },
     });
     byDestination.set(destination.destinationId, created.id);
+    keptIds.push(created.id);
   }
 
   await tx.itineraryDestination.updateMany({
-    where: { itineraryId: input.itineraryId, isActive: true, destinationId: { notIn: keep } },
+    where: { itineraryId: input.itineraryId, isActive: true, id: { notIn: keptIds } },
     data: { isActive: false },
   });
 }
