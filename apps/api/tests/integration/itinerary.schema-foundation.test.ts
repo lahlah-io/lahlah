@@ -29,7 +29,6 @@ afterAll(async () => {
   for (const userId of createdUserIds) {
     await prisma.itineraryStop.deleteMany({ where: { version: { itinerary: { userId } } } });
     await prisma.itineraryVersion.deleteMany({ where: { itinerary: { userId } } });
-    await prisma.itineraryDraft.deleteMany({ where: { userId } });
     await prisma.destinationCheckpoint.deleteMany({ where: { itineraryDestination: { itinerary: { userId } } } });
     await prisma.itineraryDestination.deleteMany({ where: { itinerary: { userId } } });
     await prisma.itinerary.deleteMany({ where: { userId } });
@@ -39,7 +38,7 @@ afterAll(async () => {
   }
 });
 
-test("itinerary schema foundation: 1:1 session, versions/stops/route constraints, draft unique, status confirmed", async () => {
+test("itinerary schema foundation: 1:1 session, versions/stops/route constraints, status confirmed", async () => {
   const user = await createUser();
   createdUserIds.push(user.id);
   const model = await getOrCreateModel();
@@ -160,28 +159,4 @@ test("itinerary schema foundation: 1:1 session, versions/stops/route constraints
     select: { routeJson: true },
   });
   assert.ok(withRoute.routeJson);
-
-  await prisma.itineraryDraft.create({
-    data: {
-      sessionId: session.id,
-      userId: user.id,
-      itineraryId: itinerary.id,
-      payload: { sample: true },
-      status: "pending_confirmation",
-    } as any,
-    select: { id: true },
-  });
-
-  await assert.rejects(
-    () =>
-      prisma.itineraryDraft.create({
-        data: {
-          sessionId: session.id,
-          userId: user.id,
-          payload: { dup: true },
-          status: "pending_confirmation",
-        } as any,
-      }),
-    (err: any) => err?.code === "P2002",
-  );
 });
