@@ -3,7 +3,7 @@ import { Prisma } from "../../generated/prisma/client.js";
 import { ZodError } from "zod";
 import { appendLog } from "../logging/file-logger.js";
 
-export type HttpStatus = 400 | 401 | 403 | 404 | 409 | 422 | 429 | 502 | 503 | 504;
+export type HttpStatus = 400 | 401 | 403 | 404 | 409 | 422 | 429 | 501 | 502 | 503 | 504;
 
 export class HttpError extends Error {
   constructor(

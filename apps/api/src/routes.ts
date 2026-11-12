@@ -4,7 +4,7 @@ import { createChatApi, createChatService } from "./modules/chat/index.js";
 import { destinationsApi } from "./modules/destinations/index.js";
 import { createItineraryApi, createItineraryService } from "./modules/itinerary/index.js";
 import { usersApi } from "./modules/users/index.js";
-import { createDraftStore } from "./modules/chat/services/draft-store.js";
+import { HttpError } from "./shared/http/errors.js";
 import { createRouteCache, createRoutingApi, createRoutingService } from "./modules/routing/index.js";
 import { env } from "./env.js";
 import * as usersRepository from "./modules/users/repositories/users.repository.js";
@@ -35,8 +35,6 @@ const toolSelect = {
   categories: { select: { category: { select: { id: true, name: true, slug: true } } } },
 } as const;
 
-const draftStore = createDraftStore();
-
 const routeCache = createRouteCache({ ttlMs: env.OSRM_CACHE_TTL_HOURS * 3_600_000 });
 const routingService = createRoutingService({
   osrmBaseUrl: env.OSRM_BASE_URL,
@@ -45,13 +43,13 @@ const routingService = createRoutingService({
 });
 
 const itineraryService = createItineraryService({
-  getDraft: (input) => draftStore.getDraft(input),
+  // removed in Task 4
+  getDraft: () => { throw new HttpError(501, "DRAFT_REMOVED", "Draft confirmation was removed"); },
   findUserById: (id) => usersRepository.findUserById(id).then((u) => (u ? { id: u.id, isActive: u.isActive } : null)),
   getRoute: (input) => routingService.getRoute(input),
 });
 
 const chatService = createChatService({
-  draftStore,
   itinerary: itineraryService,
   findUserById: (id) => usersRepository.findUserById(id).then((u) => (u ? { id: u.id, isActive: u.isActive } : null)),
   searchDestinations: async (input) => {

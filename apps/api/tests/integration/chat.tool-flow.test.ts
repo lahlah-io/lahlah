@@ -93,8 +93,8 @@ test("generate keeps every tool result instead of the last one", async () => {
   });
 
   const res = await chat.sendMessage({ userId: user.id, sessionId: session.id, content: "buat itinerary pantai jam 08:00-16:00" });
-  const data = res.data as { draft: { destinations: unknown[] }; map: { points: unknown[] } };
+  const data = res.data as { version: { stops: unknown[] }; map: { points: unknown[] } };
 
-  assert.equal(data.draft.destinations.length, 8, "draft keeps the union of both tool results");
+  assert.equal(data.version.stops.length, 8, "version keeps the union of both tool results");
   assert.equal(data.map.points.length, 8, "map mirrors the same destination count");
 });

@@ -6,7 +6,6 @@ import type { AiMessage, AiToolDefinition } from "../../../integrations/ai/schem
 import { classify, type Intent } from "./classifier.js";
 import { buildConversationContext } from "./conversation-context.js";
 import { generateItinerary } from "./itinerary-generator.js";
-import { createDraftStore, type DraftStore, type ItineraryDraftResponse } from "./draft-store.js";
 import { createToolExecutor, mergeDestinationRows } from "./tools.js";
 import { parseModification } from "./modification.js";
 import { applyModification, orderCandidates } from "./modification-ops.js";
@@ -29,7 +28,6 @@ type ChatDeps = {
   findUserById: (id: string) => Promise<UserRow | null>;
   classifyMessage?: typeof classify;
   completeAiChat?: typeof completeChat;
-  draftStore?: DraftStore;
   itinerary?: ItineraryVersionGateway;
   searchDestinations: (input: { keywords?: string; categories?: string[] }) => Promise<unknown[]>;
   getDestinationDetails: (input: { destinationIds: string[] }) => Promise<unknown[]>;
@@ -305,32 +303,21 @@ export function resolveEffectiveRequest(p: AccumulatedTripParams, now = new Date
   };
 }
 
-function toDraftResponse(input: {
-  sessionId: string;
-  request: TripDetails;
-  generated: ReturnType<typeof generateItinerary>;
-}): ItineraryDraftResponse {
-  return {
-    draftId: "pending",
-    status: "pending_confirmation",
-    travelDate: input.request.travelDate,
-    startTime: input.request.startTime,
-    endTime: input.request.endTime,
-    destinations: input.generated.destinations.map((d) => ({
-      order: d.order,
-      destinationId: d.id,
-      name: d.name,
-      latitude: d.latitude ?? 0,
-      longitude: d.longitude ?? 0,
-      visitAt: d.startTime,
-      durationMinutes: Math.max(1, (() => {
-        const [sh, sm] = d.startTime.split(":").map(Number);
-        const [eh, em] = d.endTime.split(":").map(Number);
-        return (eh ?? 0) * 60 + (em ?? 0) - ((sh ?? 0) * 60 + (sm ?? 0));
-      })()),
-    })),
-    route: input.generated.route,
-  };
+function generatedStops(generated: ReturnType<typeof generateItinerary>): ItineraryVersionStop[] {
+  return generated.destinations.map((d) => ({
+    position: d.order,
+    destinationId: d.id,
+    name: d.name,
+    latitude: d.latitude ?? 0,
+    longitude: d.longitude ?? 0,
+    arrivalTime: d.startTime,
+    visitDurationMin: Math.max(1, (() => {
+      const [sh, sm] = d.startTime.split(":").map(Number);
+      const [eh, em] = d.endTime.split(":").map(Number);
+      return (eh ?? 0) * 60 + (em ?? 0) - ((sh ?? 0) * 60 + (sm ?? 0));
+    })()),
+    category: null,
+  }));
 }
 
 function buildRouteJson(stops: Array<{ position: number; latitude: number; longitude: number }>) {
@@ -367,44 +354,6 @@ function buildRouteJson(stops: Array<{ position: number; latitude: number; longi
     },
     totalDistanceM: totalDistanceM > 0 ? Math.round(totalDistanceM) : null,
   };
-}
-
-function versionToDraft(view: ItineraryVersionView): ItineraryDraftResponse {
-  const route = view.routeJson as { type?: string; coordinates?: Array<[number, number]> } | null;
-  return {
-    draftId: view.versionId,
-    status: "pending_confirmation",
-    travelDate: view.travelDate,
-    startTime: view.startTime,
-    endTime: view.endTime,
-    destinations: view.stops
-      .filter((s): s is ItineraryVersionStop & { destinationId: string } => s.destinationId != null)
-      .map((s) => ({
-        order: s.position,
-        destinationId: s.destinationId,
-        name: s.name,
-        latitude: s.latitude,
-        longitude: s.longitude,
-        visitAt: s.arrivalTime ?? "",
-        durationMinutes: s.visitDurationMin ?? 60,
-      })),
-    route: route?.type === "LineString" && Array.isArray(route.coordinates)
-      ? { type: "LineString", coordinates: route.coordinates }
-      : null,
-  };
-}
-
-function draftStops(draft: ItineraryDraftResponse): ItineraryVersionStop[] {
-  return draft.destinations.map((d) => ({
-    position: d.order,
-    destinationId: d.destinationId,
-    name: d.name,
-    latitude: d.latitude,
-    longitude: d.longitude,
-    arrivalTime: d.visitAt || null,
-    visitDurationMin: d.durationMinutes ?? null,
-    category: null,
-  }));
 }
 
 function toCandidate(row: unknown) {
@@ -539,12 +488,10 @@ async function runItineraryToolFlow(input: {
   }).filter((c) => c.id && c.name);
   const generated = generateItinerary({ city: "Padang", ...input.request, transportMode: "walk" }, candidates);
   if (generated.destinations.length === 0) throw new HttpError(422, "ITINERARY_REQUEST_INVALID", "No valid destinations available for this request");
-  const draft = toDraftResponse({ sessionId: input.sessionId, request: input.request, generated });
-  return { draft, usage: mapUsage(last) };
+  return { generated, usage: mapUsage(last) };
 }
 
 export function createChatService(deps: ChatDeps) {
-  const draftStore = deps.draftStore ?? createDraftStore();
   const doClassify = deps.classifyMessage ?? classify;
 
   /** Picks one friendly phrasing so hardcoded replies stay polite and not robotic. */
@@ -559,7 +506,7 @@ export function createChatService(deps: ChatDeps) {
     categories: string[];
     sourceMessageId?: string;
     mod: ItineraryModification;
-  }): Promise<{ intent: Intent; message: string; draft: ItineraryDraftResponse; usage: Record<string, never> } | null> {
+  }): Promise<{ intent: Intent; message: string; version: ItineraryVersionView; usage: Record<string, never> } | null> {
     const gateway = deps.itinerary;
     if (!gateway) return null;
     const active = await gateway.getActiveVersion({ userId: input.userId, sessionId: input.sessionId });
@@ -572,7 +519,7 @@ export function createChatService(deps: ChatDeps) {
           "Baik, destinasi mana yang ingin diubah? Sebutkan nomor atau namanya, misal \"ganti destinasi ke-3\" atau \"hapus destinasi ke-3\".",
           "Siap! Mau diganti atau dihapus destinasi itu? Contohnya \"ganti destinasi ke-3\" atau \"hapus destinasi ke-3\".",
         ),
-        draft: versionToDraft(active),
+        version: active,
         usage: {},
       };
     }
@@ -590,7 +537,7 @@ export function createChatService(deps: ChatDeps) {
           `Siap, versi ${selected.versionNumber} sudah saya aktifkan — berisi ${selected.stops.length} destinasi.`,
           `Baik, sekarang versi ${selected.versionNumber} yang aktif dengan ${selected.stops.length} destinasi.`,
         ),
-        draft: versionToDraft(selected),
+        version: selected,
         usage: {},
       };
     }
@@ -631,7 +578,7 @@ export function createChatService(deps: ChatDeps) {
         return {
           intent: "modify_itinerary",
           message: `Ada beberapa destinasi yang cocok dengan "${needle}": ${list}. Sebutkan nomornya (misal "${verb} destinasi ke-2") atau nama lengkapnya ya.`,
-          draft: versionToDraft(active),
+          version: active,
           usage: {},
         };
       }
@@ -640,7 +587,7 @@ export function createChatService(deps: ChatDeps) {
         return {
           intent: "modify_itinerary",
           message: `Hmm, destinasi itu tidak saya temukan di itinerary saat ini. Destinasi aktif: ${list}. Sebutkan nomornya (misal "hapus destinasi ke-3") atau nama persisnya ya.`,
-          draft: versionToDraft(active),
+          version: active,
           usage: {},
         };
       }
@@ -712,7 +659,7 @@ export function createChatService(deps: ChatDeps) {
         `Siap! Versi ${saved.versionNumber} sudah saya susun dengan ${saved.stops.length} destinasi.`,
         `Baik, versi ${saved.versionNumber} siap — sekarang ${saved.stops.length} destinasi.`,
       ),
-      draft: versionToDraft(saved),
+      version: saved,
       usage: {},
     };
   }
@@ -723,11 +670,11 @@ export function createChatService(deps: ChatDeps) {
     content: string;
     history: AiMessage[];
     sourceMessageId?: string;
-  }): Promise<{ intent: Intent; message: string; draft: ItineraryDraftResponse | null; usage: { inputTokens?: number; outputTokens?: number } }> {
+  }): Promise<{ intent: Intent; message: string; version: ItineraryVersionView | null; usage: { inputTokens?: number; outputTokens?: number } }> {
     const classified = await doClassify(input.content, process.env, input.sessionId);
     let intent: Intent = classified.intent;
     let message = "Ada yang bisa saya bantu untuk rencana perjalanan di Padang?";
-    let draft: ItineraryDraftResponse | null = null;
+    let version: ItineraryVersionView | null = null;
     let usage: { inputTokens?: number; outputTokens?: number } = classified.usage
       ? { inputTokens: classified.usage.promptTokens, outputTokens: classified.usage.completionTokens }
       : {};
@@ -757,43 +704,41 @@ export function createChatService(deps: ChatDeps) {
         sourceMessageId: input.sourceMessageId,
         mod: modification,
       });
-      if (applied) return { intent: applied.intent, message: applied.message, draft: applied.draft, usage };
+      if (applied) return { intent: applied.intent, message: applied.message, version: applied.version, usage };
     }
 
     if (usesTripFlow && outcome.kind === "ready") {
       if (!isGeneratorIntent) intent = "modify_itinerary";
       const result = await runItineraryToolFlow({ deps, history: input.history, userMessage: input.content, sessionId: input.sessionId, request: outcome.trip });
-      draft = result.draft;
+      const generated = result.generated;
       usage = {
         inputTokens: (usage.inputTokens ?? 0) + (result.usage.inputTokens ?? 0),
         outputTokens: (usage.outputTokens ?? 0) + (result.usage.outputTokens ?? 0),
       };
       if (deps.itinerary) {
+        const stops = generatedStops(generated);
         const route = buildRouteJson(
-          draft.destinations.map((d) => ({ position: d.order, latitude: d.latitude, longitude: d.longitude })),
+          stops.map((s) => ({ position: s.position, latitude: s.latitude, longitude: s.longitude })),
         );
-        const saved = await deps.itinerary.saveDraftVersion({
+        version = await deps.itinerary.saveDraftVersion({
           userId: input.userId,
           sessionId: input.sessionId,
-          travelDate: draft.travelDate,
-          startTime: draft.startTime,
-          endTime: draft.endTime,
-          stops: draftStops(draft),
+          travelDate: outcome.trip.travelDate,
+          startTime: outcome.trip.startTime,
+          endTime: outcome.trip.endTime,
+          stops,
           routeJson: route.json,
           changeType: merged.pending ? "regenerate" : "generate",
           sourceMessageId: input.sourceMessageId ?? null,
         });
-        draft = versionToDraft(saved);
-      } else {
-        const draftId = await draftStore.replaceSessionDraft({ userId: input.userId, sessionId: input.sessionId, itinerary: draft });
-        draft = await draftStore.getDraft({ draftId, userId: input.userId, sessionId: input.sessionId });
       }
+      const stopCount = version?.stops.length ?? generated.destinations.length;
       const defaults: string[] = [];
-      if (merged.params.travelDate == null) defaults.push(`tanggal hari ini (${draft.travelDate})`);
-      if (merged.params.startTime == null) defaults.push(`jam ${draft.startTime}-${draft.endTime}`);
+      if (merged.params.travelDate == null) defaults.push(`tanggal hari ini (${outcome.trip.travelDate})`);
+      if (merged.params.startTime == null) defaults.push(`jam ${outcome.trip.startTime}-${outcome.trip.endTime}`);
       message = oneOf(
-        `Draft itinerary ${draft.travelDate} untuk ${draft.destinations.length} destinasi di Padang sudah siap ditinjau. Konfirmasi kapan saja ya.`,
-        `Selesai! Itinerary ${draft.travelDate} dengan ${draft.destinations.length} destinasi di Padang sudah saya siapkan.`,
+        `Draft itinerary ${outcome.trip.travelDate} untuk ${stopCount} destinasi di Padang sudah siap ditinjau. Konfirmasi kapan saja ya.`,
+        `Selesai! Itinerary ${outcome.trip.travelDate} dengan ${stopCount} destinasi di Padang sudah saya siapkan.`,
       );
       if (defaults.length) message += ` Dipakai default ${defaults.join(", ")} (bisa diubah).`;
     } else if (intent === "general_chat" || isConfirm) {
@@ -805,7 +750,7 @@ export function createChatService(deps: ChatDeps) {
       message = "Sebutkan kategori wisata di Padang (misalnya pantai, budaya, kuliner, alam, sejarah, santai, belanja) — tanggal dan jam bisa saya isi otomatis.";
     }
 
-    return { intent, message, draft, usage };
+    return { intent, message, version, usage };
   }
 
   return {
@@ -876,7 +821,7 @@ export function createChatService(deps: ChatDeps) {
       const historyRows = await chatRepository.findRecentMessages(session.id, HISTORY_LIMIT);
       const history = buildConversationContext({ systemPrompt: SYSTEM_PROMPT, history: asAiHistory(historyRows) });
 
-      const { intent, message, draft, usage } = await computeAssistantReply({
+      const { intent, message, version, usage } = await computeAssistantReply({
         sessionId: session.id,
         userId: input.userId,
         content: input.content,
@@ -891,28 +836,27 @@ export function createChatService(deps: ChatDeps) {
         content: message,
         inputTokens: usage.inputTokens ?? 0,
         outputTokens: usage.outputTokens ?? 0,
-        metadata: { intent, draftId: draft?.draftId ?? null },
+        metadata: { intent, versionId: version?.versionId ?? null },
         status: "completed",
         mode: "chat",
       });
 
-      const mapPoints = (draft?.destinations ?? [])
-        .filter((d) => isCoordinate(d))
-        .map((d) => ({
-          position: d.order,
-          destinationId: d.destinationId,
-          name: d.name,
-          latitude: d.latitude,
-          longitude: d.longitude,
+      const mapPoints = (version?.stops ?? [])
+        .filter((s) => isCoordinate(s))
+        .map((s) => ({
+          position: s.position,
+          destinationId: s.destinationId ?? "",
+          name: s.name,
+          latitude: s.latitude,
+          longitude: s.longitude,
         }));
 
       return {
         data: {
           message,
           intent,
-          draft,
-          version: draft ? { id: draft.draftId } : null,
-          map: draft ? { versionId: draft.draftId, points: mapPoints } : null,
+          version,
+          map: version ? { versionId: version.versionId, points: mapPoints } : null,
           assistantMessageId: saved.id,
           sessionId: session.id,
         },
@@ -951,7 +895,7 @@ export function createChatService(deps: ChatDeps) {
       };
 
       try {
-        const { intent, message, draft, usage } = await computeAssistantReply({
+        const { intent, message, version, usage } = await computeAssistantReply({
           sessionId: msg.sessionId,
           userId: input.userId,
           content: trigger.content,
@@ -965,7 +909,7 @@ export function createChatService(deps: ChatDeps) {
           content: message,
           status: "completed",
           createdAt: new Date().toISOString(),
-          metadata: { intent, draftId: draft?.draftId ?? null },
+          metadata: { intent, versionId: version?.versionId ?? null },
           usage: { promptTokens: inTok, completionTokens: outTok, totalTokens: inTok + outTok },
           inputTokens: inTok,
           outputTokens: outTok,
@@ -994,7 +938,7 @@ export function createChatService(deps: ChatDeps) {
             sessionId: msg.sessionId,
             message,
             intent,
-            draft,
+            version,
             activeVersion: saved.activeVersion,
           },
         };

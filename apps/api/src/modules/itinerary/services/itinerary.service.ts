@@ -579,7 +579,7 @@ export function createItineraryService(deps: ItineraryDeps) {
       basedOnVersion: input.basedOnVersion ?? (version > 1 ? version - 1 : null),
       changeInstruction: input.changeInstruction ?? null,
       changeType: input.changeType,
-      status: "draft",
+      status: "generated",
       sourceMessageId: input.sourceMessageId ?? null,
       routeJson: input.routeJson as Prisma.InputJsonValue,
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),

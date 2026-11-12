@@ -1,9 +1,6 @@
-import { afterAll, describe, expect, test } from "vitest";
-import { randomUUID } from "node:crypto";
-import { prisma } from "../../../../src/db/client.js";
+import { describe, expect, test } from "vitest";
 import { createToolExecutor } from "../../../../src/modules/chat/services/tools.js";
 import { generateItinerary } from "../../../../src/modules/chat/services/itinerary-generator.js";
-import { createDraftStore } from "../../../../src/modules/chat/services/draft-store.js";
 import { HttpError } from "../../../../src/shared/http/errors.js";
 
 const padangRow = {
@@ -129,46 +126,5 @@ describe("safety and security matrix", () => {
       many,
     );
     expect(result.destinations).toHaveLength(1);
-  });
-
-  test("SAF-010: drafts are bound to user and session, and expire", async () => {
-    const userA = await prisma.user.create({ data: { name: "saf-a", email: `saf-a-${randomUUID()}@example.test` }, select: { id: true } });
-    const userB = await prisma.user.create({ data: { name: "saf-b", email: `saf-b-${randomUUID()}@example.test` }, select: { id: true } });
-    const model = await prisma.model.upsert({
-      where: { provider_modelIdentifier: { provider: "test", modelIdentifier: "safety-matrix" } },
-      update: {},
-      create: { provider: "test", modelIdentifier: "safety-matrix", name: "safety-matrix", isActive: true },
-      select: { id: true },
-    });
-    const sessionA = await prisma.chatSession.create({ data: { userId: userA.id, modelId: model.id, title: "saf-a" }, select: { id: true } });
-    const sessionB = await prisma.chatSession.create({ data: { userId: userA.id, modelId: model.id, title: "saf-b" }, select: { id: true } });
-    let now = 1_000;
-    const store = createDraftStore({ ttlSeconds: 60, now: () => now });
-    try {
-      const draftId = await store.saveDraft({
-        userId: userA.id,
-        sessionId: sessionA.id,
-        itinerary: {
-          draftId: "pending",
-          status: "pending_confirmation",
-          travelDate: "2026-11-20",
-          startTime: "09:00",
-          endTime: "15:00",
-          destinations: [],
-          route: null,
-        },
-      });
-
-      expect((await store.getDraft({ draftId, userId: userA.id, sessionId: sessionA.id })).draftId).toBe(draftId);
-      await expect(store.getDraft({ draftId, userId: userB.id, sessionId: sessionA.id })).rejects.toMatchObject({ status: 403, code: "FORBIDDEN" });
-      await expect(store.getDraft({ draftId, userId: userA.id, sessionId: sessionB.id })).rejects.toMatchObject({ status: 403, code: "FORBIDDEN" });
-
-      now += 61_000;
-      await expect(store.getDraft({ draftId, userId: userA.id, sessionId: sessionA.id })).rejects.toMatchObject({ status: 404, code: "DRAFT_NOT_FOUND" });
-    } finally {
-      await prisma.itineraryDraft.deleteMany({ where: { userId: { in: [userA.id, userB.id] } } });
-      await prisma.chatSession.deleteMany({ where: { userId: { in: [userA.id, userB.id] } } });
-      await prisma.user.deleteMany({ where: { id: { in: [userA.id, userB.id] } } });
-    }
   });
 });
