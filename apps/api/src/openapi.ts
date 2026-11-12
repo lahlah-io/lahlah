@@ -217,26 +217,6 @@ const lineString = z.object({
   coordinates: z.array(z.tuple([z.number(), z.number()])),
 });
 
-const itineraryDraft = z.object({
-  draftId: z.uuid(),
-  status: z.literal("pending_confirmation"),
-  travelDate: z.string(),
-  startTime: z.string(),
-  endTime: z.string(),
-  destinations: z.array(
-    z.object({
-      order: z.number().int(),
-      destinationId: z.uuid(),
-      name: z.string(),
-      latitude: z.number(),
-      longitude: z.number(),
-      visitAt: z.string(),
-      durationMinutes: z.number().int(),
-    }),
-  ),
-  route: lineString.nullable(),
-});
-
 const chatMapPoint = z.object({
   position: z.number().int(),
   destinationId: z.uuid(),
@@ -245,11 +225,32 @@ const chatMapPoint = z.object({
   longitude: z.number(),
 });
 
+const itineraryVersionStopView = z.object({
+  position: z.number().int(),
+  destinationId: z.uuid().nullable(),
+  name: z.string(),
+  latitude: z.number(),
+  longitude: z.number(),
+  arrivalTime: z.string().nullable(),
+  visitDurationMin: z.number().int().nullable(),
+  category: z.string().nullable(),
+});
+
+const itineraryVersionView = z.object({
+  versionId: z.uuid(),
+  versionNumber: z.number().int(),
+  itineraryId: z.uuid(),
+  travelDate: z.string(),
+  startTime: z.string(),
+  endTime: z.string(),
+  stops: z.array(itineraryVersionStopView),
+  routeJson: z.unknown(),
+});
+
 const chatReply = z.object({
   message: z.string(),
   intent: z.enum(intentLabels),
-  draft: itineraryDraft.nullable(),
-  version: z.object({ id: z.uuid() }).nullable(),
+  version: itineraryVersionView.nullable(),
   map: z.object({ versionId: z.uuid(), points: z.array(chatMapPoint) }).nullable(),
   assistantMessageId: z.uuid(),
   sessionId: z.uuid(),
@@ -260,7 +261,7 @@ const chatRegenerateResult = z.object({
   sessionId: z.uuid(),
   message: z.string(),
   intent: z.enum(intentLabels),
-  draft: itineraryDraft.nullable(),
+  version: itineraryVersionView.nullable(),
   activeVersion: z.number().int(),
 });
 
@@ -394,7 +395,7 @@ const openApiDocument = {
     { name: "users", description: "CRUD user (nonaktif di production)." },
     { name: "destinations", description: "Destinasi wisata Padang." },
     { name: "chat", description: "Sesi chat, versioning pesan, dan generator itinerary (nonaktif di production)." },
-    { name: "itineraries", description: "Konfirmasi, versi, restore, dan pengambilan itinerary (nonaktif di production)." },
+    { name: "itineraries", description: "Versi, select, save, restore, dan pengambilan itinerary (nonaktif di production)." },
     { name: "routes", description: "Rute perjalanan via OSRM dengan fallback garis lurus." },
   ],
   components: {
@@ -414,7 +415,7 @@ const openApiDocument = {
       ChatRegenerateResult: toJson(chatRegenerateResult),
       ChatVersionActivation: toJson(chatVersionActivation),
       SessionDeleteResult: toJson(sessionDeleteResult),
-      ItineraryDraft: toJson(itineraryDraft),
+      ItineraryVersionView: toJson(itineraryVersionView),
       ItineraryDestination: toJson(itineraryDestination),
       Itinerary: toJson(itinerary),
       ItineraryStop: toJson(itineraryStop),
@@ -644,7 +645,7 @@ const openApiDocument = {
       post: {
         tags: ["chat"],
         summary: "Kirim pesan ke sesi",
-        description: "Mengembalikan balasan asisten, intent, dan draft itinerary bila pesan memenuhi syarat.",
+        description: "Mengembalikan balasan asisten, intent, dan versi itinerary bila pesan memenuhi syarat.",
         parameters: params(sessionIdParamSchema, "path"),
         requestBody: jsonBody(sendMessageSchema),
         responses: {
@@ -653,7 +654,7 @@ const openApiDocument = {
           "401": errorResponse("User tidak aktif"),
           "403": errorResponse("Sesi milik user lain"),
           "404": errorResponse("Sesi tidak ditemukan"),
-          "422": errorResponse("Tidak ada destinasi yang cocok untuk draft"),
+          "422": errorResponse("Tidak ada destinasi yang cocok untuk itinerary"),
           "502": errorResponse("Provider AI gagal"),
           "503": errorResponse("Auth belum dikonfigurasi"),
         },
@@ -901,7 +902,7 @@ const responseSchemas = {
   ChatRegenerateResult: chatRegenerateResult,
   ChatVersionActivation: chatVersionActivation,
   SessionDeleteResult: sessionDeleteResult,
-  ItineraryDraft: itineraryDraft,
+  ItineraryVersionView: itineraryVersionView,
   ItineraryDestination: itineraryDestination,
   Itinerary: itinerary,
   ItineraryStop: itineraryStop,

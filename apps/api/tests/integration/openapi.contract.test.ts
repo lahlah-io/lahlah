@@ -9,7 +9,6 @@ import { prisma } from "../../src/db/client.js";
 import { responseShapes } from "../../src/openapi.js";
 import { errorHandler } from "../../src/shared/http/errors.js";
 import { createChatApi, createChatService } from "../../src/modules/chat/index.js";
-import { createDraftStore, type ItineraryDraftResponse } from "../../src/modules/chat/services/draft-store.js";
 import { createItineraryApi, createItineraryService } from "../../src/modules/itinerary/index.js";
 import { createRouteCache, createRoutingApi, createRoutingService } from "../../src/modules/routing/index.js";
 
@@ -50,6 +49,40 @@ async function cleanupUser(userId: string) {
   await prisma.chatMessage.deleteMany({ where: { session: { userId } } });
   await prisma.chatSession.deleteMany({ where: { userId } });
   await prisma.user.delete({ where: { id: userId } }).catch(() => undefined);
+}
+
+type ShapeRow = { id: string; name: string; latitude: unknown; longitude: unknown };
+
+function buildStops(rows: ShapeRow[]) {
+  return rows.map((row, index) => ({
+    position: index + 1,
+    destinationId: row.id,
+    name: row.name,
+    latitude: Number(row.latitude),
+    longitude: Number(row.longitude),
+    arrivalTime: index === 0 ? "08:00" : "09:30",
+    visitDurationMin: 60,
+    category: null,
+  }));
+}
+
+function buildRouteJson(rows: ShapeRow[]) {
+  const coordinates = rows.map((row) => [Number(row.longitude), Number(row.latitude)] as [number, number]);
+  return {
+    type: "LineString",
+    coordinates,
+    legs: rows.slice(0, -1).map((_row, index) => ({
+      fromPosition: index + 1,
+      toPosition: index + 2,
+      transportMode: "walk",
+      distanceM: 1000,
+      durationSec: null,
+      geometry: { type: "LineString", coordinates: [coordinates[index]!, coordinates[index + 1]!] },
+      provider: "straight_line",
+      profile: "straight_line",
+      fallback: true,
+    })),
+  };
 }
 
 function buildChatApp(providerBaseUrl: string) {
@@ -284,7 +317,7 @@ test("chat and itinerary response shapes match the OpenAPI contract", async () =
     assert.equal(sessionsRes.status, 200);
     expectShape(responseShapes.chatSessionList, await sessionsRes.json(), "chat session list");
 
-    // general_chat path: exercises ChatReply shape (draft nullable) without needing a tool-produced draft.
+    // general_chat path: exercises ChatReply shape (version nullable) without needing a tool-produced version.
     const sendRes = await chatApp.request(`/api/v1/chat/sessions/${sessionBody.data.id}/messages`, {
       method: "POST",
       headers: json,
@@ -292,7 +325,7 @@ test("chat and itinerary response shapes match the OpenAPI contract", async () =
     });
     assert.equal(sendRes.status, 200);
     const sendBody = expectShape(responseShapes.chatReply, await sendRes.json(), "chat send");
-    assert.equal(sendBody.data.draft, null);
+    assert.equal(sendBody.data.version, null);
 
     const messagesRes = await chatApp.request(
       `/api/v1/chat/sessions/${sessionBody.data.id}/messages?userId=${userId}&page=1&limit=10`,
@@ -301,50 +334,50 @@ test("chat and itinerary response shapes match the OpenAPI contract", async () =
     const messagesBody = expectShape(responseShapes.chatMessageList, await messagesRes.json(), "chat messages list");
     assert.ok(messagesBody.data.length >= 2);
 
-    // Itinerary confirm/get: use draft store (same as confirm flow) to validate response shapes.
-    const draftStore = createDraftStore();
-    const draft: ItineraryDraftResponse = {
-      draftId: "pending",
-      status: "pending_confirmation",
+    // Itinerary versions: seed via saveDraftVersion then validate detail, by-session, select and save shapes.
+    const itineraryService = createItineraryService({
+      findUserById: (id) => prisma.user.findUnique({ where: { id }, select: { id: true, isActive: true } }),
+    });
+    const itineraryApp = new Hono();
+    itineraryApp.onError(errorHandler);
+    itineraryApp.route("/api/v1/itineraries", createItineraryApi(itineraryService));
+
+    const saved = await itineraryService.saveDraftVersion({
+      userId,
+      sessionId: sessionBody.data.id,
       travelDate: "2026-12-01",
       startTime: "08:00",
       endTime: "17:00",
-      destinations: rows.map((row, index) => ({
-        order: index + 1,
-        destinationId: row.id,
-        name: row.name,
-        latitude: Number(row.latitude),
-        longitude: Number(row.longitude),
-        visitAt: index === 0 ? "08:00" : "09:30",
-        durationMinutes: 60,
-      })),
-      route: {
-        type: "LineString",
-        coordinates: rows.map((row) => [Number(row.longitude), Number(row.latitude)] as [number, number]),
-      },
-    };
-    const draftId = await draftStore.saveDraft({ userId, sessionId: sessionBody.data.id, itinerary: draft });
-
-    const itineraryApp = new Hono();
-    itineraryApp.onError(errorHandler);
-    itineraryApp.route("/api/v1/itineraries", createItineraryApi(createItineraryService({
-      findUserById: (id) => prisma.user.findUnique({ where: { id }, select: { id: true, isActive: true } }),
-    })));
-
-    const confirmRes = await itineraryApp.request("/api/v1/itineraries/confirm", {
-      method: "POST",
-      headers: json,
-      body: JSON.stringify({ draftId, userId, sessionId: sessionBody.data.id }),
+      stops: buildStops(rows),
+      routeJson: buildRouteJson(rows),
+      changeType: "generate",
     });
-    assert.equal(confirmRes.status, 201);
-    const confirmBody = expectShape(responseShapes.itinerary, await confirmRes.json(), "itinerary confirm");
-    assert.equal(confirmBody.data.sessionId, sessionBody.data.id);
 
     const detailRes = await itineraryApp.request(
-      `/api/v1/itineraries/${confirmBody.data.id}?userId=${userId}`,
+      `/api/v1/itineraries/${saved.itineraryId}?userId=${userId}`,
     );
     assert.equal(detailRes.status, 200);
-    expectShape(responseShapes.itinerary, await detailRes.json(), "itinerary detail");
+    expectShape(responseShapes.itineraryDetail, await detailRes.json(), "itinerary detail");
+
+    const bySessionRes = await itineraryApp.request(
+      `/api/v1/itineraries/by-session/${sessionBody.data.id}?userId=${userId}`,
+    );
+    assert.equal(bySessionRes.status, 200);
+    expectShape(responseShapes.itineraryDetail, await bySessionRes.json(), "itinerary by session");
+
+    const selectRes = await itineraryApp.request(
+      `/api/v1/itineraries/${saved.itineraryId}/versions/1/select`,
+      { method: "POST", headers: json, body: JSON.stringify({ userId }) },
+    );
+    assert.equal(selectRes.status, 200);
+    expectShape(responseShapes.itineraryDetail, await selectRes.json(), "itinerary select");
+
+    const saveRes = await itineraryApp.request(
+      `/api/v1/itineraries/${saved.itineraryId}/versions/1/save`,
+      { method: "POST", headers: json, body: JSON.stringify({ userId }) },
+    );
+    assert.equal(saveRes.status, 200);
+    expectShape(responseShapes.itineraryVersion, await saveRes.json(), "itinerary save");
   } finally {
     await new Promise<void>((resolve, reject) => provider.close((err) => (err ? reject(err) : resolve())));
     if (userId) await cleanupUser(userId);
@@ -438,43 +471,24 @@ test("new chat session, message version, and itinerary version endpoints match t
     const activateBody = expectShape(responseShapes.chatVersionActivation, await activateRes.json(), "message activate");
     assert.equal(activateBody.data.activeVersion, 1);
 
-    const draftStore = createDraftStore();
-    const draft: ItineraryDraftResponse = {
-      draftId: "pending",
-      status: "pending_confirmation",
+    const itineraryService = createItineraryService({
+      findUserById: (id) => prisma.user.findUnique({ where: { id }, select: { id: true, isActive: true } }),
+    });
+    const itineraryApp = new Hono();
+    itineraryApp.onError(errorHandler);
+    itineraryApp.route("/api/v1/itineraries", createItineraryApi(itineraryService));
+
+    const saved = await itineraryService.saveDraftVersion({
+      userId,
+      sessionId,
       travelDate: "2026-12-01",
       startTime: "08:00",
       endTime: "17:00",
-      destinations: rows.map((row, index) => ({
-        order: index + 1,
-        destinationId: row.id,
-        name: row.name,
-        latitude: Number(row.latitude),
-        longitude: Number(row.longitude),
-        visitAt: index === 0 ? "08:00" : "09:30",
-        durationMinutes: 60,
-      })),
-      route: {
-        type: "LineString",
-        coordinates: rows.map((row) => [Number(row.longitude), Number(row.latitude)] as [number, number]),
-      },
-    };
-    const draftId = await draftStore.saveDraft({ userId, sessionId, itinerary: draft });
-
-    const itineraryApp = new Hono();
-    itineraryApp.onError(errorHandler);
-    itineraryApp.route("/api/v1/itineraries", createItineraryApi(createItineraryService({
-      findUserById: (id) => prisma.user.findUnique({ where: { id }, select: { id: true, isActive: true } }),
-    })));
-
-    const confirmRes = await itineraryApp.request("/api/v1/itineraries/confirm", {
-      method: "POST",
-      headers: json,
-      body: JSON.stringify({ draftId, userId, sessionId }),
+      stops: buildStops(rows),
+      routeJson: buildRouteJson(rows),
+      changeType: "generate",
     });
-    assert.equal(confirmRes.status, 201);
-    const confirmBody = expectShape(responseShapes.itinerary, await confirmRes.json(), "itinerary confirm");
-    const itineraryId = confirmBody.data.id;
+    const itineraryId = saved.itineraryId;
 
     const bySessionRes = await itineraryApp.request(
       `/api/v1/itineraries/by-session/${sessionId}?userId=${userId}`,

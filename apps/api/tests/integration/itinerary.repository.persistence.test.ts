@@ -30,7 +30,6 @@ afterAll(async () => {
   for (const userId of createdUserIds) {
     await prisma.itineraryStop.deleteMany({ where: { version: { itinerary: { userId } } } });
     await prisma.itineraryVersion.deleteMany({ where: { itinerary: { userId } } });
-    await prisma.itineraryDraft.deleteMany({ where: { userId } });
     await prisma.destinationCheckpoint.deleteMany({ where: { itineraryDestination: { itinerary: { userId } } } });
     await prisma.itineraryDestination.deleteMany({ where: { itinerary: { userId } } });
     await prisma.itinerary.deleteMany({ where: { userId } });
