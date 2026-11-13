@@ -1164,7 +1164,22 @@
         const stops = ((version && version.stops) || []).slice().sort(function (a, b) { return a.position - b.position; });
         const orderById = {};
         stops.forEach(function (stop) { orderById[stop.id] = stop.position; });
-        const routes = ((version && version.routes) || []).slice().sort(function (a, b) {
+        const routeJson = version && version.routeJson;
+        const legs = routeJson && Array.isArray(routeJson.legs) ? routeJson.legs : [];
+        const routes = ((version && version.routes) || legs.map(function (leg) {
+          const fromStop = stops.find(function (stop) { return stop.position === leg.fromPosition; });
+          const toStop = stops.find(function (stop) { return stop.position === leg.toPosition; });
+          if (!fromStop || !toStop) return null;
+          return {
+            fromStopId: fromStop.id,
+            toStopId: toStop.id,
+            transportMode: leg.transportMode,
+            geometryJson: leg.geometry,
+            provider: leg.provider,
+            providerProfile: leg.profile,
+            fallback: leg.fallback,
+          };
+        }).filter(Boolean)).slice().sort(function (a, b) {
           return (orderById[a.fromStopId] || 0) - (orderById[b.fromStopId] || 0);
         });
         const coords = [];

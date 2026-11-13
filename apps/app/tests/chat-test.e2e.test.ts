@@ -9,9 +9,8 @@ const APP_URL_KEY = "lahlah.baseUrl";
 const USER_KEY = "lahlah.userId";
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 
-type Stop = {
+type BaseStop = {
   order: number;
-  destinationId: string;
   name: string;
   latitude: number;
   longitude: number;
@@ -19,42 +18,139 @@ type Stop = {
   durationMinutes: number;
 };
 
-type Draft = {
-  draftId: string;
-  status: "pending_confirmation";
-  travelDate: string;
-  startTime: string;
-  endTime: string;
-  destinations: Stop[];
-  route: { type: "LineString"; coordinates: Array<[number, number]> } | null;
+type VersionStop = {
+  id: string;
+  position: number;
+  name: string;
+  latitude: number;
+  longitude: number;
+  arrivalTime: string;
+  departureTime: string | null;
+  visitDurationMin: number;
 };
 
-type Message = { id: string; role: "user" | "assistant"; content: string };
+type RouteLeg = {
+  fromPosition: number;
+  toPosition: number;
+  transportMode: string;
+  distanceM: number | null;
+  durationSec: number | null;
+  geometry: { type: "LineString"; coordinates: Array<[number, number]> };
+  provider: string;
+  profile: string;
+  fallback: boolean;
+};
+
+type VersionSnapshot = {
+  id: string;
+  itineraryId: string;
+  version: number;
+  basedOnVersion: number | null;
+  changeInstruction: string | null;
+  changeType: string;
+  totalDistanceM: number | null;
+  totalDurationMin: number | null;
+  stops: VersionStop[];
+  routeJson: { type: "LineString"; coordinates: Array<[number, number]>; legs: RouteLeg[] };
+};
+
+type VersionSummary = {
+  version: number;
+  basedOnVersion: number | null;
+  changeType: string;
+  changeInstruction: string | null;
+  stopCount: number;
+  routeCount: number;
+  createdAt: string;
+};
+
+type ItineraryDetail = {
+  id: string;
+  sessionId: string;
+  tripDate: string;
+  currentVersion: number;
+  metadata: { profile: string };
+  version: VersionSnapshot;
+};
+
+type ItineraryEntry = {
+  detail: ItineraryDetail;
+  versions: VersionSummary[];
+  snapshots: Map<number, VersionSnapshot>;
+};
+
+type Message = { id: string; sessionId: string; role: "user" | "assistant"; content: string };
 
 type ApiState = {
   sessions: Array<{ id: string; title: string; userId: string }>;
   messages: Map<string, Message[]>;
-  confirmCalls: number;
+  itineraries: Map<string, ItineraryEntry>;
+  restoreCalls: number;
   messagePosts: number;
   osrmFails: boolean;
 };
 
-const stops: Stop[] = [
-  { order: 1, destinationId: "d-1", name: "Pantai Padang", latitude: -0.95, longitude: 100.35, visitAt: "12:00", durationMinutes: 60 },
-  { order: 2, destinationId: "d-2", name: "Museum Adityawarman", latitude: -0.94, longitude: 100.36, visitAt: "13:00", durationMinutes: 60 },
-  { order: 3, destinationId: "d-3", name: "Pasar Raya", latitude: -0.93, longitude: 100.37, visitAt: "14:00", durationMinutes: 60 },
+const stops: BaseStop[] = [
+  { order: 1, name: "Pantai Padang", latitude: -0.95, longitude: 100.35, visitAt: "12:00", durationMinutes: 60 },
+  { order: 2, name: "Museum Adityawarman", latitude: -0.94, longitude: 100.36, visitAt: "13:00", durationMinutes: 60 },
+  { order: 3, name: "Pasar Raya", latitude: -0.93, longitude: 100.37, visitAt: "14:00", durationMinutes: 60 },
 ];
 
-function draftFor(count: number): Draft {
+function snapshotFor(itineraryId: string, version: number, count: number, fallback: boolean): VersionSnapshot {
   const chosen = stops.slice(0, count);
+  const versionStops: VersionStop[] = chosen.map((s) => ({
+    id: `stop-v${version}-${s.order}`,
+    position: s.order,
+    name: s.name,
+    latitude: s.latitude,
+    longitude: s.longitude,
+    arrivalTime: s.visitAt,
+    departureTime: null,
+    visitDurationMin: s.durationMinutes,
+  }));
+  const legs: RouteLeg[] = [];
+  for (let i = 0; i + 1 < versionStops.length; i++) {
+    const from = versionStops[i]!;
+    const to = versionStops[i + 1]!;
+    legs.push({
+      fromPosition: from.position,
+      toPosition: to.position,
+      transportMode: "walk",
+      distanceM: 1200,
+      durationSec: null,
+      geometry: { type: "LineString", coordinates: [[from.longitude, from.latitude], [to.longitude, to.latitude]] },
+      provider: "straight_line",
+      profile: "straight_line",
+      fallback: true,
+    });
+  }
   return {
-    draftId: `2222222${count}-1111-4111-8111-111111111111`,
-    status: "pending_confirmation",
-    travelDate: "2026-11-10",
-    startTime: "12:00",
-    endTime: "17:00",
-    destinations: chosen,
-    route: chosen.length >= 2 ? { type: "LineString", coordinates: chosen.map((s) => [s.longitude, s.latitude]) } : null,
+    id: `ver-${itineraryId}-v${version}`,
+    itineraryId,
+    version,
+    basedOnVersion: version > 1 ? version - 1 : null,
+    changeInstruction: null,
+    changeType: version > 1 ? "regenerate" : "generate",
+    totalDistanceM: 2400,
+    totalDurationMin: null,
+    stops: versionStops,
+    routeJson: {
+      type: "LineString",
+      coordinates: versionStops.map((stop) => [stop.longitude, stop.latitude]),
+      legs,
+    },
+  };
+}
+
+function summaryFor(snapshot: VersionSnapshot): VersionSummary {
+  return {
+    version: snapshot.version,
+    basedOnVersion: snapshot.basedOnVersion,
+    changeType: snapshot.changeType,
+    changeInstruction: snapshot.changeInstruction,
+    stopCount: snapshot.stops.length,
+    routeCount: snapshot.routeJson.legs.length,
+    createdAt: new Date().toISOString(),
   };
 }
 
@@ -84,6 +180,13 @@ function json(route: Route, status: number, body: unknown) {
   });
 }
 
+function findEntryByItineraryId(state: ApiState, itineraryId: string): ItineraryEntry | undefined {
+  for (const entry of state.itineraries.values()) {
+    if (entry.detail.id === itineraryId) return entry;
+  }
+  return undefined;
+}
+
 async function handleApi(route: Route, state: ApiState) {
   const request = route.request();
   const url = new URL(request.url());
@@ -107,7 +210,7 @@ async function handleApi(route: Route, state: ApiState) {
   if (parts[2] === "chat" && messagesIndex > 0) {
     const sessionId = parts[messagesIndex - 1]!;
     if (method === "GET") {
-      return json(route, 200, { data: state.messages.get(sessionId) ?? [] });
+      return json(route, 200, { data: state.messages.get(sessionId) ?? [], meta: { nextAfterPosition: null } });
     }
     if (method === "POST") {
       state.messagePosts++;
@@ -115,25 +218,92 @@ async function handleApi(route: Route, state: ApiState) {
       if (/error/i.test(body.content)) {
         return json(route, 500, { error: { code: "AI_UPSTREAM_ERROR", message: "boom" } });
       }
+      const count = /satu/i.test(body.content) ? 1 : 3;
+      const existing = state.itineraries.get(sessionId);
+      const itineraryId = existing?.detail.id ?? `itin-${sessionId}`;
+      const nextVersion = existing ? existing.detail.currentVersion + 1 : 1;
+      const snapshot = snapshotFor(itineraryId, nextVersion, count, state.osrmFails);
+      const detail: ItineraryDetail = {
+        id: itineraryId,
+        sessionId,
+        tripDate: "2026-11-10",
+        currentVersion: nextVersion,
+        metadata: { profile: "car" },
+        version: snapshot,
+      };
+      const versions = existing ? [...existing.versions, summaryFor(snapshot)] : [summaryFor(snapshot)];
+      const snapshots = new Map(existing?.snapshots ?? []);
+      snapshots.set(nextVersion, snapshot);
+      state.itineraries.set(sessionId, { detail, versions, snapshots });
       const list = state.messages.get(sessionId) ?? [];
-      list.push({ id: `m-user-${state.messagePosts}`, role: "user", content: body.content });
-      const draft = draftFor(/satu/i.test(body.content) ? 1 : 3);
-      list.push({ id: `m-assistant-${state.messagePosts}`, role: "assistant", content: "Draft itinerary siap dikonfirmasi." });
+      list.push({ id: `m-user-${state.messagePosts}`, sessionId, role: "user", content: body.content });
+      list.push({
+        id: `m-assistant-${state.messagePosts}`,
+        sessionId,
+        role: "assistant",
+        content: `Versi ${nextVersion} untuk ${count} destinasi di Padang sudah saya susun.`,
+      });
       state.messages.set(sessionId, list);
       return json(route, 200, {
         data: {
-          message: "Draft itinerary siap dikonfirmasi.",
+          message: `Versi ${nextVersion} untuk ${count} destinasi di Padang sudah saya susun.`,
           intent: "generate_itinerary",
-          draft,
+          version: {
+            versionId: snapshot.id,
+            versionNumber: nextVersion,
+            itineraryId,
+            travelDate: "2026-11-10",
+            startTime: "12:00",
+            endTime: "",
+            stops: snapshot.stops,
+          },
           assistantMessageId: `m-assistant-${state.messagePosts}`,
           sessionId,
         },
       });
     }
   }
-  if (method === "POST" && url.pathname === "/api/v1/itineraries/confirm") {
-    state.confirmCalls++;
-    return json(route, 201, { data: { id: "itin-1" } });
+  if (parts[2] === "itineraries" && parts[3] === "by-session" && method === "GET") {
+    const entry = state.itineraries.get(parts[4]!);
+    if (!entry) return json(route, 404, { error: { code: "ITINERARY_NOT_FOUND", message: "Itinerary not found" } });
+    return json(route, 200, { data: entry.detail });
+  }
+  if (parts[2] === "itineraries" && parts[4] === "versions" && parts.length === 5 && method === "GET") {
+    const entry = findEntryByItineraryId(state, parts[3]!);
+    if (!entry) return json(route, 404, { error: { code: "ITINERARY_NOT_FOUND", message: "Itinerary not found" } });
+    return json(route, 200, { data: entry.versions });
+  }
+  if (parts[2] === "itineraries" && parts[4] === "versions" && parts.length === 6 && method === "GET") {
+    const entry = findEntryByItineraryId(state, parts[3]!);
+    const snapshot = entry?.snapshots.get(Number(parts[5]));
+    if (!entry || !snapshot) {
+      return json(route, 404, { error: { code: "VERSION_NOT_FOUND", message: "Itinerary version not found" } });
+    }
+    return json(route, 200, { data: snapshot });
+  }
+  if (parts[2] === "itineraries" && parts[4] === "restore" && method === "POST") {
+    const entry = findEntryByItineraryId(state, parts[3]!);
+    const target = entry?.snapshots.get(Number(parts[5]));
+    if (!entry || !target) {
+      return json(route, 404, { error: { code: "VERSION_NOT_FOUND", message: "Itinerary version not found" } });
+    }
+    const body = request.postDataJSON() as { expectedVersion?: number };
+    if (body.expectedVersion !== entry.detail.currentVersion) {
+      return json(route, 409, { error: { code: "VERSION_CONFLICT", message: "Version changed" } });
+    }
+    state.restoreCalls++;
+    const nextVersion = entry.detail.currentVersion + 1;
+    const snapshot: VersionSnapshot = {
+      ...target,
+      id: `ver-${entry.detail.id}-v${nextVersion}`,
+      version: nextVersion,
+      basedOnVersion: target.version,
+      changeType: "restore",
+    };
+    entry.detail = { ...entry.detail, currentVersion: nextVersion, version: snapshot };
+    entry.versions.push(summaryFor(snapshot));
+    entry.snapshots.set(nextVersion, snapshot);
+    return json(route, 200, { data: entry.detail });
   }
   return json(route, 404, { error: { code: "NOT_FOUND", message: "not found" } });
 }
@@ -153,7 +323,14 @@ async function handleMaplibre(route: Route, fileName: string) {
 }
 
 async function open(options: { viewport?: { width: number; height: number } } = {}) {
-  const state: ApiState = { sessions: [], messages: new Map(), confirmCalls: 0, messagePosts: 0, osrmFails: false };
+  const state: ApiState = {
+    sessions: [],
+    messages: new Map(),
+    itineraries: new Map(),
+    restoreCalls: 0,
+    messagePosts: 0,
+    osrmFails: false,
+  };
   const context = await browser.newContext({ viewport: options.viewport ?? { width: 1280, height: 900 } });
   contexts.push(context);
   await context.addInitScript(
@@ -165,31 +342,6 @@ async function open(options: { viewport?: { width: number; height: number } } = 
   );
   await context.route("**/*", async (route) => {
     const url = new URL(route.request().url());
-    const method = route.request().method();
-    if (url.hostname === "api.test" && url.pathname === "/api/v1/routes/driving") {
-      if (method === "OPTIONS") return route.fulfill({ status: 204, headers: corsHeaders() });
-      if (state.osrmFails) {
-        return json(route, 200, {
-          data: {
-            source: "fallback",
-            distanceKm: 3.4,
-            durationMin: null,
-            estimated: false,
-            error: "OSRM HTTP 503",
-            geometry: { type: "LineString", coordinates: stops.map((s) => [s.longitude, s.latitude]) },
-          },
-        });
-      }
-      return json(route, 200, {
-        data: {
-          source: "osrm",
-          distanceKm: 8.4,
-          durationMin: 16,
-          estimated: false,
-          geometry: { type: "LineString", coordinates: stops.map((s) => [s.longitude, s.latitude]) },
-        },
-      });
-    }
     if (url.hostname === "api.test") return handleApi(route, state);
     if (url.hostname === "unpkg.com") return handleMaplibre(route, path.basename(url.pathname));
     if (url.hostname.endsWith("basemaps.cartocdn.com")) {
@@ -205,7 +357,7 @@ async function open(options: { viewport?: { width: number; height: number } } = 
 
 async function newChat(page: Page) {
   const before = await page.locator("#tabs .tab").count();
-  await page.click("#newChatBtn");
+  await page.locator("#newChatBtn").dispatchEvent("click");
   await page.waitForFunction((count) => document.querySelectorAll("#tabs .tab").length === count + 1, before);
 }
 
@@ -265,12 +417,12 @@ describe("chat test HTML client matrix", () => {
     await send(page, "kuliner untuk besok");
     await page.waitForSelector(".msg.assistant");
 
-    await page.locator("#tabs .tab").nth(1).click();
+    await page.locator("#tabs .tab").nth(1).dispatchEvent("click");
     await page.waitForFunction(() =>
       Array.from(document.querySelectorAll("#messages .msg")).some((el) => el.textContent === "pantai untuk besok"),
     );
     expect(await page.locator("#messages .msg").count()).toBe(2);
-    expect(await textOf(page, "#messages .msg:first-child")).toBe("pantai untuk besok");
+    expect(await textOf(page, "#messages .msg-row:first-child .msg")).toBe("pantai untuk besok");
   });
 
   test("HTML-003: reload restores active session, history, draft, and route", async () => {
@@ -297,7 +449,7 @@ describe("chat test HTML client matrix", () => {
     expect(await page.locator("#messages .msg").count()).toBe(2);
     expect(await page.locator("#messages .msg").first().getAttribute("class")).toMatch(/user/);
     expect(await page.locator("#messages .msg").nth(1).getAttribute("class")).toMatch(/assistant/);
-    expect(await textOf(page, "#chatStatus")).toContain("Draft siap");
+    expect(await textOf(page, "#chatStatus")).toContain("Versi 1 dibuat");
   });
 
   test("HTML-005: empty messages are rejected before any API call", async () => {
@@ -317,39 +469,49 @@ describe("chat test HTML client matrix", () => {
     expect(await page.locator("#message").inputValue()).toBe("error please");
   });
 
-  test("HTML-007: draft panel lists ordered stops and offers save", async () => {
+  test("HTML-007: draft panel lists ordered stops with the active version", async () => {
     const { page } = await open();
     await newChat(page);
     await send(page, "pantai dan kuliner");
     await waitForDraft(page);
-    expect(await textOf(page, "#draftMeta")).toContain("2026-11-10 · 12:00–17:00 · 3 destinasi");
+    expect(await textOf(page, "#draftMeta")).toContain("2026-11-10 · mulai 12:00 · 3 destinasi");
     expect(await page.locator("#stops li").count()).toBe(3);
     expect(await textOf(page, "#stops li:first-child")).toContain("Pantai Padang");
-    expect(await textOf(page, "#stops li:first-child")).toContain("12:00 · 60 menit");
-    expect(await page.locator("#confirmBtn").isVisible()).toBe(true);
+    expect(await textOf(page, "#stops li:first-child")).toContain("Kunjungan 12:00");
+    expect(await textOf(page, "#stops li:first-child")).toContain("60 menit");
+    expect(await textOf(page, "#versionMeta")).toContain("aktif v1");
+    expect(await textOf(page, "#draftStatus")).toContain("Itinerary tersimpan");
   });
 
-  test("HTML-008: saving hides the button, shows the saved id, and does not repeat", async () => {
+  test("HTML-008: restore creates a new version, then preview leaves the active version unchanged", async () => {
     const { page, state } = await open();
     await newChat(page);
     await send(page, "pantai dan kuliner");
     await waitForDraft(page);
-    await page.click("#confirmBtn");
-    await page.waitForFunction(() => document.querySelector("#draftStatus")?.textContent?.includes("Itinerary tersimpan"));
-    expect(await textOf(page, "#draftStatus")).toContain("itin-1");
-    expect(await page.locator("#confirmBtn").isHidden()).toBe(true);
-    expect(state.confirmCalls).toBe(1);
+    await send(page, "pantai dan kuliner lagi");
+    await page.waitForFunction(() => document.querySelector("#versionMeta")?.textContent?.includes("aktif v2"));
+
+    await page.locator('#versionList li:has-text("v1 ·") button:has-text("Pulihkan")').click();
+    await page.waitForFunction(() =>
+      document.querySelector("#draftStatus")?.textContent?.includes("dipulihkan sebagai v3"),
+    );
+    expect(await textOf(page, "#versionMeta")).toContain("aktif v3");
+    expect(await page.locator("#versionList li").count()).toBe(3);
+    expect(state.restoreCalls).toBe(1);
+
+    await page.locator('#versionList li:has-text("v1 ·") button:has-text("Lihat")').click();
+    await page.waitForFunction(() => document.querySelector("#versionMeta")?.textContent?.includes("pratinjau v1"));
+    expect(await textOf(page, "#versionMeta")).toContain("aktif v3");
   });
 
-  test("HTML-009: successful OSRM route shows distance, duration, and numbered markers", async () => {
+  test("HTML-009: persisted fallback route shows straight-line labeling and numbered markers", async () => {
     const { page } = await open();
     await newChat(page);
     await send(page, "pantai dan kuliner");
     await waitForMarkers(page);
     const note = await textOf(page, "#routeNote");
-    expect(note).toContain("Rute jalan OSRM");
-    expect(note).toContain("8,4 km");
-    expect(note).toContain("16 menit");
+    expect(note).toContain("Rute garis lurus");
+    expect(note).toContain("Bukan rute jalan");
     expect(await page.locator(".stop-marker").allTextContents()).toEqual(["1", "2", "3"]);
     // Markers live inside the MapLibre canvas container: this only exists if the real library initialized.
     expect(await page.locator("#map canvas.maplibregl-canvas").count()).toBe(1);
@@ -362,13 +524,14 @@ describe("chat test HTML client matrix", () => {
     expect(canvas!.height).toBeGreaterThan(0);
   });
 
-  test("HTML-010: OSRM failure falls back to the straight line and says so", async () => {
+  test("HTML-010: persisted fallback route is labeled as a straight line, never road routing", async () => {
     const { page, state } = await open();
     state.osrmFails = true;
     await newChat(page);
     await send(page, "pantai dan kuliner");
     await waitForMarkers(page);
-    expect(await textOf(page, "#routeNote")).toContain("Memakai garis lurus dari draft");
+    expect(await textOf(page, "#routeNote")).toContain("Rute garis lurus");
+    expect(await textOf(page, "#routeNote")).toContain("Bukan rute jalan");
     expect(await page.locator("#routeNote").getAttribute("class")).toMatch(/error/);
     expect(await page.locator("#stops li").count()).toBe(3);
   });
