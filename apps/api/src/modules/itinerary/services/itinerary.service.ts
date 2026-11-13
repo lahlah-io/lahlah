@@ -6,6 +6,7 @@ import type {
 } from "../../../shared/schemas/itinerary-version.js";
 import * as itineraryRepository from "../repositories/itinerary.repository.js";
 import { checkUserItineraryAccess } from "../repositories/trip.repository.js";
+import { deriveVersionRoutes } from "./version-routes.js";
 
 type UserRow = { id: string; isActive: boolean };
 type ItineraryDeps = {
@@ -50,15 +51,18 @@ function asVersionView(
     startTime: times.startTime,
     endTime: times.endTime,
     stops: snapshot.stops.map((s) => ({
+      id: s.id,
       position: s.position,
       destinationId: s.destinationId,
       name: s.name,
       latitude: Number(s.latitude),
       longitude: Number(s.longitude),
       arrivalTime: s.arrivalTime,
+      departureTime: s.departureTime,
       visitDurationMin: s.visitDurationMin,
       category: s.category,
     })),
+    routes: deriveVersionRoutes(snapshot.routeJson, snapshot.stops),
     routeJson: snapshot.routeJson,
   };
 }

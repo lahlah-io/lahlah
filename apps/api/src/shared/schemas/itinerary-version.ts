@@ -1,12 +1,24 @@
 export type ItineraryVersionStop = {
+  id?: string;
   position: number;
   destinationId: string | null;
   name: string;
   latitude: number;
   longitude: number;
   arrivalTime: string | null;
+  departureTime?: string | null;
   visitDurationMin: number | null;
   category: string | null;
+};
+
+export type ItineraryVersionRoute = {
+  fromStopId: string;
+  toStopId: string;
+  transportMode: string;
+  geometryJson: unknown;
+  provider: string | null;
+  providerProfile: string | null;
+  fallback: boolean;
 };
 
 /** Version payload shared by the chat flow and the itinerary version store. */
@@ -18,6 +30,7 @@ export type ItineraryVersionView = {
   startTime: string;
   endTime: string;
   stops: ItineraryVersionStop[];
+  routes?: ItineraryVersionRoute[];
   routeJson: unknown;
 };
 
