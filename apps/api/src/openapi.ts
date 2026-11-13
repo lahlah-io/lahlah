@@ -226,14 +226,26 @@ const chatMapPoint = z.object({
 });
 
 const itineraryVersionStopView = z.object({
+  id: z.uuid().optional(),
   position: z.number().int(),
   destinationId: z.uuid().nullable(),
   name: z.string(),
   latitude: z.number(),
   longitude: z.number(),
   arrivalTime: z.string().nullable(),
+  departureTime: z.string().nullable().optional(),
   visitDurationMin: z.number().int().nullable(),
   category: z.string().nullable(),
+});
+
+const itineraryVersionRouteView = z.object({
+  fromStopId: z.uuid(),
+  toStopId: z.uuid(),
+  transportMode: z.string(),
+  geometryJson: lineString.nullable(),
+  provider: z.string().nullable(),
+  providerProfile: z.string().nullable(),
+  fallback: z.boolean(),
 });
 
 const itineraryVersionView = z.object({
@@ -244,6 +256,7 @@ const itineraryVersionView = z.object({
   startTime: z.string(),
   endTime: z.string(),
   stops: z.array(itineraryVersionStopView),
+  routes: z.array(itineraryVersionRouteView).optional(),
   routeJson: z.unknown(),
 });
 
