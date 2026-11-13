@@ -32,6 +32,7 @@
   "dependencies": {
     "@hono/node-server": "^1.19.0",
     "@hono/zod-validator": "^0.9.1",
+    "@huggingface/transformers": "^4.3.2",
     "@prisma/adapter-pg": "^7.10.1",
     "@prisma/client": "^7.10.1",
     "dotenv": "^16.6.1",

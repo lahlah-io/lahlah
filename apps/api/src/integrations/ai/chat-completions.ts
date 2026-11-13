@@ -16,6 +16,11 @@ function pick(shared: string, specific: string): string {
   return (specific || shared || "").trim();
 }
 
+function pickEffort(raw: string | undefined, fallback: string): string {
+  const value = (raw ?? "").trim();
+  return value || fallback;
+}
+
 export function resolveAiRoleConfig(role: AiChatRole, source: EnvLike = process.env): AiRoleConfig {
   const sharedBase = pick(source.AI_BASE_URL ?? "", "");
   const sharedKey = pick(source.AI_API_KEY ?? "", "");
@@ -26,14 +31,14 @@ export function resolveAiRoleConfig(role: AiChatRole, source: EnvLike = process.
     const apiKey = pick(sharedKey, source.AI_CLASSIFIER_API_KEY ?? "");
     const provider = pick(sharedProvider, source.AI_CLASSIFIER_PROVIDER ?? "");
     if (!model || !baseUrl || !apiKey) throw new HttpError(503, "AI_NOT_CONFIGURED", "AI classifier is not configured");
-    return { baseUrl, apiKey, model, provider };
+    return { baseUrl, apiKey, model, provider, reasoningEffort: pickEffort(source.AI_CLASSIFIER_REASONING_EFFORT, "low") };
   }
   const model = pick(source.AI_TOOL_MODEL ?? "", "");
   const baseUrl = pick(sharedBase, source.AI_TOOL_BASE_URL ?? "");
   const apiKey = pick(sharedKey, source.AI_TOOL_API_KEY ?? "");
   const provider = pick(sharedProvider, source.AI_TOOL_PROVIDER ?? "");
   if (!model || !baseUrl || !apiKey) throw new HttpError(503, "AI_NOT_CONFIGURED", "AI tool model is not configured");
-  return { baseUrl, apiKey, model, provider };
+  return { baseUrl, apiKey, model, provider, reasoningEffort: pickEffort(source.AI_TOOL_REASONING_EFFORT, "medium") };
 }
 
 function toProviderMessages(messages: AiMessage[]) {
@@ -88,6 +93,7 @@ export async function completeChat(input: {
   };
   if (input.tools?.length) body.tools = input.tools;
   if (input.toolChoice) body.tool_choice = input.toolChoice;
+  if (input.config.reasoningEffort) body.reasoning_effort = input.config.reasoningEffort;
 
   let response: Response;
   try {

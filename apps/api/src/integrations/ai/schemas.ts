@@ -25,6 +25,7 @@ export type AiRoleConfig = {
   apiKey: string;
   model: string;
   provider: string;
+  reasoningEffort?: string;
 };
 
 const toolCallSchema = z.object({
