@@ -42,3 +42,6 @@ export async function findDestinations(input: z.infer<typeof listDestinationsQue
 
 export const findDestinationById = (id: string) =>
   prisma.destination.findUnique({ where: { id }, select: destinationSelect });
+
+export const findActiveForKnowledgeBase = () =>
+  prisma.destination.findMany({ where: { city: "Padang", isActive: true }, select: destinationSelect });

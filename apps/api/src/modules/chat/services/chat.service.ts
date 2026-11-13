@@ -4,6 +4,7 @@ import { HttpError } from "../../../shared/http/errors.js";
 import { completeChat, resolveAiRoleConfig } from "../../../integrations/ai/chat-completions.js";
 import type { AiMessage, AiToolDefinition } from "../../../integrations/ai/schemas.js";
 import { classify, type Intent } from "./classifier.js";
+import { generateNaturalReply } from "./answerer.js";
 import { buildConversationContext } from "./conversation-context.js";
 import { generateItinerary } from "./itinerary-generator.js";
 import { createToolExecutor, mergeDestinationRows } from "./tools.js";
@@ -19,6 +20,13 @@ import type {
 } from "../../../shared/schemas/itinerary-version.js";
 import * as chatRepository from "../repositories/chat.repository.js";
 
+async function ragContextMessage(deps: Pick<ChatDeps, "retrieveRagContext">, query: string): Promise<AiMessage[]> {
+  if (!deps.retrieveRagContext) return [];
+  const ragText = await deps.retrieveRagContext(query).catch(() => "");
+  if (!ragText) return [];
+  return [{ role: "system", content: `Destinasi relevan (jadikan petunjuk, tetap panggil tool untuk data final):\n${ragText}` }];
+}
+
 const HISTORY_LIMIT = 20;
 export const SYSTEM_PROMPT =
   "You are a helpful Padang travel assistant. For itinerary requests, you MUST use provided tools to fetch destination data from the database before suggesting places. Return concise Indonesian responses.";
@@ -28,6 +36,7 @@ type ChatDeps = {
   findUserById: (id: string) => Promise<UserRow | null>;
   classifyMessage?: typeof classify;
   completeAiChat?: typeof completeChat;
+  retrieveRagContext?: (query: string) => Promise<string>;
   itinerary?: ItineraryVersionGateway;
   searchDestinations: (input: { keywords?: string; categories?: string[] }) => Promise<unknown[]>;
   getDestinationDetails: (input: { destinationIds: string[] }) => Promise<unknown[]>;
@@ -400,6 +409,7 @@ async function runItineraryToolFlow(input: {
   ];
   const messages: AiMessage[] = [
     ...input.history,
+    ...(await ragContextMessage(input.deps, input.userMessage)),
     { role: "user", content: `User request (Padang, single day): ${input.userMessage}\nUse tools to fetch destinations. Required categories: ${input.request.categories.join(", ")}.` },
   ];
   const maxRounds = Math.max(1, Math.min(env.AI_TOOL_MAX_ROUNDS, 10));
@@ -679,7 +689,6 @@ export function createChatService(deps: ChatDeps) {
   }): Promise<{ intent: Intent; message: string; version: ItineraryVersionView | null; usage: { inputTokens?: number; outputTokens?: number } }> {
     const classified = await doClassify(input.content, process.env, input.sessionId);
     let intent: Intent = classified.intent;
-    let message = "Ada yang bisa saya bantu untuk rencana perjalanan di Padang?";
     let version: ItineraryVersionView | null = null;
     let usage: { inputTokens?: number; outputTokens?: number } = classified.usage
       ? { inputTokens: classified.usage.promptTokens, outputTokens: classified.usage.completionTokens }
@@ -713,8 +722,8 @@ export function createChatService(deps: ChatDeps) {
     }
 
     if (wantsMultipleItineraries(input.content) && isGeneratorIntent) {
-      message = "Satu perjalanan = satu itinerary yang tersimpan sebagai beberapa versi. Mau alternatif lain? Minta \"buat ulang\" — setiap kali saya susun versi baru, nanti tinggal pilih versi yang paling cocok.";
-      return { intent, message, version: null, usage };
+      const multiMessage = "Satu perjalanan = satu itinerary yang tersimpan sebagai beberapa versi. Mau alternatif lain? Minta \"buat ulang\" — setiap kali saya susun versi baru, nanti tinggal pilih versi yang paling cocok.";
+      return { intent, message: multiMessage, version: null, usage };
     }
 
     if (usesTripFlow && outcome.kind === "ready") {
@@ -747,19 +756,30 @@ export function createChatService(deps: ChatDeps) {
       const defaults: string[] = [];
       if (merged.params.travelDate == null) defaults.push(`tanggal hari ini (${outcome.trip.travelDate})`);
       if (merged.params.startTime == null) defaults.push(`jam ${outcome.trip.startTime}-${outcome.trip.endTime}`);
-      message = oneOf(
+      const generatedMessage = oneOf(
         `Versi ${versionNumber} untuk ${stopCount} destinasi di Padang sudah saya susun.`,
         `Selesai! Versi ${versionNumber} dengan ${stopCount} destinasi di Padang sudah saya siapkan.`,
       );
-      if (defaults.length) message += ` Dipakai default ${defaults.join(", ")} (bisa diubah).`;
-    } else if (intent === "general_chat") {
-      message = "Halo! Saya bisa bantu menyusun itinerary satu hari di Kota Padang. Sebutkan saja kategori wisata yang kamu suka — misalnya pantai, kuliner, atau alam. Mau mulai dari mana?";
+      return {
+        intent,
+        message: defaults.length ? `${generatedMessage} Dipakai default ${defaults.join(", ")} (bisa diubah).` : generatedMessage,
+        version,
+        usage,
+      };
     } else {
-      intent = "missing_information";
-      message = "Sebutkan kategori wisata di Padang (misalnya pantai, budaya, kuliner, alam, sejarah, santai, belanja) — tanggal dan jam bisa saya isi otomatis.";
+      const hint = intent === "general_chat" ? undefined : "Beberapa detail perjalanan belum lengkap (kategori, tanggal, atau jam). Tanyakan detail yang kurang dengan ramah.";
+      if (intent !== "general_chat") intent = "missing_information";
+      const answer = await generateNaturalReply(deps, {
+        userMessage: input.content,
+        history: input.history,
+        hint,
+      });
+      const generatedUsage = {
+        inputTokens: (usage.inputTokens ?? 0) + (answer.usage.inputTokens ?? 0),
+        outputTokens: (usage.outputTokens ?? 0) + (answer.usage.outputTokens ?? 0),
+      };
+      return { intent, message: answer.message, version, usage: generatedUsage };
     }
-
-    return { intent, message, version, usage };
   }
 
   return {
