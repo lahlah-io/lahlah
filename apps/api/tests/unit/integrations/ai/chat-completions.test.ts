@@ -164,6 +164,37 @@ test("rejects text-only response when tool required", async () => {
   );
 });
 
+test("reads per-role reasoning_effort with defaults", () => {
+  const cls = resolveAiRoleConfig("classifier", {
+    AI_BASE_URL: "https://shared.example/v1",
+    AI_API_KEY: "shared",
+    AI_CLASSIFIER_MODEL: "cls-model",
+  } as NodeJS.ProcessEnv);
+  assert.equal(cls.reasoningEffort, "low");
+
+  const tool = resolveAiRoleConfig("tool", {
+    AI_BASE_URL: "https://shared.example/v1",
+    AI_API_KEY: "shared",
+    AI_TOOL_MODEL: "tool-model",
+    AI_TOOL_REASONING_EFFORT: "high",
+  } as NodeJS.ProcessEnv);
+  assert.equal(tool.reasoningEffort, "high");
+});
+
+test("sends reasoning_effort when config carries it", async () => {
+  const cfg = { baseUrl: "https://x.test/v1", apiKey: "k", model: "m", provider: "openai-compatible", reasoningEffort: "medium" };
+  await withFetch(
+    async (_url, init) => {
+      const body = JSON.parse(String(init?.body));
+      assert.equal(body.reasoning_effort, "medium");
+      return new Response(JSON.stringify({ choices: [{ message: { content: "ok" }, finish_reason: "stop" }] }), { status: 200 });
+    },
+    async () => {
+      await completeChat({ role: "tool", config: cfg, messages: [{ role: "user", content: "x" }] });
+    },
+  );
+});
+
 test("missing API key for role -> controlled error", () => {
   assert.throws(
     () => resolveAiRoleConfig("tool", { AI_TOOL_MODEL: "m" } as NodeJS.ProcessEnv),
