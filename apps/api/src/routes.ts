@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 import { prisma } from "./db/client.js";
 import { createChatApi, createChatService } from "./modules/chat/index.js";
-import { destinationsApi } from "./modules/destinations/index.js";
+import { makeRagContextProvider } from "./modules/chat/services/rag.js";
+import { destinationsApi, listKnowledgeBaseDestinations } from "./modules/destinations/index.js";
 import { createItineraryApi, createItineraryService } from "./modules/itinerary/index.js";
 import { usersApi } from "./modules/users/index.js";
 import { createRouteCache, createRoutingApi, createRoutingService } from "./modules/routing/index.js";
@@ -45,9 +46,12 @@ const itineraryService = createItineraryService({
   findUserById: (id) => usersRepository.findUserById(id).then((u) => (u ? { id: u.id, isActive: u.isActive } : null)),
 });
 
+const knowledgeBaseRows = async () => listKnowledgeBaseDestinations();
+
 const chatService = createChatService({
   itinerary: itineraryService,
   findUserById: (id) => usersRepository.findUserById(id).then((u) => (u ? { id: u.id, isActive: u.isActive } : null)),
+  retrieveRagContext: makeRagContextProvider(knowledgeBaseRows),
   searchDestinations: async (input) => {
     const q = input.keywords?.trim();
     const cats = input.categories?.filter(Boolean) ?? [];

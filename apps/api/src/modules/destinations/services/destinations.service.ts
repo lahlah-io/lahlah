@@ -27,3 +27,8 @@ export async function getDestination(id: string) {
   if (!row) throw new HttpError(404, "DESTINATION_NOT_FOUND", "Destination not found");
   return toDto(row)!;
 }
+
+export async function listKnowledgeBaseDestinations() {
+  const rows = await destinationsRepository.findActiveForKnowledgeBase();
+  return rows.map((row) => toDto(row)!);
+}

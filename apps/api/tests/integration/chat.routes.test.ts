@@ -30,6 +30,7 @@ function buildApp(providerBaseUrl = "http://127.0.0.1:9/v1") {
   const chatService = createChatService({
     findUserById,
     itinerary,
+    retrieveRagContext: async () => "",
     searchDestinations: async (input) => {
       const q = input.keywords?.trim();
       const cats = input.categories?.filter(Boolean) ?? [];
@@ -82,6 +83,11 @@ async function createTestUser() {
 }
 
 async function cleanupUser(userId: string) {
+  await prisma.itineraryStop.deleteMany({ where: { version: { itinerary: { userId } } } });
+  await prisma.itineraryVersion.deleteMany({ where: { itinerary: { userId } } });
+  await prisma.destinationCheckpoint.deleteMany({ where: { itineraryDestination: { itinerary: { userId } } } });
+  await prisma.itineraryDestination.deleteMany({ where: { itinerary: { userId } } });
+  await prisma.itinerary.deleteMany({ where: { userId } });
   await prisma.chatMessage.deleteMany({ where: { session: { userId } } });
   await prisma.chatSession.deleteMany({ where: { userId } });
   await prisma.user.delete({ where: { id: userId } }).catch(() => undefined);
@@ -471,9 +477,12 @@ test("E2E-007: non-actionable follow-up does not generate a draft", async () => 
   process.env.NODE_ENV = "test";
   delete process.env.AI_CLASSIFIER_MODEL;
   let toolCalls = 0;
-  const provider = await startFakeProvider(() => {
-    toolCalls++;
-    return toolCallResponse("search_destinations", {});
+  const provider = await startFakeProvider((body) => {
+    if ((body as { tools?: unknown[] }).tools?.length) {
+      toolCalls++;
+      return toolCallResponse("search_destinations", {});
+    }
+    return { json: { choices: [{ message: { content: "Sama-sama!" }, finish_reason: "stop" }] } };
   });
   const app = buildApp(provider.url);
   const user = await createTestUser();
