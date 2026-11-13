@@ -743,12 +743,13 @@ export function createChatService(deps: ChatDeps) {
         });
       }
       const stopCount = version?.stops.length ?? generated.destinations.length;
+      const versionNumber = version?.versionNumber ?? 1;
       const defaults: string[] = [];
       if (merged.params.travelDate == null) defaults.push(`tanggal hari ini (${outcome.trip.travelDate})`);
       if (merged.params.startTime == null) defaults.push(`jam ${outcome.trip.startTime}-${outcome.trip.endTime}`);
       message = oneOf(
-        `Itinerary ${outcome.trip.travelDate} untuk ${stopCount} destinasi di Padang sudah siap ditinjau.`,
-        `Selesai! Itinerary ${outcome.trip.travelDate} dengan ${stopCount} destinasi di Padang sudah saya siapkan.`,
+        `Versi ${versionNumber} untuk ${stopCount} destinasi di Padang sudah saya susun.`,
+        `Selesai! Versi ${versionNumber} dengan ${stopCount} destinasi di Padang sudah saya siapkan.`,
       );
       if (defaults.length) message += ` Dipakai default ${defaults.join(", ")} (bisa diubah).`;
     } else if (intent === "general_chat") {

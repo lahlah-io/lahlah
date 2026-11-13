@@ -413,8 +413,8 @@
 
           <section class="test-group">
             <h3>10. Confirmation</h3>
-            <button class="run-case" data-msg="Saya setuju dengan itinerary ini" title="CON confirm draft">CON-001</button>
-            <p class="test-note">Klik Simpan itinerary di panel kanan setelah draft muncul (CON-005 idempotent dst).</p>
+            <button class="run-case" data-msg="Saya setuju dengan itinerary ini" title="CON setuju itinerary">CON-001</button>
+            <p class="test-note">Pilih/aktifkan versi lewat daftar Versi itinerary di panel kanan (Lihat/Pulihkan).</p>
           </section>
 
           <section class="test-group">
@@ -459,7 +459,7 @@
 
         <aside class="itinerary" aria-label="Itinerary">
           <h2>Itinerary</h2>
-          <p id="draftMeta" class="status">Belum ada draft. Minta itinerary lewat chat.</p>
+          <p id="draftMeta" class="status">Belum ada versi. Minta itinerary lewat chat.</p>
           <div id="mapWrap" class="map-wrap hidden">
             <div id="map" class="map" role="img" aria-label="Peta rute itinerary"></div>
             <select id="mapVersionSelect" class="map-version-select hidden" aria-label="Lihat versi itinerary di peta"></select>
@@ -480,9 +480,6 @@
           </label>
           <p id="routeNote" class="status"></p>
           <ol id="stops" class="stops"></ol>
-          <div class="actions">
-            <button id="confirmBtn" type="button" class="hidden">Simpan itinerary</button>
-          </div>
           <p id="draftStatus" class="status" aria-live="polite"></p>
           <div class="versions-block">
             <h3>Versi itinerary</h3>
@@ -528,7 +525,6 @@
         routeNote: document.getElementById("routeNote"),
         routeProfile: document.getElementById("routeProfile"),
         stops: document.getElementById("stops"),
-        confirmBtn: document.getElementById("confirmBtn"),
         draftStatus: document.getElementById("draftStatus"),
         versionMeta: document.getElementById("versionMeta"),
         versionList: document.getElementById("versionList"),
@@ -881,7 +877,8 @@
             const versionBtn = document.createElement("button");
             versionBtn.type = "button";
             versionBtn.className = "secondary tiny";
-            versionBtn.textContent = "Versi (" + (message.activeVersion || message.versions.length || 1) + ")";
+            versionBtn.title = "Versi balasan AI (regenerasi), bukan versi itinerary";
+            versionBtn.textContent = "Balasan (" + (message.activeVersion || message.versions.length || 1) + ")";
             versionBtn.addEventListener("click", function () { toggleMessageVersions(message); });
             actions.append(regenBtn, versionBtn);
             row.append(actions);
@@ -982,7 +979,7 @@
           message.activeVersion = data.activeVersion;
           message.status = "completed";
           state.messageVersions.delete(message.id);
-          if (data.draft) setDraft(message.sessionId || state.activeId, data.draft);
+          if (data.version) loadItinerary(message.sessionId || state.activeId).catch(function () {});
           setStatus(els.chatStatus, "Versi " + data.activeVersion + " dibuat.");
         } catch (err) {
           setStatus(els.chatStatus, err.message, true);
@@ -1059,8 +1056,8 @@
             activeVersion: 1,
             versions: [],
           });
-          if (data.draft) setDraft(sessionId, data.draft);
-          setStatus(els.chatStatus, data.draft ? "Draft siap. Periksa panel itinerary lalu simpan." : "Balasan diterima.");
+          if (data.version) loadItinerary(sessionId).catch(function () {});
+          setStatus(els.chatStatus, data.version ? "Versi " + (data.version.versionNumber || 1) + " dibuat. Periksa panel itinerary." : "Balasan diterima.");
         } catch (err) {
           local.failed = true;
           els.message.value = content;
@@ -1089,25 +1086,6 @@
           const raw = sessionStorage.getItem(draftKey(sessionId));
           if (raw) state.drafts.set(sessionId, JSON.parse(raw));
         } catch {}
-      }
-
-      function setDraft(sessionId, draft) {
-        const prev = state.drafts.get(sessionId);
-        const entry = {
-          draft: draft,
-          coords: draft.route && Array.isArray(draft.route.coordinates) && draft.route.coordinates.length
-            ? draft.route.coordinates
-            : stopsOf(draft).map(function (d) { return [d.longitude, d.latitude]; }),
-          routeInfo: null,
-          routeStatus: "loading",
-          confirmedId: null,
-          itinerary: prev && prev.itinerary ? prev.itinerary : null,
-          previewVersion: null,
-        };
-        state.drafts.set(sessionId, entry);
-        saveDraftState(sessionId);
-        if (state.activeId === sessionId) renderItinerary();
-        loadRoute(sessionId, entry);
       }
 
       async function loadRoute(sessionId, entry) {
@@ -1420,16 +1398,15 @@
 
       function renderItinerary() {
         els.stops.textContent = "";
-        els.confirmBtn.classList.add("hidden");
         const sessionId = state.activeId;
         if (!sessionId) {
-          clearItineraryPanel("Belum ada draft. Minta itinerary lewat chat.");
+          clearItineraryPanel("Belum ada versi. Minta itinerary lewat chat.");
           return;
         }
         restoreDraftState(sessionId);
         const entry = state.drafts.get(sessionId);
         if (!entry || !entry.draft) {
-          clearItineraryPanel("Belum ada draft. Minta itinerary lewat chat.");
+          clearItineraryPanel("Belum ada versi. Minta itinerary lewat chat.");
           return;
         }
 
@@ -1456,11 +1433,9 @@
         });
 
         if (entry.confirmedId) {
-          els.confirmBtn.classList.add("hidden");
           setStatus(els.draftStatus, "Itinerary tersimpan · " + String(entry.confirmedId).slice(0, 8));
         } else {
-          els.confirmBtn.classList.remove("hidden");
-          setStatus(els.draftStatus, "Draft " + String(draft.draftId || "").slice(0, 8) + " menunggu konfirmasi.");
+          setStatus(els.draftStatus, "Versi aktif belum disimpan.");
         }
 
         if (entry.routeStatus === "loading") {
@@ -1486,28 +1461,6 @@
         renderVersionList(entry);
         syncMapVersionSelect(entry);
         updateMap(entry);
-      }
-
-      async function confirmDraft() {
-        const sessionId = state.activeId;
-        const entry = sessionId ? state.drafts.get(sessionId) : null;
-        if (!entry || !entry.draft) return;
-        els.confirmBtn.disabled = true;
-        setStatus(els.draftStatus, "Menyimpan itinerary…");
-        try {
-          await request("/api/v1/itineraries/confirm", {
-            method: "POST",
-            body: JSON.stringify({ draftId: entry.draft.draftId, userId: state.userId, sessionId: sessionId, profile: currentProfile() }),
-          });
-          const detail = await fetchItineraryDetail(sessionId);
-          applyItineraryDetail(detail, null);
-          await loadItineraryVersions(detail);
-          setStatus(els.chatStatus, "Itinerary tersimpan.");
-        } catch (err) {
-          setStatus(els.draftStatus, err.message, true);
-        } finally {
-          els.confirmBtn.disabled = false;
-        }
       }
 
       /* ---------- map ---------- */
@@ -1785,7 +1738,6 @@
           else els.message.focus();
         });
       });
-      els.confirmBtn.addEventListener("click", confirmDraft);
       els.previewExitBtn.addEventListener("click", exitVersionPreview);
 
       boot();
