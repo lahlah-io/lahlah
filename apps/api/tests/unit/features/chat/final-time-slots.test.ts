@@ -29,7 +29,7 @@ describe("default destination count", () => {
       travelDate: "2026-11-21",
       startTime: "09:00",
       endTime: "15:00",
-      categories: ["seed-kuliner"],
+      categories: ["kuliner"],
     });
     expect(outcome.kind).toBe("ready");
     if (outcome.kind !== "ready") return;
@@ -41,7 +41,7 @@ describe("default destination count", () => {
       travelDate: "2026-11-21",
       startTime: "09:00",
       endTime: "15:00",
-      categories: ["seed-kuliner"],
+      categories: ["kuliner"],
       destinationCount: 3,
     });
     expect(outcome.kind).toBe("ready");
