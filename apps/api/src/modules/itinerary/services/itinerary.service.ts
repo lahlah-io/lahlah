@@ -7,6 +7,7 @@ import type {
 import * as tripRepository from "../repositories/itinerary.repository.js";
 import type { TripBatch, TripDestinationRow, TripRecord } from "../repositories/itinerary.repository.js";
 import * as engagementRepository from "../repositories/engagement.repository.js";
+import * as trendingRepository from "../repositories/trending.repository.js";
 import { checkUserTripAccess } from "../repositories/trip.repository.js";
 
 type UserRow = { id: string; isActive: boolean };
@@ -373,6 +374,12 @@ export function createItineraryService(deps: ItineraryDeps) {
       const counted = await engagementRepository.recordView(input.userId, input.id);
       const { viewCount } = await engagementRepository.counts(input.id, input.userId);
       return { data: { counted, viewCount } };
+    },
+
+    /** Trending = trip publik, skor like/view/share dengan decay waktu. */
+    async listTrending(input: { limit?: number } = {}) {
+      const limit = Math.min(Math.max(input.limit ?? 20, 1), 50);
+      return { data: await trendingRepository.listTrending(limit) };
     },
   };
 }

@@ -1370,6 +1370,32 @@ export const openApiDocument: OpenApiDocument = {
       },
     },
 
+    "/api/v1/itineraries/trending": {
+      get: {
+        tags: ["Itineraries"],
+        summary: "List trending itineraries",
+        operationId: "listTrendingItineraries",
+        description:
+          "Public, no session needed. Ranks published trips by " +
+          "`(likes*3 + views + shares*5) / (hoursSinceLastActivity + 2)^1.5`, newest batch of activity " +
+          "counted as `max(trip.createdAt, last like, last view, last share)`. Private trips are excluded.",
+        parameters: [
+          {
+            name: "limit",
+            in: "query",
+            required: false,
+            description: "Rows to return (1-50, default 20).",
+            schema: { type: "integer", minimum: 1, maximum: 50, default: 20 },
+          },
+        ],
+        responses: {
+          "200": { description: "Trending rows, highest score first.", content: json(bareList("TrendingItinerary")) },
+          "400": validation,
+          "500": internal,
+        },
+      },
+    },
+
     "/api/v1/itineraries/{id}/publish": {
       post: {
         tags: ["Itineraries"],

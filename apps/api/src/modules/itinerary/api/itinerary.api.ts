@@ -8,10 +8,18 @@ import {
   itinerarySessionParamSchema,
   itineraryVersionParamSchema,
   restoreItineraryVersionSchema,
+  trendingQuerySchema,
 } from "../schemas/itinerary.schema.js";
 
 export function createItineraryApi(service: ItineraryService) {
   const api = new Hono<{ Variables: AuthVariables }>();
+
+  // Registered before `/:id`, otherwise "trending" is parsed as a uuid param.
+  api.get(
+    "/trending",
+    zValidator("query", trendingQuerySchema),
+    async (c) => c.json(await service.listTrending({ limit: c.req.valid("query").limit })),
+  );
 
   api.get(
     "/by-session/:sessionId",

@@ -1222,6 +1222,23 @@ export const schemas: Record<string, SchemaObject> = {
     },
   },
 
+  TrendingItinerary: {
+    type: "object",
+    description:
+      "One trending row. `score = (likes*3 + views + shares*5) / (hoursSinceLastActivity + 2)^1.5`, " +
+      "so a trip decays as it goes quiet. Only published trips (`isPublic: true`) are ranked.",
+    required: ["id", "title", "createdAt", "likeCount", "viewCount", "shareCount", "score"],
+    properties: {
+      id: uuid,
+      title: { type: "string" },
+      createdAt: timestamp,
+      likeCount: integer,
+      viewCount: integer,
+      shareCount: integer,
+      score: { type: "number", minimum: 0, description: "Ranking score; returned for debugging, not stable across requests." },
+    },
+  },
+
   GeoLineString: geoLineString,
 
   RouteResult: {

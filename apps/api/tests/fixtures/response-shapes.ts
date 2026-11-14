@@ -326,6 +326,16 @@ const itineraryDetail = itinerary.extend({
   version: itineraryVersion.nullable(),
 });
 
+const trendingItinerary = z.object({
+  id: z.uuid(),
+  title: z.string(),
+  createdAt: z.iso.datetime(),
+  likeCount: z.number().int(),
+  viewCount: z.number().int(),
+  shareCount: z.number().int(),
+  score: z.number(),
+});
+
 const routeResult = z.object({
   source: z.enum(["osrm", "cache", "fallback"]),
   distanceKm: z.number().nullable(),
@@ -361,5 +371,6 @@ export const responseShapes = {
   itineraryDetail: asEnvelope(itineraryDetail),
   itineraryVersion: asEnvelope(itineraryVersion),
   itineraryVersionList: z.object({ data: z.array(itineraryVersionSummary) }),
+  trendingItineraryList: z.object({ data: z.array(trendingItinerary) }),
   routeResult: asEnvelope(routeResult),
 };

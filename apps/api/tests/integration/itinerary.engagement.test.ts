@@ -4,6 +4,7 @@ import { afterAll, test } from "vitest";
 import { app } from "../../src/app.js";
 import { prisma } from "../../src/db/client.js";
 import { createSession } from "../../src/shared/auth/session.service.js";
+import { responseShapes } from "../fixtures/response-shapes.js";
 
 type TestUser = { userId: string; headers: { authorization: string } };
 
@@ -136,8 +137,7 @@ test("view is one per user per trip", async () => {
   }
 });
 
-test("publish only flips isPublic and keeps every version", async () => {
-  const owner = await makeUser("eng_publish_owner");
+test("publish only flips isPublic and keeps every version", async () => {  const owner = await makeUser("eng_publish_owner");
   const other = await makeUser("eng_publish_other");
   const tripId = await makeTrip(owner.userId);
 
@@ -196,5 +196,52 @@ test("publish only flips isPublic and keeps every version", async () => {
     assert.equal(missing.status, 404);
   } finally {
     await cleanup(owner.userId, other.userId);
+  }
+});
+
+test("trending ranks public trips by weighted score and skips private ones", async () => {
+  const fans = [await makeUser("eng_trend_a"), await makeUser("eng_trend_b"), await makeUser("eng_trend_c")];
+  const owner = await makeUser("eng_trend_owner");
+
+  try {
+    const hot = await makeTrip(owner.userId);
+    const fresh = await makeTrip(owner.userId);
+    const old = await makeTrip(owner.userId);
+    const hidden = await makeTrip(owner.userId);
+
+    await prisma.trip.updateMany({ where: { id: { in: [hot, fresh, old] } }, data: { isPublic: true } });
+    // 30 days old: same signals, but the decay term should bury it.
+    await prisma.trip.update({ where: { id: old }, data: { createdAt: new Date(Date.now() - 30 * 86_400_000) } });
+
+    // hot: 3 likes + 1 view; fresh: 1 like; hidden: 3 likes but private; old: 1 view.
+    await prisma.tripLike.createMany({
+      data: fans.map((fan) => ({ userId: fan.userId, tripId: hot })),
+    });
+    await prisma.tripView.createMany({ data: [{ userId: fans[0]!.userId, tripId: hot }] });
+    await prisma.tripLike.createMany({ data: [{ userId: fans[0]!.userId, tripId: fresh }] });
+    await prisma.tripLike.createMany({
+      data: fans.map((fan) => ({ userId: fan.userId, tripId: hidden })),
+    });
+    await prisma.tripView.createMany({ data: [{ userId: fans[1]!.userId, tripId: old }] });
+
+    const res = await app.request("/api/v1/itineraries/trending?limit=50");
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    const parsed = responseShapes.trendingItineraryList.safeParse(body);
+    assert.ok(parsed.success, `trending shape: ${JSON.stringify(parsed.error?.issues)}`);
+
+    const ids = parsed.data.data.map((row) => row.id);
+    const rank = (id: string) => ids.indexOf(id);
+    assert.ok(rank(hot) >= 0, "hot trip should be listed");
+    assert.ok(rank(fresh) >= 0, "fresh trip should be listed");
+    assert.ok(rank(old) >= 0, "old trip should still be listed");
+    assert.equal(rank(hidden), -1, "private trip must not be ranked");
+    assert.ok(rank(hot) < rank(fresh), "more engagement wins");
+    assert.ok(rank(fresh) < rank(old), "fresh activity beats 30-day-old activity");
+
+    const badLimit = await app.request("/api/v1/itineraries/trending?limit=0");
+    assert.equal(badLimit.status, 400);
+  } finally {
+    await cleanup(...fans.map((fan) => fan.userId), owner.userId);
   }
 });

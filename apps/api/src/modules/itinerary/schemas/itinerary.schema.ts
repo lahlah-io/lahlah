@@ -14,3 +14,7 @@ export const restoreItineraryVersionSchema = z.object({
   userId,
   expectedVersion: z.number().int().min(1).optional(),
 });
+
+export const trendingQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+});
