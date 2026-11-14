@@ -6,6 +6,7 @@ import type {
 } from "../../../shared/schemas/itinerary-version.js";
 import * as tripRepository from "../repositories/itinerary.repository.js";
 import type { TripBatch, TripDestinationRow, TripRecord } from "../repositories/itinerary.repository.js";
+import * as engagementRepository from "../repositories/engagement.repository.js";
 import { checkUserTripAccess } from "../repositories/trip.repository.js";
 
 type UserRow = { id: string; isActive: boolean };
@@ -179,10 +180,25 @@ function stopsToBatchStops(
 }
 
 export function createItineraryService(deps: ItineraryDeps) {
-  async function withCurrentVersion(row: TripRecord) {
-    const batches = await tripRepository.listBatches(row.id);
+  async function withCurrentVersion(row: TripRecord, userId: string) {
+    const [batches, counts] = await Promise.all([
+      tripRepository.listBatches(row.id),
+      engagementRepository.counts(row.id, userId),
+    ]);
     const active = batches[batches.length - 1];
-    return { ...toItineraryResponse(row), version: active ? asVersionPayload(active) : null };
+    return {
+      ...toItineraryResponse(row),
+      likeCount: counts.likeCount,
+      viewCount: counts.viewCount,
+      likedByMe: counts.likedByMe,
+      version: active ? asVersionPayload(active) : null,
+    };
+  }
+
+  async function requireTrip(tripId: string) {
+    if (!(await engagementRepository.tripExists(tripId))) {
+      throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
+    }
   }
 
   return {
@@ -242,7 +258,7 @@ export function createItineraryService(deps: ItineraryDeps) {
       }
       const row = await tripRepository.findById(input.id);
       if (!row) throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
-      return { data: await withCurrentVersion(row) };
+      return { data: await withCurrentVersion(row, input.userId) };
     },
 
     async getBySession(input: { sessionId: string; userId: string }) {
@@ -252,7 +268,7 @@ export function createItineraryService(deps: ItineraryDeps) {
       if (!row || !(await checkUserTripAccess(input.userId, row.id))) {
         throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
       }
-      return { data: await withCurrentVersion(row) };
+      return { data: await withCurrentVersion(row, input.userId) };
     },
 
     async listVersions(input: { id: string; userId: string }) {
@@ -314,7 +330,49 @@ export function createItineraryService(deps: ItineraryDeps) {
       }
       const fresh = await tripRepository.findById(input.id);
       if (!fresh) throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
-      return { data: await withCurrentVersion(fresh) };
+      return { data: await withCurrentVersion(fresh, input.userId) };
+    },
+
+    /** Publikasi = set `isPublic` saja. Versi tidak disentuh; yang terbit adalah versi aktif. */
+    async publish(input: { id: string; userId: string }) {
+      const updated = await engagementRepository.setPublic({
+        tripId: input.id,
+        userId: input.userId,
+        isPublic: true,
+      });
+      if (!updated) throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
+      return { data: { id: input.id, isPublic: true } };
+    },
+
+    async unpublish(input: { id: string; userId: string }) {
+      const updated = await engagementRepository.setPublic({
+        tripId: input.id,
+        userId: input.userId,
+        isPublic: false,
+      });
+      if (!updated) throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
+      return { data: { id: input.id, isPublic: false } };
+    },
+
+    async like(input: { id: string; userId: string }) {
+      await requireTrip(input.id);
+      await engagementRepository.like(input.userId, input.id);
+      const { likeCount } = await engagementRepository.counts(input.id, input.userId);
+      return { data: { liked: true, likeCount } };
+    },
+
+    async unlike(input: { id: string; userId: string }) {
+      await requireTrip(input.id);
+      await engagementRepository.unlike(input.userId, input.id);
+      const { likeCount } = await engagementRepository.counts(input.id, input.userId);
+      return { data: { liked: false, likeCount } };
+    },
+
+    async view(input: { id: string; userId: string }) {
+      await requireTrip(input.id);
+      const counted = await engagementRepository.recordView(input.userId, input.id);
+      const { viewCount } = await engagementRepository.counts(input.id, input.userId);
+      return { data: { counted, viewCount } };
     },
   };
 }

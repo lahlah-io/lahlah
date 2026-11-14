@@ -141,7 +141,7 @@ Satu modul `destinations` mengekspor dua router: `categoriesApi` dan `destinatio
 ## Chat, itinerary, dan routing
 
 - `chat`: sesi/pesan percakapan + RAG destinasi Padang + tool calls (`search_destinations`, `get_destination_details`) + versi pesan regenerate/activate. Cari destinasi tidak memakai baris `source=admin` tanpa kategori (output scraper belum kurasi).
-- `itinerary`: `trip_destinations` append-only; satu versi = kelompok baris dengan `created_at` identik. Urutan stop dari `visit_at`. Endpoint `versions`/`restore` tetap ada; restore menyalin batch lama menjadi batch baru. `Trip`/`UserTrip` untuk kolaborasi tanpa `role` (anggota pertama = owner).
+- `itinerary`: `trip_destinations` append-only; satu versi = kelompok baris dengan `created_at` identik. Urutan stop dari `visit_at`. Endpoint `versions`/`restore` tetap ada; restore menyalin batch lama menjadi batch baru. `Trip`/`UserTrip` untuk kolaborasi tanpa `role` (anggota pertama = owner). Publish (`POST`/`DELETE /itineraries/{id}/publish`) hanya mengubah `trips.is_public`; tidak ada versi yang dibuat, dihapus, atau ditulis ulang. Like/view memakai `requireAuth` (`user_id` dari sesi): like idempoten lewat PK `(user_id, trip_id)`, view satu per user per trip lewat unique index `(trip_id, user_id)`. `likeCount`/`viewCount`/`likedByMe` ikut di respons detail itinerary.
 - `routes`: kalkulasi rute OSRM (`car`/`motorcycle`/`foot`); fallback garis lurus `source: fallback` saat provider gagal/timeout.
 
 ## Belum termasuk

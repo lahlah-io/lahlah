@@ -47,6 +47,7 @@ const forbidden = errorResponse(
   "Admin role required (`FORBIDDEN`), or the account is inactive (`ACCOUNT_INACTIVE`).",
 );
 const internal = errorResponse("Unexpected server error (`INTERNAL_ERROR`).");
+const inactiveAccount = errorResponse("Account is inactive (`ACCOUNT_INACTIVE`).");
 const payloadTooLarge = errorResponse("Body exceeds 1 MiB (`PAYLOAD_TOO_LARGE`).");
 const unavailable = (code: string, description: string) =>
   errorResponse(`${description} (\`${code}\`).`);
@@ -151,7 +152,7 @@ export const openApiDocument: OpenApiDocument = {
     { name: "Categories", description: "Admin destination categories (create a category before destinations use it)." },
     { name: "Destinations", description: "Destination catalog. Reads are public; writes are admin (delete is soft; create accepts `categoryIds[]`)." },
     { name: "Chat", description: "Conversational trip planning with RAG destinations and tool calls." },
-    { name: "Itineraries", description: "Trip itineraries with versioned `trip_destinations` batches, restore, and version reads." },
+    { name: "Itineraries", description: "Trip itineraries with versioned `trip_destinations` batches, restore, publish (sets `isPublic` only), and like/view." },
     { name: "Routes", description: "OSRM driving routes between waypoints." },
     { name: "Health", description: "Liveness and readiness probes." },
   ],
@@ -1364,6 +1365,102 @@ export const openApiDocument: OpenApiDocument = {
           "403": forbidden,
           "404": notFound("ITINERARY_NOT_FOUND / VERSION_NOT_FOUND"),
           "409": errorResponse("Version changed (`VERSION_CONFLICT`)."),
+          "500": internal,
+        },
+      },
+    },
+
+    "/api/v1/itineraries/{id}/publish": {
+      post: {
+        tags: ["Itineraries"],
+        summary: "Publish the active itinerary version",
+        operationId: "publishItinerary",
+        description:
+          "Sets `isPublic: true` on the trip. Nothing else changes: no version is created, deleted, or " +
+          "rewritten, and `currentVersion` stays the newest batch. Publish an older version by calling " +
+          "`restore` first (that appends a copy as the new active version). Owner-only.",
+        security: sessionSecurity,
+        parameters: [idPath("Itinerary id.")],
+        responses: {
+          "200": { description: "Trip published.", content: json(single("ItineraryPublishResult")) },
+          "400": validation,
+          "401": unauthorized,
+          "403": inactiveAccount,
+          "404": notFound("ITINERARY_NOT_FOUND"),
+          "500": internal,
+        },
+      },
+      delete: {
+        tags: ["Itineraries"],
+        summary: "Unpublish an itinerary",
+        operationId: "unpublishItinerary",
+        description: "Sets `isPublic: false`. Versions are untouched. Owner-only.",
+        security: sessionSecurity,
+        parameters: [idPath("Itinerary id.")],
+        responses: {
+          "200": { description: "Trip unpublished.", content: json(single("ItineraryPublishResult")) },
+          "400": validation,
+          "401": unauthorized,
+          "403": inactiveAccount,
+          "404": notFound("ITINERARY_NOT_FOUND"),
+          "500": internal,
+        },
+      },
+    },
+
+    "/api/v1/itineraries/{id}/like": {
+      post: {
+        tags: ["Itineraries"],
+        summary: "Like an itinerary",
+        operationId: "likeItinerary",
+        description:
+          "Idempotent: liking twice keeps `likeCount` at 1. The liker is the session user; no `userId` " +
+          "input is accepted.",
+        security: sessionSecurity,
+        parameters: [idPath("Itinerary id.")],
+        responses: {
+          "200": { description: "Like state and count.", content: json(single("ItineraryLikeResult")) },
+          "400": validation,
+          "401": unauthorized,
+          "403": inactiveAccount,
+          "404": notFound("ITINERARY_NOT_FOUND"),
+          "500": internal,
+        },
+      },
+      delete: {
+        tags: ["Itineraries"],
+        summary: "Remove a like",
+        operationId: "unlikeItinerary",
+        description: "Idempotent: unliking twice keeps `likeCount` at 0 and still returns 200.",
+        security: sessionSecurity,
+        parameters: [idPath("Itinerary id.")],
+        responses: {
+          "200": { description: "Like state and count.", content: json(single("ItineraryLikeResult")) },
+          "400": validation,
+          "401": unauthorized,
+          "403": inactiveAccount,
+          "404": notFound("ITINERARY_NOT_FOUND"),
+          "500": internal,
+        },
+      },
+    },
+
+    "/api/v1/itineraries/{id}/view": {
+      post: {
+        tags: ["Itineraries"],
+        summary: "Record a view",
+        operationId: "viewItinerary",
+        description:
+          "One view per user per trip. The first call returns `counted: true` and raises `viewCount`; " +
+          "repeat calls return `counted: false` and leave the count unchanged. The viewer is the session user.",
+        security: sessionSecurity,
+        parameters: [idPath("Itinerary id.")],
+        responses: {
+          "200": { description: "Whether the view was counted, plus the current count.", content: json(single("ItineraryViewResult")) },
+          "400": validation,
+          "401": unauthorized,
+          "403": inactiveAccount,
+          "404": notFound("ITINERARY_NOT_FOUND"),
           "500": internal,
         },
       },

@@ -990,6 +990,7 @@ export const schemas: Record<string, SchemaObject> = {
     required: [
       "id", "userId", "sessionId", "currentVersion", "tripDate", "durationDays", "city",
       "transportMode", "title", "content", "status", "isPublic", "shareSlug", "metadata",
+      "likeCount", "viewCount", "likedByMe",
       "createdAt", "updatedAt", "destinations", "version",
     ],
     properties: {
@@ -1004,8 +1005,20 @@ export const schemas: Record<string, SchemaObject> = {
       title: { type: "string" },
       content: { type: "string" },
       status: { type: "string", enum: ["draft", "final"] },
-      isPublic: { type: "boolean" },
-      shareSlug: nullableString,
+      isPublic: {
+        type: "boolean",
+        description: "Set only by `publish`/`unpublish`. Defaults to `false`.",
+      },
+      shareSlug: {
+        ...nullableString,
+        description: "Reserved for public links; always `null` today because no public-by-slug route exists yet.",
+      },
+      likeCount: integer,
+      viewCount: integer,
+      likedByMe: {
+        type: "boolean",
+        description: "Whether the `userId` given in the query has liked this trip.",
+      },
       metadata: jsonObject,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -1171,6 +1184,41 @@ export const schemas: Record<string, SchemaObject> = {
     properties: {
       userId: uuid,
       expectedVersion: { type: "integer", minimum: 1 },
+    },
+  },
+
+  ItineraryPublishResult: {
+    type: "object",
+    description:
+      "Publish/unpublish result. Only `trips.is_public` changes; no version row is added, removed, or rewritten.",
+    required: ["id", "isPublic"],
+    properties: {
+      id: uuid,
+      isPublic: {
+        type: "boolean",
+        description: "`true` after publish, `false` after unpublish.",
+      },
+    },
+  },
+
+  ItineraryLikeResult: {
+    type: "object",
+    description: "Idempotent like state plus the current like count for the trip.",
+    required: ["liked", "likeCount"],
+    properties: {
+      liked: { type: "boolean", description: "Caller's like state after the call." },
+      likeCount: { type: "integer", minimum: 0 },
+    },
+  },
+
+  ItineraryViewResult: {
+    type: "object",
+    description:
+      "View is one-per-user-per-trip: repeat calls return `counted: false` and leave `viewCount` unchanged.",
+    required: ["counted", "viewCount"],
+    properties: {
+      counted: { type: "boolean", description: "`true` only when this call created the view row." },
+      viewCount: { type: "integer", minimum: 0 },
     },
   },
 
