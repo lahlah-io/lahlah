@@ -18,6 +18,7 @@ export const env = z
     LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
     GEOAPIFY_API_KEY: z.string().default(""),
     FIRECRAWL_API_KEY: z.string().default(""),
+    APIFY_TOKEN: z.string().default(""),
     SCRAPE_CITY: z.string().min(1).default("Padang"),
     SCRAPE_LIMIT: z.coerce.number().int().min(1).max(500).default(200),
     SCRAPE_USER_AGENT: z.string().min(1).default("LahlahBot/1.0 (admin@lahlah.local)"),
