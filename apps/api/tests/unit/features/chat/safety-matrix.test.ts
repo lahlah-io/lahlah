@@ -67,7 +67,7 @@ describe("safety and security matrix", () => {
       travelDate: "2026-11-20",
       startTime: "09:00",
       endTime: "12:00",
-      categories: ["seed-pantai"],
+      categories: ["pantai"],
       transportMode: "walk",
       latitude: 51.5,
       longitude: -0.12,

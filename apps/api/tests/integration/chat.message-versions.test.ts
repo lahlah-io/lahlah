@@ -113,7 +113,7 @@ afterAll(() => {
 
 test("regenerate creates v2 on same assistant message and returns updated compat payload", async () => {
   const provider = await startFakeProvider(() =>
-    toolCallResponse("search_destinations", { keywords: "pantai", categories: ["seed-pantai"] }),
+    toolCallResponse("search_destinations", { keywords: "pantai", categories: ["pantai"] }),
   );
   const app = buildApp(provider.url);
   const user = await createTestUser();
@@ -152,7 +152,7 @@ test("regenerate creates v2 on same assistant message and returns updated compat
 
 test("failed regenerate records failed version but keeps prior successful version active", async () => {
   const provider = await startFakeProvider((_body, call) => {
-    if (call === 1) return toolCallResponse("search_destinations", { keywords: "pantai", categories: ["seed-pantai"] });
+    if (call === 1) return toolCallResponse("search_destinations", { keywords: "pantai", categories: ["pantai"] });
     return { status: 500, json: { error: "boom" } };
   });
   const app = buildApp(provider.url);
@@ -198,7 +198,7 @@ test("failed regenerate records failed version but keeps prior successful versio
 });
 
 test("list versions and activate enforce ownership and preserve cumulative totals on switch", async () => {
-  const provider = await startFakeProvider(() => toolCallResponse("search_destinations", { keywords: "pantai", categories: ["seed-pantai"] }));
+  const provider = await startFakeProvider(() => toolCallResponse("search_destinations", { keywords: "pantai", categories: ["pantai"] }));
   const app = buildApp(provider.url);
   const owner = await createTestUser();
   const other = await createTestUser();
