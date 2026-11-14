@@ -105,7 +105,7 @@ beforeAll(async () => {
   provider = await startProvider((body) => {
     const tools = (body as { tools?: unknown[] }).tools;
     assert.ok(Array.isArray(tools) && tools.length > 0, "itinerary flow must send tools");
-    return searchToolResponse(["seed-pantai"]);
+    return searchToolResponse(["pantai"]);
   });
   process.env.AI_BASE_URL = provider.url;
   process.env.AI_API_KEY = "matrix-secret-key";
@@ -159,7 +159,7 @@ test("GEN-001 + DES-001..004: generation persists an immutable version; regenera
     for (const row of rows) {
       assert.equal(row.city, "Padang", "DES-001");
       assert.equal(row.isActive, true, "DES-004");
-      assert.ok(row.categories.some((c) => ["pantai", "seed-pantai"].includes(c.category.slug)), "DES-002");
+      assert.ok(row.categories.some((c) => c.category.slug === "pantai"), "DES-002");
     }
 
     const regenerated = await send(user.id, session, "buat ulang itinerary 2026-12-02 08:00 12:00 pantai di Padang");

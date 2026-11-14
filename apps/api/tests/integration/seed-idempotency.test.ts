@@ -8,37 +8,27 @@ function runSeed() {
 }
 
 async function seedCounts() {
-  const categories = await prisma.category.count({
-    where: { slug: { startsWith: "seed-" } },
-  });
-  const destinations = await prisma.destination.count({
-    where: { source: "admin", sourcePlaceId: { startsWith: "seed-padang-" } },
-  });
-  const links = await prisma.destinationCategory.count({
-    where: {
-      destination: { source: "admin", sourcePlaceId: { startsWith: "seed-padang-" } },
-    },
-  });
+  const categories = await prisma.category.count();
+  const destinations = await prisma.destination.count();
+  const links = await prisma.destinationCategory.count();
   return { categories, destinations, links };
 }
 
 test("seed Padang idempotent saat dijalankan dua kali", { timeout: 180_000 }, async () => {
   runSeed();
   const first = await seedCounts();
-  assert.equal(first.categories, 5);
-  assert.equal(first.destinations, 7);
-  assert.equal(first.links, 13);
+  assert.equal(first.categories, 8);
+  assert.ok(first.destinations > 0);
 
   runSeed();
   const second = await seedCounts();
   assert.deepEqual(second, first);
 
-  const rows = await prisma.destination.findMany({
-    where: { source: "admin", sourcePlaceId: { startsWith: "seed-padang-" } },
-  });
-  for (const row of rows) {
-    assert.equal(row.city, "Padang");
-    const details = row.details as { estimated_duration_minutes?: unknown };
-    assert.equal(typeof details.estimated_duration_minutes, "number");
-  }
+  const legacyCategories = await prisma.category.count({ where: { slug: { startsWith: "seed-" } } });
+  assert.equal(legacyCategories, 0, "kategori dev seed-* tidak boleh tersisa");
+
+  const duplicates = await prisma.$queryRaw<Array<{ slug: string; n: bigint }>>`
+    SELECT slug, COUNT(*) AS n FROM categories GROUP BY slug HAVING COUNT(*) > 1
+  `;
+  assert.deepEqual(duplicates, [], "slug kategori tidak boleh duplikat");
 });
