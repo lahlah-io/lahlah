@@ -9,9 +9,9 @@ import { useAllCategories, useDestinations } from "../hooks/use-catalog";
 import * as catalogApi from "../services/catalog.api";
 import type { Destination } from "../types/catalog";
 import { DestinationDialog, toDestinationPayload } from "./destination-dialog";
-import { DataTable } from "./data-table";
-import { PageHeader, PaginationControls, SearchBar } from "./controls";
-import { ConfirmDeleteDialog } from "./category-dialogs";
+import { DataTable } from "@/shared/components/data/data-table";
+import { PageHeader, PaginationControls, SearchBar } from "@/shared/components/data/controls";
+import { ConfirmDeleteDialog } from "@/shared/components/data/confirm-dialog";
 
 export function DestinationsPanel() {
   const [search, setSearch] = useState("");

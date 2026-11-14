@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { usePaginatedList } from "./use-paginated-list";
+import { usePaginatedList } from "@/shared/hooks/use-paginated-list";
 import * as catalogApi from "../services/catalog.api";
 
 const PAGE_SIZE = 20;

@@ -8,9 +8,10 @@ import { TableCell, TableHead, TableRow } from "@/shared/components/ui/table";
 import { useCategories } from "../hooks/use-catalog";
 import * as catalogApi from "../services/catalog.api";
 import type { Category } from "../types/catalog";
-import { DataTable } from "./data-table";
-import { PageHeader, PaginationControls, SearchBar } from "./controls";
-import { CategoryDialog, ConfirmDeleteDialog, type CategoryFormValue } from "./category-dialogs";
+import { DataTable } from "@/shared/components/data/data-table";
+import { PageHeader, PaginationControls, SearchBar } from "@/shared/components/data/controls";
+import { ConfirmDeleteDialog } from "@/shared/components/data/confirm-dialog";
+import { CategoryDialog, type CategoryFormValue } from "./category-dialogs";
 
 export function CategoriesPanel() {
   const [search, setSearch] = useState("");
