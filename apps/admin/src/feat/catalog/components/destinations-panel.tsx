@@ -13,6 +13,11 @@ import { DataTable } from "@/shared/components/data/data-table";
 import { PageHeader, PaginationControls, SearchBar } from "@/shared/components/data/controls";
 import { ConfirmDeleteDialog } from "@/shared/components/data/confirm-dialog";
 
+function mapUrl(destination: Destination): string | null {
+  if (!destination.latitude || !destination.longitude) return null;
+  return `https://www.google.com/maps/search/?api=1&query=${destination.latitude},${destination.longitude}`;
+}
+
 export function DestinationsPanel() {
   const [search, setSearch] = useState("");
   const [committed, setCommitted] = useState("");
@@ -69,15 +74,37 @@ export function DestinationsPanel() {
 
   const rows = list.loading
     ? null
-    : list.items.map((destination) => (
-        <TableRow key={destination.id}>
-          <TableCell>
-            <p className="font-medium">{destination.name}</p>
-            <p className="text-xs text-muted-foreground">
-              {[destination.latitude, destination.longitude].filter(Boolean).join(", ") ||
-                "Koordinat belum diisi"}
-            </p>
-          </TableCell>
+    : list.items.map((destination) => {
+        const url = mapUrl(destination);
+        return (
+          <TableRow
+            key={destination.id}
+            className={url ? "cursor-pointer" : undefined}
+            tabIndex={url ? 0 : undefined}
+            title={url ? "Buka di peta" : undefined}
+            onClick={() => {
+              if (url) window.open(url, "_blank", "noopener,noreferrer");
+            }}
+            onKeyDown={(event) => {
+              if (url && (event.key === "Enter" || event.key === " ")) {
+                event.preventDefault();
+                window.open(url, "_blank", "noopener,noreferrer");
+              }
+            }}
+          >
+            <TableCell>
+              <p className="font-medium">
+                {url ? (
+                  <span className="underline-offset-4 hover:underline">{destination.name}</span>
+                ) : (
+                  destination.name
+                )}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {[destination.latitude, destination.longitude].filter(Boolean).join(", ") ||
+                  "Koordinat belum diisi"}
+              </p>
+            </TableCell>
           <TableCell>
             <div className="flex max-w-56 flex-wrap gap-1">
               {destination.categories.length === 0 ? (
@@ -97,7 +124,12 @@ export function DestinationsPanel() {
             </Badge>
           </TableCell>
           <TableCell className="text-right">
-            <div className="flex justify-end gap-1">
+            <div
+              className="flex justify-end gap-1"
+              onClick={(event) => event.stopPropagation()}
+              onKeyDown={(event) => event.stopPropagation()}
+              role="presentation"
+            >
               <Button variant="ghost" size="icon-sm" onClick={() => setEditing(destination)}>
                 <Pencil />
                 <span className="sr-only">Ubah {destination.name}</span>
@@ -126,13 +158,14 @@ export function DestinationsPanel() {
             </div>
           </TableCell>
         </TableRow>
-      ));
+        );
+      });
 
   return (
     <section className="flex flex-col gap-4">
       <PageHeader
         title="Destinasi"
-        description="Katalog wisata. Hapus bersifat soft delete — aktifkan kembali kapan saja."
+        description="Katalog wisata. Klik baris untuk buka peta. Hapus bersifat soft delete — aktifkan kembali kapan saja."
         actions={
           <Button size="sm" onClick={() => setCreating(true)}>
             <Plus data-icon="inline-start" />
