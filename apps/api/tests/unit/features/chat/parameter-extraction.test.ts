@@ -111,6 +111,8 @@ describe(`parameter extraction matrix (${fixture.datasetVersion}, ${fixture.prom
     expect(wantsMultipleItineraries("buat 3 alternatif")).toBe(true);
     expect(wantsMultipleItineraries("buat 3 destinasi")).toBe(false);
     expect(wantsMultipleItineraries("tiga destinasi")).toBe(false);
+    expect(wantsMultipleItineraries("buat 3 trip")).toBe(true);
+    expect(extractDestinationCount("buat 3 trip")).toBeNull();
   });
 
   test("extracts relative and explicit dates (Jakarta)", () => {

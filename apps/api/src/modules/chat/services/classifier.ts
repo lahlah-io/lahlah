@@ -81,6 +81,12 @@ function matchRule(message: string): ClassificationResult | null {
   for (const rule of RULE_KEYWORDS) {
     if (rule.keywords.some((k) => m.includes(k))) return { intent: rule.intent, source: "rule" };
   }
+  // "trip" is the user-facing word for an itinerary; checked last so "ubah/ganti ... trip" stays a modification.
+  // Only an explicit wish creates a trip; questions about it ("berapa lama trip ini?") go to the model.
+  const isQuestion = m.endsWith("?") || /\b(berapa|apa|apakah|kapan|mana|gimana|bagaimana|kenapa|mengapa)\b/.test(m);
+  if (!isQuestion && /\b(buat|buatkan|bikin|ingin|mau|pengen|rencana|rencanakan|susun|susunkan)\b[^.?!]*\btrip\b/.test(m)) {
+    return { intent: "generate_itinerary", source: "rule" };
+  }
   return null;
 }
 

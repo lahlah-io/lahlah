@@ -15,6 +15,33 @@ function forbidProvider() {
   };
 }
 
+describe("trip wording (rule layer)", () => {
+  test.each(["saya ingin trip di padang pada pagi hari", "buatkan trip pantai besok", "mau trip ke Padang sore ini"])(
+    "%s maps to generate_itinerary",
+    async (text) => {
+      const restore = forbidProvider();
+      try {
+        expect(await classify(text, env)).toMatchObject({ intent: "generate_itinerary", source: "rule" });
+      } finally {
+        restore();
+      }
+    },
+  );
+
+  // Pertanyaan tentang trip yang sudah ada tidak boleh membuat versi baru.
+  test.each(["berapa lama trip ini?", "trip ini ke mana saja", "kapan trip ini mulai"])(
+    "%s does not map to generate_itinerary",
+    async (text) => {
+      const restore = forbidProvider();
+      try {
+        expect((await classify(text, env)).intent).not.toBe("generate_itinerary");
+      } finally {
+        restore();
+      }
+    },
+  );
+});
+
 describe("modification intents (rule layer)", () => {
   test("ganti destinasi maps to replace_destination", async () => {
     const restore = forbidProvider();
