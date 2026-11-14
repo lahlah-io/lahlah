@@ -41,6 +41,8 @@ const forbidden = errorResponse(
 );
 const internal = errorResponse("Unexpected server error (`INTERNAL_ERROR`).");
 const payloadTooLarge = errorResponse("Body exceeds 1 MiB (`PAYLOAD_TOO_LARGE`).");
+const unavailable = (code: string, description: string) =>
+  errorResponse(`${description} (\`${code}\`).`);
 
 const notFound = (code: string) => errorResponse(`Resource not found (\`${code}\`).`);
 const conflict = (code: string, description: string) => errorResponse(`${description} (\`${code}\`).`);
@@ -117,12 +119,12 @@ export const openApiDocument: OpenApiDocument = {
   ],
   tags: [
     { name: "Auth", description: "PeridotID exchange, current session, logout." },
-    { name: "Users", description: "Admin user management." },
-    { name: "Models", description: "Admin LLM model catalog." },
-    { name: "Subscription Plans", description: "Plan catalog and admin CRUD." },
-    { name: "Subscriptions", description: "The caller's plan, models, history, and quota." },
-    { name: "Categories", description: "Admin destination categories (hard delete, cascades tags)." },
-    { name: "Destinations", description: "Admin destination catalog (delete is soft)." },
+    { name: "Users", description: "Admin user management (create a test user with a `username` in Swagger UI)." },
+    { name: "Models", description: "Admin LLM model catalog (create one first so plans can reference it)." },
+    { name: "Subscription Plans", description: "Plan catalog and admin CRUD (name is unique; free plan protected)." },
+    { name: "Subscriptions", description: "The caller's plan, models, history, and quota (read-only)." },
+    { name: "Categories", description: "Admin destination categories (create a category before destinations use it)." },
+    { name: "Destinations", description: "Admin destination catalog (delete is soft; create accepts `categoryIds[]`)." },
     { name: "Health", description: "Liveness and readiness probes." },
   ],
   components: {
@@ -217,6 +219,9 @@ export const openApiDocument: OpenApiDocument = {
           "The backend exchanges it server-side, creates or links the user, grants the free plan,",
           "and sets the `lahlah_session` cookie.",
           "",
+          "PeridotID has no username, so a new account gets one derived from the",
+          "email or display name (`[a-z0-9_]`, 3–30 chars); admins can change it later.",
+          "",
           "Send `X-Session-Mode: bearer` to also receive the token in the response body.",
           "`pid_code` is single-use and short-lived, so exchange it immediately.",
         ].join("\n"),
@@ -241,6 +246,10 @@ export const openApiDocument: OpenApiDocument = {
           "429": errorResponse("PeridotID rate limit reached (`PERIDOT_EXCHANGE_FAILED`)."),
           "502": errorResponse("PeridotID unreachable or returned an invalid response."),
           "500": internal,
+          "503": unavailable(
+            "FREE_PLAN_NOT_CONFIGURED",
+            "Free subscription plan is not configured",
+          ),
         },
       },
     },
@@ -302,6 +311,12 @@ export const openApiDocument: OpenApiDocument = {
             schema: { type: "string", enum: ["user", "admin"] },
             description: "Filter by role.",
           },
+          {
+            name: "username",
+            in: "query",
+            schema: { type: "string", minLength: 3, maxLength: 30, pattern: "^[a-z0-9_]+$" },
+            description: "Exact username match (lowercase letters, digits, underscores).",
+          },
           activeQuery("Filter by account status."),
         ],
         responses: {
@@ -324,9 +339,16 @@ export const openApiDocument: OpenApiDocument = {
           "400": validation,
           "401": unauthorized,
           "403": forbidden,
-          "409": conflict("EMAIL_ALREADY_EXISTS", "Email is already registered"),
+          "409": conflict(
+            "EMAIL_ALREADY_EXISTS / USERNAME_ALREADY_EXISTS",
+            "Email or username is already registered",
+          ),
           "413": payloadTooLarge,
           "500": internal,
+          "503": unavailable(
+            "FREE_PLAN_NOT_CONFIGURED",
+            "Free subscription plan is not configured",
+          ),
         },
       },
     },
@@ -360,7 +382,10 @@ export const openApiDocument: OpenApiDocument = {
           "401": unauthorized,
           "403": forbidden,
           "404": notFound("USER_NOT_FOUND"),
-          "409": conflict("EMAIL_ALREADY_EXISTS", "Email is already registered"),
+          "409": conflict(
+            "EMAIL_ALREADY_EXISTS / USERNAME_ALREADY_EXISTS",
+            "Email or username is already registered",
+          ),
           "500": internal,
         },
       },
@@ -539,6 +564,7 @@ export const openApiDocument: OpenApiDocument = {
           "401": unauthorized,
           "403": forbidden,
           "404": notFound("MODEL_NOT_FOUND"),
+          "409": conflict("PLAN_NAME_EXISTS", "A plan with this name already exists"),
           "413": payloadTooLarge,
           "500": internal,
         },
@@ -574,6 +600,7 @@ export const openApiDocument: OpenApiDocument = {
           "401": unauthorized,
           "403": forbidden,
           "404": errorResponse("Plan not found (`PLAN_NOT_FOUND`) or model not found (`MODEL_NOT_FOUND`)."),
+          "409": conflict("PLAN_NAME_EXISTS", "A plan with this name already exists"),
           "500": internal,
         },
       },
@@ -623,6 +650,10 @@ export const openApiDocument: OpenApiDocument = {
           "401": unauthorized,
           "403": errorResponse("Account is inactive (`ACCOUNT_INACTIVE`)."),
           "500": internal,
+          "503": unavailable(
+            "FREE_PLAN_NOT_CONFIGURED",
+            "Free subscription plan is not configured",
+          ),
         },
       },
     },
@@ -638,6 +669,10 @@ export const openApiDocument: OpenApiDocument = {
           "401": unauthorized,
           "403": errorResponse("Account is inactive (`ACCOUNT_INACTIVE`)."),
           "500": internal,
+          "503": unavailable(
+            "FREE_PLAN_NOT_CONFIGURED",
+            "Free subscription plan is not configured",
+          ),
         },
       },
     },
@@ -714,6 +749,10 @@ export const openApiDocument: OpenApiDocument = {
           "401": unauthorized,
           "403": errorResponse("Account is inactive (`ACCOUNT_INACTIVE`)."),
           "500": internal,
+          "503": unavailable(
+            "FREE_PLAN_NOT_CONFIGURED",
+            "Free subscription plan is not configured",
+          ),
         },
       },
     },
@@ -732,6 +771,10 @@ export const openApiDocument: OpenApiDocument = {
           "401": unauthorized,
           "403": errorResponse("Account is inactive (`ACCOUNT_INACTIVE`)."),
           "500": internal,
+          "503": unavailable(
+            "FREE_PLAN_NOT_CONFIGURED",
+            "Free subscription plan is not configured",
+          ),
         },
       },
     },
@@ -883,6 +926,10 @@ export const openApiDocument: OpenApiDocument = {
           "401": unauthorized,
           "403": forbidden,
           "404": notFound("CATEGORY_NOT_FOUND"),
+          "409": conflict(
+            "DESTINATION_ALREADY_EXISTS",
+            "This destination already exists",
+          ),
           "413": payloadTooLarge,
           "500": internal,
         },

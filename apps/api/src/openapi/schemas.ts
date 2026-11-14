@@ -6,6 +6,15 @@ const nullableString: SchemaObject = { type: ["string", "null"] };
 const nullableTimestamp: SchemaObject = { type: ["string", "null"], format: "date-time" };
 const nullableUuid: SchemaObject = { type: ["string", "null"], format: "uuid" };
 
+const username: SchemaObject = {
+  type: "string",
+  minLength: 3,
+  maxLength: 30,
+  pattern: "^[a-z0-9_]+$",
+  example: "budi_santoso",
+  description: "Lowercase letters, digits, underscores. Unique per user.",
+};
+
 const role: SchemaObject = { type: "string", enum: ["user", "admin"] };
 const subscriptionStatus: SchemaObject = {
   type: "string",
@@ -95,7 +104,7 @@ export const schemas: Record<string, SchemaObject> = {
 
   AuthUser: {
     type: "object",
-    required: ["id", "pid", "name", "email", "role", "isActive"],
+    required: ["id", "pid", "name", "username", "email", "role", "isActive"],
     properties: {
       id: uuid,
       pid: {
@@ -103,6 +112,7 @@ export const schemas: Record<string, SchemaObject> = {
         description: "PeridotID identity linked to this account.",
       },
       name: { type: "string", maxLength: 255 },
+      username,
       email: { ...nullableString, format: "email" },
       role,
       isActive: { type: "boolean" },
@@ -163,6 +173,7 @@ export const schemas: Record<string, SchemaObject> = {
       "id",
       "pid",
       "name",
+      "username",
       "email",
       "role",
       "isActive",
@@ -174,6 +185,7 @@ export const schemas: Record<string, SchemaObject> = {
       id: uuid,
       pid: uuid,
       name: { type: "string", maxLength: 255 },
+      username,
       email: { ...nullableString, format: "email" },
       role,
       isActive: { type: "boolean" },
@@ -188,9 +200,10 @@ export const schemas: Record<string, SchemaObject> = {
 
   CreateUserRequest: {
     type: "object",
-    required: ["name", "email"],
+    required: ["name", "username", "email"],
     properties: {
       name: { type: "string", minLength: 1, maxLength: 255, example: "Budi Santoso" },
+      username,
       email: { type: "string", format: "email", maxLength: 255, example: "budi@example.com" },
       role: { ...role, default: "user" },
     },
@@ -201,6 +214,7 @@ export const schemas: Record<string, SchemaObject> = {
     minProperties: 1,
     properties: {
       name: { type: "string", minLength: 1, maxLength: 255 },
+      username,
       email: { type: "string", format: "email", maxLength: 255 },
     },
   },
