@@ -83,6 +83,46 @@ export function buildSeedFile(
   };
 }
 
+export function buildExportSeedFile(
+  places: CanonicalPlace[],
+  scope = "Padang destinations export",
+  exportedAt = new Date().toISOString(),
+): SeedFile {
+  return buildSeedFile(places, exportedAt, scope);
+}
+
+export type ScrapeArgs = {
+  dryRun: boolean;
+  source: string | null;
+  exportPath: string | null;
+  htmlPath: string | null;
+};
+
+function flagValue(argv: string[], names: string[]): string | null {
+  for (let i = 2; i < argv.length; i += 1) {
+    const arg = argv[i]!;
+    for (const name of names) {
+      if (arg === name) return argv[i + 1] ?? null;
+      if (arg.startsWith(`${name}=`)) return arg.slice(name.length + 1);
+    }
+  }
+  return null;
+}
+
+export function parseScrapeArgs(argv: string[]): ScrapeArgs {
+  const exportPath = flagValue(argv, ["--export", "--out"]);
+  let htmlPath = flagValue(argv, ["--html"]);
+  if (exportPath && !htmlPath) {
+    htmlPath = exportPath.replace(/\.json$/i, "") + ".html";
+  }
+  return {
+    dryRun: argv.includes("--dry-run"),
+    source: flagValue(argv, ["--source"]),
+    exportPath,
+    htmlPath,
+  };
+}
+
 function mergeKey(place: CanonicalPlace): string {
   return place.canonicalKey || place.name.trim().toLowerCase();
 }
