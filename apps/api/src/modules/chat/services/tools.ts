@@ -40,6 +40,8 @@ const detailArgsSchema = z
 export type ToolDeps = {
   searchDestinations: (input: { keywords?: string; categories?: string[] }) => Promise<unknown[]>;
   getDestinationDetails: (input: { destinationIds: string[] }) => Promise<unknown[]>;
+  /** User's requested categories; used when the model sends none, so search never runs unfiltered. */
+  defaultCategories?: string[];
 };
 
 export const toolDefinitions: AiToolDefinition[] = [
@@ -108,9 +110,10 @@ export function createToolExecutor(deps: ToolDeps) {
   return async function executeTool(name: string, rawArgs: unknown): Promise<unknown> {
     if (name === "search_destinations") {
       const args = parse(searchArgsSchema, rawArgs);
+      const categories = args.categories?.length ? args.categories : deps.defaultCategories;
       const rows = await deps.searchDestinations({
         ...(args.keywords ? { keywords: args.keywords } : {}),
-        ...(args.categories ? { categories: args.categories } : {}),
+        ...(categories?.length ? { categories } : {}),
       });
       return rows.map(safeRow).filter(Boolean).slice(0, SEARCH_LIMIT);
     }

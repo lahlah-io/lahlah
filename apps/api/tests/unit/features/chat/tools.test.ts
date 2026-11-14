@@ -65,6 +65,19 @@ test("drops unknown category slug instead of rejecting", async () => {
   assert.deepEqual(result, []);
 });
 
+test("search falls back to the user's categories when the model sends none", async () => {
+  const { createToolExecutor } = await loadTools();
+  const seen: Array<string[] | undefined> = [];
+  const exec = createToolExecutor({
+    ...baseDeps({ searchDestinations: async (input) => (seen.push(input.categories), []) }),
+    defaultCategories: ["pantai", "budaya"],
+  } as ToolDeps);
+  await exec("search_destinations", { categories: [] });
+  await exec("search_destinations", {});
+  await exec("search_destinations", { categories: ["kuliner"] });
+  assert.deepEqual(seen, [["pantai", "budaya"], ["pantai", "budaya"], ["kuliner"]]);
+});
+
 test("rejects non-UUID destination ids", async () => {
   const { executeTool } = await loadTools();
   await assert.rejects(
