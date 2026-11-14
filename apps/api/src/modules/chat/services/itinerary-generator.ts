@@ -17,6 +17,8 @@ export type CandidateDestination = {
   latitude: number | null;
   longitude: number | null;
   details: unknown;
+  /** Category slugs from the tool rows; used to balance requested categories. */
+  categories?: string[];
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -73,8 +75,31 @@ function asCandidates(candidates: unknown): CandidateDestination[] {
   return candidates.filter((c): c is CandidateDestination => {
     if (!c || typeof c !== "object") return false;
     const r = c as Record<string, unknown>;
-    return typeof r.id === "string" && typeof r.name === "string";
-  });
+    if (typeof r.id !== "string" || typeof r.name !== "string") return false;
+    if (r.categories !== undefined && !Array.isArray(r.categories)) return false;
+    return true;
+  }).map((c) => ({
+    ...c,
+    categories: Array.isArray(c.categories)
+      ? (c.categories as unknown[]).filter((s): s is string => typeof s === "string")
+      : undefined,
+  }));
+}
+
+/** Round-robin across routed groups, preserving each group's internal order. */
+function roundRobin(groups: CandidateDestination[][]): CandidateDestination[] {
+  const out: CandidateDestination[] = [];
+  for (let i = 0; ; i++) {
+    let added = false;
+    for (const g of groups) {
+      if (i < g.length) {
+        out.push(g[i]!);
+        added = true;
+      }
+    }
+    if (!added) break;
+  }
+  return out;
 }
 
 /** Greedy nearest-neighbor, deterministic. Start: smallest id. Tie-break: shortest distance, then id. */
@@ -107,7 +132,20 @@ export function generateItinerary(req: unknown, candidatesInput: unknown) {
   const start = parseMinutes(request.startTime)!;
   const end = parseMinutes(request.endTime)!;
   const requested = request.destinationCount;
-  const orderedAll = orderByNearest(asCandidates(candidatesInput));
+  // Balance requested categories before greedy routing: group candidates by
+  // request category, greedy-route inside each group, then round-robin groups
+  // so one category cannot starve the others in the final trip.
+  const cats = request.categories.map((c) => c.toLowerCase());
+  const grouped = new Map<string, CandidateDestination[]>();
+  for (const c of asCandidates(candidatesInput)) {
+    const slugs = (c.categories ?? []).map((s) => s.toLowerCase());
+    const hit = cats.find((cat) => slugs.includes(cat) || slugs.includes(`seed-${cat}`));
+    if (hit) grouped.set(hit, [...(grouped.get(hit) ?? []), c]);
+  }
+  const routeGroups = cats.map((cat) => grouped.get(cat)).filter((g): g is CandidateDestination[] => (g?.length ?? 0) > 0);
+  const orderedAll = routeGroups.length > 1
+    ? roundRobin(routeGroups.map(orderByNearest))
+    : orderByNearest(asCandidates(candidatesInput));
   const ordered = requested != null ? orderedAll.slice(0, requested) : orderedAll;
 
   // Schedule from details.estimated_duration_minutes (fallback DEFAULT_DURATION_MINUTES). No road/speed/opening-hours assumptions.

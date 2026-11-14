@@ -502,8 +502,14 @@ async function runItineraryToolFlow(input: {
 
   const candidates = [...collected.values()].map((r) => {
     const row = r as Record<string, unknown>;
-    return { id: String(row.id), name: String(row.name ?? ""), latitude: (row.latitude as number | null) ?? null, longitude: (row.longitude as number | null) ?? null, details: row.details };
-  }).filter((c) => c.id && c.name);
+    const cats = Array.isArray(row.categories) ? row.categories : [];
+    return {
+      id: String(row.id), name: String(row.name ?? ""),
+      latitude: (row.latitude as number | null) ?? null, longitude: (row.longitude as number | null) ?? null,
+      details: row.details,
+      categories: cats.map((c) => (c as Record<string, unknown>).slug).filter((s): s is string => typeof s === "string"),
+    };
+  }).filter((c) => c.id && c.name && isCoordinate(c));
   const generated = generateItinerary({ city: "Padang", ...input.request, transportMode: "walk" }, candidates);
   if (generated.destinations.length === 0) throw new HttpError(422, "ITINERARY_REQUEST_INVALID", "No valid destinations available for this request");
   return { generated, usage };

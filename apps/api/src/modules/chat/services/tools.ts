@@ -16,6 +16,7 @@ const KNOWN_CATEGORY_SLUGS = new Set([
   "kuliner",
   "santai",
   "belanja",
+  "keluarga",
 ]);
 
 const searchArgsSchema = z.object({
@@ -24,7 +25,7 @@ const searchArgsSchema = z.object({
     .array(z.string().trim().min(1).max(100))
     .max(10)
     .optional()
-    .transform((v) => v?.filter((s) => KNOWN_CATEGORY_SLUGS.has(s))),
+    .transform((v) => v?.map((s) => s.toLowerCase()).filter((s) => KNOWN_CATEGORY_SLUGS.has(s))),
 });
 
 const detailArgsSchema = z
@@ -110,7 +111,36 @@ export function createToolExecutor(deps: ToolDeps) {
   return async function executeTool(name: string, rawArgs: unknown): Promise<unknown> {
     if (name === "search_destinations") {
       const args = parse(searchArgsSchema, rawArgs);
-      const categories = args.categories?.length ? args.categories : deps.defaultCategories;
+      // shortcut: union model categories with the user's requested categories,
+      // the model sometimes searches only one of several requested categories.
+      const categories = [...new Set([...(args.categories ?? []), ...(deps.defaultCategories ?? [])])];
+      // Fan out per category and round-robin the results: a single OR query with
+      // take 10 can return 10 rows of one category, starving the other request.
+      if (categories.length > 1) {
+        const perCat: Array<Array<Record<string, unknown>>> = [];
+        for (const cat of categories) {
+          const rows = await deps.searchDestinations({
+            ...(args.keywords ? { keywords: args.keywords } : {}),
+            categories: [cat],
+          });
+          perCat.push(rows.map(safeRow).filter(Boolean) as Array<Record<string, unknown>>);
+        }
+        const merged: Array<Record<string, unknown>> = [];
+        const seenIds = new Set<string>();
+        const maxLen = Math.max(...perCat.map((l) => l.length));
+        for (let i = 0; i < maxLen && merged.length < SEARCH_LIMIT; i++) {
+          for (const list of perCat) {
+            const row = list[i];
+            const id = row && typeof row.id === "string" ? row.id : null;
+            if (row && id && !seenIds.has(id)) {
+              seenIds.add(id);
+              merged.push(row);
+              if (merged.length >= SEARCH_LIMIT) break;
+            }
+          }
+        }
+        return merged;
+      }
       const rows = await deps.searchDestinations({
         ...(args.keywords ? { keywords: args.keywords } : {}),
         ...(categories?.length ? { categories } : {}),
