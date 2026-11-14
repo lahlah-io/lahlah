@@ -11,6 +11,7 @@ export type OpenApiParameter = {
   required?: boolean;
   description?: string;
   schema: SchemaObject;
+  example?: unknown;
 };
 
 export type OpenApiMediaType = {

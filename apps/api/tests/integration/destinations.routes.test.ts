@@ -4,7 +4,8 @@ import { app } from "../../src/app.js";
 import { prisma } from "../../src/db/client.js";
 
 test("list destinations city=Padang returns only active Padang destinations", async () => {
-  const response = await app.request("/api/v1/destinations?city=Padang&limit=50");
+  // Endpoint mengembalikan semua baris kecuali `isActive` diminta; judul tes = hanya yang aktif.
+  const response = await app.request("/api/v1/destinations?city=Padang&isActive=true&limit=50");
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.ok(Array.isArray(body.data));
@@ -12,8 +13,9 @@ test("list destinations city=Padang returns only active Padang destinations", as
   for (const item of body.data) {
     assert.equal(item.city, "Padang");
     assert.equal(item.isActive, true);
-    if (item.latitude !== null) assert.equal(typeof item.latitude, "number");
-    if (item.longitude !== null) assert.equal(typeof item.longitude, "number");
+    // Kontrak API menyerialkan decimal sebagai string 7 desimal (lihat response-shapes).
+    if (item.latitude !== null) assert.match(item.latitude, /^-?\d+\.\d{7}$/);
+    if (item.longitude !== null) assert.match(item.longitude, /^-?\d+\.\d{7}$/);
   }
 });
 

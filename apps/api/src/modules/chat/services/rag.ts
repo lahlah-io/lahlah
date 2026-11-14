@@ -7,6 +7,7 @@ export type DestinationKbRow = {
   name: string;
   description?: string | null;
   address?: string | null;
+  district?: string | null;
   details?: unknown;
   categories?: Array<{ name?: string; slug?: string }>;
 };
@@ -29,6 +30,7 @@ export function buildDestinationChunk(row: DestinationKbRow): string {
   return [
     row.name,
     cats && `Kategori: ${cats}`,
+    row.district && `Wilayah: ${row.district}`,
     row.address && `Alamat: ${row.address}`,
     row.description && `Deskripsi: ${row.description}`,
     details && `Detail: ${details}`,

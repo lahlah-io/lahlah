@@ -21,5 +21,7 @@ export type RouteResult = {
   durationMin: number | null;
   estimated: boolean;
   error?: string;
+  /** Road distance per consecutive point pair, in km. Empty when the engine returned no legs. */
+  legsDistanceKm: number[];
   geometry: { type: "LineString"; coordinates: Array<[number, number]> };
 };

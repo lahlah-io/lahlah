@@ -145,6 +145,7 @@ Jalankan perintah dari root repository:
 | `pnpm --filter api db:studio` | Membuka Prisma Studio untuk database pada `DATABASE_URL`. |
 | `pnpm --filter api db:deploy` | Menerapkan migrasi yang sudah ada ke database target. |
 | `pnpm --filter api db:expire-subscriptions` | Menandai langganan `active` yang sudah lewat `expiresAt` menjadi `expired`; jalankan berkala di lingkungan terpasang. |
+| `pnpm --filter api db:backfill-distances` | Mengisi `trip_destinations.distance` (jarak jalan OSRM, meter) untuk batch versi lama yang masih kosong. Satu panggilan routing per batch, idempoten. |
 
 ## Siklus perubahan schema dan migrasi lokal
 

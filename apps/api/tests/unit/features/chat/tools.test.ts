@@ -4,8 +4,10 @@ import { randomUUID } from "node:crypto";
 import { HttpError } from "../../../../src/shared/http/errors.js";
 
 type ToolDeps = {
-  searchDestinations: (input: { keywords?: string; categories?: string[] }) => Promise<unknown[]>;
+  searchDestinations: (input: { keywords?: string; categories?: string[]; district?: string }) => Promise<unknown[]>;
   getDestinationDetails: (input: { destinationIds: string[] }) => Promise<unknown[]>;
+  defaultCategories?: string[];
+  defaultDistrict?: string;
 };
 
 async function loadTools() {
@@ -185,6 +187,34 @@ test("filters out inactive/non-Padang detail rows returned by repo", async () =>
   assert.equal(result[0]?.city, "Padang");
   assert.equal(result[0]?.isActive, true);
   assert.equal("canonicalKey" in result[0]!, false);
+});
+
+test("district diteruskan ke searchDestinations", async () => {
+  const { executeTool } = await loadTools();
+  const seen: Array<{ district?: string }> = [];
+  await executeTool(
+    "search_destinations",
+    { categories: ["kuliner"], district: "Padang Barat" },
+    baseDeps({
+      searchDestinations: async (input) => {
+        seen.push(input);
+        return [];
+      },
+    }),
+  );
+  assert.equal(seen[0]?.district, "Padang Barat");
+});
+
+test("district dari pesan user dipakai saat model tidak mengirimnya", async () => {
+  const { createToolExecutor } = await loadTools();
+  const seen: Array<{ district?: string }> = [];
+  const exec = createToolExecutor({
+    ...baseDeps({ searchDestinations: async (input) => (seen.push(input), []) }),
+    defaultDistrict: "Padang Selatan",
+  } as ToolDeps);
+  await exec("search_destinations", { categories: ["pantai"] });
+  await exec("search_destinations", { categories: ["pantai"], district: "Padang Barat" });
+  assert.deepEqual(seen.map((s) => s.district), ["Padang Selatan", "Padang Barat"]);
 });
 
 test("mergeDestinationRows accumulates across calls and dedupes by id", async () => {

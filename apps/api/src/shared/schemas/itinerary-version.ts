@@ -9,6 +9,9 @@ export type ItineraryVersionStop = {
   departureTime?: string | null;
   visitDurationMin: number | null;
   category: string | null;
+  /** Road distance in meters from the previous stop; null for the first stop. */
+  distance?: number | null;
+  distanceKm?: number | null;
 };
 
 export type ItineraryVersionRoute = {
@@ -32,6 +35,9 @@ export type ItineraryVersionView = {
   stops: ItineraryVersionStop[];
   routes?: ItineraryVersionRoute[];
   routeJson: unknown;
+  /** Road distance total for this batch, in meters. */
+  totalDistanceM?: number | null;
+  totalDistanceKm?: number | null;
 };
 
 export type SaveDraftVersionInput = {

@@ -6,6 +6,7 @@ import {
   deleteDestination,
   getDestination,
   listDestinations,
+  listDistricts,
   updateDestination,
 } from "../services/destinations.service.js";
 import {
@@ -22,6 +23,8 @@ destinationsApi.get("/", zValidator("query", listDestinationsQuerySchema), async
   c.json(await listDestinations(c.req.valid("query"))),
 );
 
+// Harus sebelum "/:id" agar tidak tertangkap validator uuid.
+destinationsApi.get("/districts", async (c) => c.json({ data: await listDistricts() }));
 destinationsApi.get("/:id", zValidator("param", destinationIdSchema), async (c) =>
   c.json({ data: await getDestination(c.req.valid("param").id) }),
 );

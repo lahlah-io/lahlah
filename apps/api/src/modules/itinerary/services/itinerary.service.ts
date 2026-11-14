@@ -1,4 +1,5 @@
 import { HttpError } from "../../../shared/http/errors.js";
+import { tripLegDistancesM, type TripRouteFn } from "../../../shared/geo/trip-distance.js";
 import type {
   ItineraryVersionStop,
   ItineraryVersionView,
@@ -11,6 +12,8 @@ import { checkUserTripAccess } from "../repositories/trip.repository.js";
 type UserRow = { id: string; isActive: boolean };
 type ItineraryDeps = {
   findUserById: (id: string) => Promise<UserRow | null>;
+  /** Road routing for per-leg distance; omit to store no distance. */
+  getRoute?: TripRouteFn;
 };
 
 function productionGate() {
@@ -53,6 +56,16 @@ function totalDistance(batch: TripBatch | undefined) {
   return sum > 0 ? Math.round(sum) : null;
 }
 
+/** Same total as `totalDistance`, in km with one decimal. */
+function totalDistanceKm(batch: TripBatch | undefined) {
+  const meters = totalDistance(batch);
+  return meters == null ? null : Math.round(meters / 100) / 10;
+}
+
+function metersToKm(meters: number | null) {
+  return meters == null ? null : Math.round(meters / 100) / 10;
+}
+
 function categorySlug(row: TripDestinationRow) {
   return row.destination.categories[0]?.category.slug ?? null;
 }
@@ -69,6 +82,8 @@ function batchStops(batch: TripBatch | undefined): ItineraryVersionStop[] {
     departureTime: null,
     visitDurationMin: null,
     category: categorySlug(row),
+    distance: row.distance,
+    distanceKm: metersToKm(row.distance),
   }));
 }
 
@@ -83,6 +98,8 @@ function asVersionView(batch: TripBatch, times = batchTimes(batch)): ItineraryVe
     stops: batchStops(batch),
     routes: [],
     routeJson: null,
+    totalDistanceM: totalDistance(batch),
+    totalDistanceKm: totalDistanceKm(batch),
   };
 }
 
@@ -98,6 +115,7 @@ function asVersionPayload(batch: TripBatch) {
     changeInstruction: null,
     changeType: "snapshot",
     totalDistanceM: totalDistance(batch),
+    totalDistanceKm: totalDistanceKm(batch),
     totalDurationMin: null,
     totalEstimatedMin: null,
     status: "confirmed",
@@ -119,6 +137,8 @@ function asVersionPayload(batch: TripBatch) {
       travelDurationMin: null,
       notes: row.notes,
       category: categorySlug(row),
+      distance: row.distance,
+      distanceKm: metersToKm(row.distance),
       snapshotJson: null,
     })),
     travelDate: times.travelDate,
@@ -157,6 +177,7 @@ function toItineraryResponse(row: TripRecord) {
       visitAt: d.visitAt,
       estimatedCost: d.estimatedCost,
       distance: d.distance,
+      distanceKm: metersToKm(d.distance),
       notes: d.notes,
       createdAt: d.createdAt,
     })),
@@ -176,6 +197,21 @@ function stopsToBatchStops(
       visitAt: stop.arrivalTime ? visitAtDate(travelDate, stop.arrivalTime) : null,
       notes: null,
     }));
+}
+
+/**
+ * Road distance per stop in meters; index 0 is null because the first stop has no
+ * incoming leg. Null when routing is unavailable or any stop lacks coordinates.
+ */
+async function batchLegDistancesM(
+  stops: tripRepository.BatchStopInput[],
+  getRoute?: TripRouteFn,
+): Promise<number[] | null> {
+  const coords = await tripRepository.findDestinationCoords(stops.map((stop) => stop.destinationId));
+  return tripLegDistancesM(
+    stops.map((stop) => coords.get(stop.destinationId) ?? null),
+    getRoute,
+  );
 }
 
 export function createItineraryService(deps: ItineraryDeps) {
@@ -198,6 +234,10 @@ export function createItineraryService(deps: ItineraryDeps) {
 
       const stops = stopsToBatchStops(input.stops, input.travelDate);
       if (stops.length === 0) throw new HttpError(422, "ITINERARY_EMPTY", "Itinerary has no destination");
+      const legsM = await batchLegDistancesM(stops, deps.getRoute);
+      stops.forEach((stop, index) => {
+        stop.distance = index === 0 ? null : (legsM?.[index - 1] ?? null);
+      });
       await tripRepository.appendBatch({ tripId: root.id, stops });
 
       const batches = await tripRepository.listBatches(root.id);
@@ -272,6 +312,7 @@ export function createItineraryService(deps: ItineraryDeps) {
           changeInstruction: null,
           status: "confirmed",
           totalDistanceM: totalDistance(batch),
+          totalDistanceKm: totalDistanceKm(batch),
           totalDurationMin: null,
           totalEstimatedMin: null,
           createdAt: batch.createdAt,

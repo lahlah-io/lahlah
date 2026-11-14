@@ -10,3 +10,11 @@ test("chat destination search excludes uncategorized and seed placeholder rows",
   });
   assert.equal(searchDestinationsWhere({ keywords: "  " }).OR, undefined);
 });
+
+test("chat destination search menerapkan filter wilayah", () => {
+  assert.equal(searchDestinationsWhere({}).district, undefined);
+  assert.equal(searchDestinationsWhere({ district: "padang barat" }).district, "Padang Barat");
+  assert.equal(searchDestinationsWhere({ district: "Barat" }).district, "Padang Barat");
+  // Wilayah tak dikenal diabaikan, bukan membuat pencarian kosong.
+  assert.equal(searchDestinationsWhere({ district: "bandung" }).district, undefined);
+});

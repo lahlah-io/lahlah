@@ -17,6 +17,8 @@ model Destination {
   longitude             Decimal?               @db.Decimal(10, 7)
   address               String?                @db.VarChar
   city                  String?                @map("city") @db.VarChar(100)
+  // Kecamatan Kota Padang; lihat src/shared/geo/padang-district.ts.
+  district              String?                @db.VarChar(100)
   source                DestinationSource
   sourcePlaceId         String?                @map("source_place_id") @db.VarChar
   createdBy             String?                @map("created_by") @db.Uuid
@@ -32,6 +34,7 @@ model Destination {
 
   @@unique([source, sourcePlaceId])
   @@index([city, isActive])
+  @@index([city, district, isActive])
   @@map("destinations")
 }
 

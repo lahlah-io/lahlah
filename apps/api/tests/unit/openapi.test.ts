@@ -32,6 +32,18 @@ test("swagger ui is served", async () => {
   assert.match(response.headers.get("content-type") ?? "", /text\/html/);
 });
 
+test("swagger ui page explains trip distance in meters before the spec loads", async () => {
+  const html = await (await app.request("/docs")).text();
+  // The banner must state the unit and the null rule so a reader never guesses.
+  assert.match(html, /totalDistanceM/);
+  assert.match(html, /meters/i);
+  assert.match(html, /legsDistanceKm/);
+  assert.match(html, /null/);
+  // It is a note above the spec, not a replacement for it.
+  assert.match(html, /id="swagger-ui"/);
+  assert.match(html, /url: "\/openapi\.json"/);
+});
+
 test("every API route is documented", async () => {
   const document = await readDocument();
   const documented = new Set(Object.keys(document.paths));

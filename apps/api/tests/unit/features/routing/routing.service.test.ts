@@ -12,6 +12,8 @@ const points = [
   { latitude: -0.94, longitude: 100.36 },
 ];
 
+const points3 = [...points, { latitude: -0.93, longitude: 100.37 }];
+
 function osrmResponse() {
   return {
     routes: [
@@ -19,6 +21,19 @@ function osrmResponse() {
         distance: 8400,
         duration: 960,
         geometry: { type: "LineString", coordinates: points.map((p) => [p.longitude, p.latitude]) },
+      },
+    ],
+  };
+}
+
+function osrmLegsResponse(legs: number[]) {
+  return {
+    routes: [
+      {
+        distance: legs.reduce((a, b) => a + b, 0),
+        duration: 960,
+        geometry: { type: "LineString", coordinates: points3.map((p) => [p.longitude, p.latitude]) },
+        legs: legs.map((distance) => ({ distance })),
       },
     ],
   };
@@ -85,6 +100,47 @@ test("routing falls back to straight line when OSRM is rate-limited", async () =
   assert.equal(result.distanceKm, fallbackKm(points));
   assert.equal(result.geometry.coordinates.length, 2);
   assert.ok(calls >= 1);
+});
+
+test("routing exposes per-leg distances from OSRM legs", async () => {
+  const service = createRoutingService({
+    osrmBaseUrl: "https://router.project-osrm.org",
+    timeoutMs: 8000,
+    fetchFn: (async () => new Response(JSON.stringify(osrmLegsResponse([1200, 830])), { status: 200 })) as typeof fetch,
+    cache: createRouteCache({ ttlMs: 3_600_000 }),
+  });
+
+  const result = await service.getRoute({ points: points3, profile: "car" });
+  assert.equal(result.source, "osrm");
+  assert.deepEqual(result.legsDistanceKm, [1.2, 0.83]);
+});
+
+test("routing leaves leg distances empty when OSRM omits legs", async () => {
+  const service = createRoutingService({
+    osrmBaseUrl: "https://router.project-osrm.org",
+    timeoutMs: 8000,
+    fetchFn: fetchOk({ count: 0 }),
+    cache: createRouteCache({ ttlMs: 3_600_000 }),
+  });
+
+  const result = await service.getRoute({ points: points3, profile: "car" });
+  assert.deepEqual(result.legsDistanceKm, []);
+});
+
+test("routing fallback reports straight-line distance per leg", async () => {
+  const service = createRoutingService({
+    osrmBaseUrl: "https://router.project-osrm.org",
+    timeoutMs: 8000,
+    fetchFn: (async () => new Response("slow down", { status: 429 })) as typeof fetch,
+    cache: createRouteCache({ ttlMs: 3_600_000 }),
+  });
+
+  const result = await service.getRoute({ points: points3, profile: "car" });
+  assert.equal(result.source, "fallback");
+  assert.equal(result.legsDistanceKm.length, 2);
+  const total = result.legsDistanceKm.reduce((a, b) => a + b, 0);
+  // fallbackKm rounds the total to 1 decimal, so allow that rounding slack.
+  assert.ok(Math.abs(total - fallbackKm(points3)) < 0.1);
 });
 
 test("routing cache key rounds coordinates to 5 decimals", () => {
