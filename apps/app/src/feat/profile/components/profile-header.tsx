@@ -1,14 +1,10 @@
 import { useNavigate } from "react-router";
 
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from "@/shared/components/ui/avatar";
+import { UserAvatar } from "@/shared/components/user-avatar";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { TRIPS, TRIP_SUMMARY } from "@/shared/data/itinerary";
-import { getUserInitials, type CurrentUser } from "@/shared/types/user";
+import { type CurrentUser } from "@/shared/types/user";
 
 export function ProfileHeader({
   user,
@@ -34,12 +30,12 @@ export function ProfileHeader({
   return (
     <header className="flex flex-col gap-4 px-4 pt-5">
       <div className="flex items-center gap-6">
-        <Avatar className="size-20 shrink-0">
-          {avatarUrl ? <AvatarImage src={avatarUrl} alt={name} /> : null}
-          <AvatarFallback className="text-lg font-medium">
-            {getUserInitials(name)}
-          </AvatarFallback>
-        </Avatar>
+        <UserAvatar
+          name={name}
+          seed={username}
+          src={avatarUrl}
+          className="size-20 shrink-0"
+        />
 
         <ul className="flex min-w-0 flex-1 items-center justify-around">
           {stats.map((stat) => (

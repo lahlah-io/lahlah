@@ -1,4 +1,4 @@
-/** Kontrak API `/api/v1/itineraries` yang dipakai panel Trip di chat. */
+/** Kontrak API `/api/v1/itineraries` untuk stop dan versi itinerary. */
 
 export interface ItineraryStopDto {
   arrivalTime: string | null;

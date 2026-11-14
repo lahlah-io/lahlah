@@ -2,11 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 
 import { ApiError } from "@/shared/api/client";
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from "@/shared/components/ui/avatar";
+import { UserAvatar } from "@/shared/components/user-avatar";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
 import { Textarea } from "@/shared/components/ui/textarea";
@@ -14,7 +10,6 @@ import {
   updateCurrentUser,
   useCurrentUser,
 } from "@/shared/hooks/use-current-user";
-import { getUserInitials } from "@/shared/types/user";
 
 import { updateMyProfile } from "../services/profile.api";
 
@@ -66,14 +61,12 @@ export function ProfileEditForm() {
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-6">
       <div className="flex items-center gap-4">
-        <Avatar className="size-20 shrink-0">
-          {avatarUrl ? (
-            <AvatarImage src={avatarUrl} alt={name || "Foto profil"} />
-          ) : null}
-          <AvatarFallback className="text-xl font-medium">
-            {getUserInitials(name)}
-          </AvatarFallback>
-        </Avatar>
+        <UserAvatar
+          name={name || "Foto profil"}
+          seed={username}
+          src={avatarUrl || null}
+          className="size-20 shrink-0"
+        />
         <div className="min-w-0 flex-1">
           <label htmlFor="avatarUrl" className="text-sm font-medium">
             URL foto profil

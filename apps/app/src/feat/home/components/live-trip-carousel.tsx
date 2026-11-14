@@ -3,14 +3,16 @@ import { useState } from "react";
 import { Link } from "react-router";
 
 import { Button } from "@/shared/components/ui/button";
-import { TripRouteMap } from "@/shared/components/trip/trip-route-map";
+import { Skeleton } from "@/shared/components/ui/skeleton";
 import { CheckpointDialog } from "@/shared/components/trip/checkpoint-dialog";
-import { getTripPath, getTripWaypoints, LIVE_TRIPS } from "@/shared/data/itinerary";
+import { TripRouteMap } from "@/shared/components/trip/trip-route-map";
+import { getTripPath, getTripWaypoints } from "@/shared/data/itinerary";
 import { useCheckpoints } from "@/shared/hooks/use-checkpoints";
-import type { Trip } from "@/shared/types/itinerary";
+import type { LiveTrip, LiveTripStatus } from "../hooks/use-live-trip";
 
-/** Card Live trip: peta penuh, judul di atas, tombol foto di bawah. */
-function LiveTripCard({ trip }: { trip: Trip }) {
+/** Satu kartu live trip: peta penuh, judul di atas, tombol foto di bawah. */
+export function LiveTripCard({ live }: { live: LiveTrip }) {
+  const { checked, total, trip } = live;
   const { summary } = trip;
   const { checkpoints, saveCheckpoint } = useCheckpoints(trip.id);
   const [cameraOpen, setCameraOpen] = useState(false);
@@ -34,6 +36,9 @@ function LiveTripCard({ trip }: { trip: Trip }) {
           <h3 className="text-2xl leading-[1.05] font-semibold tracking-tight text-balance">
             {summary.title}
           </h3>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {checked}/{total} checkpoint
+          </p>
         </div>
 
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-background/85 via-background/40 to-transparent p-3 pt-20">
@@ -59,9 +64,23 @@ function LiveTripCard({ trip }: { trip: Trip }) {
   );
 }
 
-/** Section pertama Beranda: carousel horizontal trip yang sedang berjalan. */
-export function LiveTripCarousel() {
-  if (LIVE_TRIPS.length === 0) return null;
+function LiveTripSkeleton() {
+  return (
+    <li className="w-[64%] max-w-64 shrink-0 snap-start">
+      <Skeleton className="aspect-[4/5] w-full rounded-2xl" aria-hidden="true" />
+    </li>
+  );
+}
+
+/** Live trip Beranda dari `GET /trips/active`; sembunyi bila kosong. */
+export function LiveTripCarousel({
+  live,
+  status,
+}: {
+  live: LiveTrip | null;
+  status: LiveTripStatus;
+}) {
+  if (status === "empty" || (status === "ready" && !live)) return null;
 
   return (
     <section aria-labelledby="live-trip-heading" className="pt-4 pb-5">
@@ -70,7 +89,7 @@ export function LiveTripCarousel() {
           Live trip
         </h2>
         <span className="text-xs text-muted-foreground">
-          {LIVE_TRIPS.length} sedang berjalan
+          {status === "ready" ? "sedang berjalan" : "memuat…"}
         </span>
       </div>
 
@@ -78,9 +97,11 @@ export function LiveTripCarousel() {
         aria-label="Trip yang sedang berjalan"
         className="flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        {LIVE_TRIPS.map((trip) => (
-          <LiveTripCard key={trip.id} trip={trip} />
-        ))}
+        {live && status === "ready" ? (
+          <LiveTripCard key={live.trip.id} live={live} />
+        ) : (
+          <LiveTripSkeleton />
+        )}
       </ul>
     </section>
   );

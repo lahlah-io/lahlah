@@ -1,13 +1,12 @@
 import { Navigation } from "lucide-react";
 
-import type { ItineraryDestination, Trip } from "@/shared/types/itinerary";
-import { distanceMeters, formatDistance } from "@/shared/utils/geo";
-
 import type {
   ItineraryDetailDto,
   ItineraryStopDto,
   ItineraryVersionDto,
-} from "../types/itinerary";
+} from "@/shared/types/itinerary-api";
+import type { ItineraryDestination, Trip } from "@/shared/types/itinerary";
+import { distanceMeters, formatDistance } from "@/shared/utils/geo";
 
 /** Foto pengganti hanya untuk destinasi yang benar-benar belum punya foto. */
 const STOP_PHOTO =

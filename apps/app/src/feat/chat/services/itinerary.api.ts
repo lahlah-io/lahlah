@@ -1,10 +1,9 @@
 import { ApiError, apiRequest } from "@/shared/api/client";
 import type { DataEnvelope } from "@/shared/api/types";
-
 import type {
   ItineraryDetailDto,
   ItineraryVersionSummaryDto,
-} from "../types/itinerary";
+} from "@/shared/types/itinerary-api";
 
 const BASE = "/api/v1/itineraries";
 

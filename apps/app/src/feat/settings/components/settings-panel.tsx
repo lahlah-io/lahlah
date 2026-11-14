@@ -23,11 +23,7 @@ import {
   AlertDialogTitle,
 } from "@/shared/components/ui/alert-dialog";
 
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from "@/shared/components/ui/avatar";
+import { UserAvatar } from "@/shared/components/user-avatar";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import {
@@ -40,7 +36,6 @@ import {
 } from "@/shared/components/ui/card";
 import { Separator } from "@/shared/components/ui/separator";
 import { useCurrentUser } from "@/shared/hooks/use-current-user";
-import { getUserInitials } from "@/shared/types/user";
 
 function SettingRow({
   icon: Icon,
@@ -74,7 +69,7 @@ export function SettingsPanel({
 }: {
   onLogout: () => void | Promise<void>;
 }) {
-  const { name, plan, avatarUrl } = useCurrentUser();
+  const { name, plan, username, avatarUrl } = useCurrentUser();
   const navigate = useNavigate();
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -120,12 +115,12 @@ export function SettingsPanel({
         </CardHeader>
         <CardContent className="flex flex-col gap-5">
           <div className="flex items-center gap-4">
-            <Avatar className="size-12">
-              {avatarUrl ? <AvatarImage src={avatarUrl} alt={name} /> : null}
-              <AvatarFallback className="text-sm font-medium">
-                {getUserInitials(name)}
-              </AvatarFallback>
-            </Avatar>
+            <UserAvatar
+              name={name}
+              seed={username}
+              src={avatarUrl}
+              className="size-12"
+            />
             <div className="min-w-0">
               <p className="truncate text-base font-semibold">{name}</p>
               <p className="text-sm text-muted-foreground">Paket {plan}</p>

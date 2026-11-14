@@ -10,11 +10,7 @@ import {
 import { useEffect, useRef, useState, type Ref } from "react";
 import { Link, useNavigate } from "react-router";
 
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from "@/shared/components/ui/avatar";
+import { UserAvatar } from "@/shared/components/user-avatar";
 import { Button } from "@/shared/components/ui/button";
 import {
   DropdownMenu,
@@ -24,9 +20,9 @@ import {
   DropdownMenuTrigger,
 } from "@/shared/components/ui/dropdown-menu";
 import { ACCOUNT } from "@/shared/data/accounts";
-import { getTripWaypoints } from "@/shared/data/itinerary";import { useCheckpoints } from "@/shared/hooks/use-checkpoints";
+import { getTripWaypoints } from "@/shared/data/itinerary";
+import { useCheckpoints } from "@/shared/hooks/use-checkpoints";
 import type { Trip } from "@/shared/types/itinerary";
-import { getUserInitials } from "@/shared/types/user";
 
 import { TripRouteMap } from "./trip-route-map";
 
@@ -70,14 +66,12 @@ function TripPostCard({
           aria-label={`Buka profil ${ACCOUNT.name}`}
           className="shrink-0 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
         >
-          <Avatar className="size-8">
-            {ACCOUNT.avatarUrl ? (
-              <AvatarImage src={ACCOUNT.avatarUrl} alt="" />
-            ) : null}
-            <AvatarFallback className="text-[0.65rem] font-semibold">
-              {getUserInitials(ACCOUNT.name)}
-            </AvatarFallback>
-          </Avatar>
+          <UserAvatar
+            name={ACCOUNT.name}
+            seed={ACCOUNT.username}
+            src={ACCOUNT.avatarUrl}
+            className="size-8"
+          />
         </Link>
 
         <div className="min-w-0 flex-1">

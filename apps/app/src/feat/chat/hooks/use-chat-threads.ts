@@ -14,8 +14,8 @@ import type {
 import type {
   ItineraryDetailDto,
   ItineraryVersionSummaryDto,
-} from "../types/itinerary";
-import { toTrip } from "../utils/itinerary-trip";
+} from "@/shared/types/itinerary-api";
+import { toTrip } from "@/shared/utils/itinerary-trip";
 
 /** Error dibedakan supaya kegagalan kirim bisa tampil sebagai status trip. */
 export interface ChatError {
