@@ -4,6 +4,8 @@ export type AppUser = {
   name: string;
   username: string;
   email: string | null;
+  bio: string | null;
+  avatarUrl: string | null;
   role: "user" | "admin";
   isActive: boolean;
 };

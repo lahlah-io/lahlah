@@ -7,12 +7,17 @@ type ChatThreadsValue = ReturnType<typeof useChatThreads>;
 const ChatThreadsContext = createContext<ChatThreadsValue | null>(null);
 
 /**
- * Keeps one thread store for every route. Chat and Search both read the same
- * state, so selecting a result in Search opens the live thread instead of a
- * separate copy hydrated from storage.
+ * Satu store percakapan untuk setiap route. Chat dan Cari membaca state yang
+ * sama, jadi memilih hasil pencarian membuka sesi API yang sedang aktif.
  */
-export function ChatThreadsProvider({ children }: { children: ReactNode }) {
-  const value = useChatThreads();
+export function ChatThreadsProvider({
+  children,
+  userId,
+}: {
+  children: ReactNode;
+  userId: string | null;
+}) {
+  const value = useChatThreads(userId);
 
   return (
     <ChatThreadsContext.Provider value={value}>

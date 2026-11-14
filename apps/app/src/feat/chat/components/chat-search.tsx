@@ -13,8 +13,7 @@ import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
 
 import { useChatThreadsContext } from "../context/chat-threads-context";
-import { groupThreads } from "../utils/thread-groups";
-import { searchThreads } from "../utils/thread-search";
+import { filterThreads, groupThreads } from "../utils/thread-groups";
 
 export function ChatSearch() {
   const { threads } = useChatThreadsContext();
@@ -22,7 +21,7 @@ export function ChatSearch() {
   const [query, setQuery] = useState("");
 
   const groups = useMemo(
-    () => groupThreads(searchThreads(threads, query)),
+    () => groupThreads(filterThreads(threads, query)),
     [query, threads],
   );
   const isSearching = query.trim().length > 0;
@@ -36,7 +35,7 @@ export function ChatSearch() {
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">Cari</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Temukan percakapan dari judul atau isi pesannya.
+          Temukan percakapan dari judulnya, lalu buka untuk melihat pesannya.
         </p>
       </header>
 
@@ -115,7 +114,9 @@ export function ChatSearch() {
                             {thread.title}
                           </span>
                           <span className="block text-xs text-muted-foreground">
-                            {thread.messages.length} pesan
+                            {thread.messages.length > 0
+                              ? `${thread.messages.length} pesan`
+                              : "Belum dibuka"}
                           </span>
                         </span>
                       </button>

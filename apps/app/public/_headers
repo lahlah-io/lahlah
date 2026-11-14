@@ -1,0 +1,8 @@
+/*
+  # SPA tidak memakai cookie lintas-situs; header ini hanya hardening dasar.
+  # CSP sengaja belum dipasang: MapLibre (worker blob) dan SDK PeridotID belum
+  # diuji di bawah CSP ketat. Lihat docs/cloudflare-deploy.md sebelum menambah.
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(self)

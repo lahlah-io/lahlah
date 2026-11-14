@@ -1,0 +1,7 @@
+{
+  "$schema": "https://developers.cloudflare.com/schema/wrangler.jsonc",
+  "name": "lahlah-app",
+  "compatibility_date": "2026-11-01",
+  // Direktori hasil `vite build` (keluaran default: apps/app/dist).
+  "pages_build_output_dir": "dist"
+}

@@ -12,6 +12,9 @@ out/
 coverage/
 *.tsbuildinfo
 
+# Output graphify (knowledge graph lokal, tidak di-commit)
+graphify-out/
+
 # Local environment files; keep example files in Git
 .env
 .env.*

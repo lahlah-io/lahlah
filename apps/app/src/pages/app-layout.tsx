@@ -1,5 +1,6 @@
 import { Outlet } from "react-router";
 
+import { useAuth } from "@/feat/auth/hooks/use-auth";
 import { ChatThreadsProvider } from "@/feat/chat/context/chat-threads-context";
 import { AppRail } from "@/shared/components/app-nav/app-rail";
 import { AppTabBar } from "@/shared/components/app-nav/app-tab-bar";
@@ -7,8 +8,10 @@ import { TooltipProvider } from "@/shared/components/ui/tooltip";
 
 /** App chrome shared by every route: icon rail, page outlet, mobile tab bar. */
 export function AppLayout() {
+  const { user } = useAuth();
+
   return (
-    <ChatThreadsProvider>
+    <ChatThreadsProvider userId={user?.id ?? null}>
       <TooltipProvider delayDuration={300}>
         <div className="flex h-svh w-full overflow-hidden bg-background">
           <AppRail />

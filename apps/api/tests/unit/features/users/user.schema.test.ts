@@ -1,6 +1,6 @@
 ﻿import assert from "node:assert/strict";
 import { test } from "vitest";
-import { createUserSchema, listUsersQuerySchema } from "../../../../src/modules/users/schemas/user.schema.js";
+import { createUserSchema, listUsersQuerySchema, updateUserSchema } from "../../../../src/modules/users/schemas/user.schema.js";
 
 test("skema user menerima input valid dan menolak email atau nama tidak valid", () => {
   assert.deepEqual(
@@ -24,6 +24,19 @@ test("skema user menerima input valid dan menolak email atau nama tidak valid", 
     false,
     "username dengan karakter selain huruf kecil/angka/underscore ditolak",
   );
+});
+
+test("skema update menerima bio kosong sebagai hapus dan menolak avatar aneh", () => {
+  assert.deepEqual(updateUserSchema.parse({ bio: "  " }), { bio: null });
+  assert.deepEqual(updateUserSchema.parse({ avatarUrl: "/logo-mark.svg" }), {
+    avatarUrl: "/logo-mark.svg",
+  });
+  assert.equal(
+    updateUserSchema.safeParse({ avatarUrl: "ftp://x/y" }).success,
+    false,
+    "avatar non http/https/root-relative ditolak",
+  );
+  assert.equal(updateUserSchema.safeParse({}).success, false, "update kosong ditolak");
 });
 
 test("parameter list user memakai pagination bersama dan filter status", () => {

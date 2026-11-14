@@ -172,6 +172,28 @@ export const openApiDocument: OpenApiDocument = {
     schemas,
   },
   paths: {
+    "/api/v1/users/me": {
+      patch: {
+        tags: ["Users"],
+        summary: "Update my profile",
+        operationId: "updateMyProfile",
+        security: sessionSecurity,
+        requestBody: body("UpdateUserRequest"),
+        responses: {
+          "200": { description: "Updated profile.", content: json(single("User")) },
+          "400": validation,
+          "401": unauthorized,
+          "403": errorResponse("Account is inactive (`ACCOUNT_INACTIVE`)."),
+          "404": notFound("USER_NOT_FOUND"),
+          "409": conflict(
+            "EMAIL_ALREADY_EXISTS / USERNAME_ALREADY_EXISTS",
+            "Email or username is already registered",
+          ),
+          "413": payloadTooLarge,
+          "500": internal,
+        },
+      },
+    },
     "/": {
       get: {
         tags: ["Health"],

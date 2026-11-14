@@ -70,6 +70,10 @@ export function ProfileHeader({
         </p>
       </div>
 
+      {user.bio ? (
+        <p className="text-sm leading-5 text-balance">{user.bio}</p>
+      ) : null}
+
       {editable ? (
         <div className="flex gap-2">
           <Button

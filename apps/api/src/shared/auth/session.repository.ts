@@ -7,6 +7,8 @@ export const authUserSelect = {
   name: true,
   username: true,
   email: true,
+  bio: true,
+  avatarUrl: true,
   role: true,
   isActive: true,
 } satisfies Prisma.UserSelect;

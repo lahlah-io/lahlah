@@ -128,7 +128,7 @@ export const schemas: Record<string, SchemaObject> = {
 
   AuthUser: {
     type: "object",
-    required: ["id", "pid", "name", "username", "email", "role", "isActive"],
+    required: ["id", "pid", "name", "username", "email", "bio", "avatarUrl", "role", "isActive"],
     properties: {
       id: uuid,
       pid: {
@@ -138,6 +138,8 @@ export const schemas: Record<string, SchemaObject> = {
       name: { type: "string", maxLength: 255 },
       username,
       email: { ...nullableString, format: "email" },
+      bio: { ...nullableString, maxLength: 160 },
+      avatarUrl: { ...nullableString, format: "uri", maxLength: 2048 },
       role,
       isActive: { type: "boolean" },
     },
@@ -205,6 +207,8 @@ export const schemas: Record<string, SchemaObject> = {
       "name",
       "username",
       "email",
+      "bio",
+      "avatarUrl",
       "role",
       "isActive",
       "createdAt",
@@ -217,6 +221,8 @@ export const schemas: Record<string, SchemaObject> = {
       name: { type: "string", maxLength: 255 },
       username,
       email: { ...nullableString, format: "email" },
+      bio: { ...nullableString, maxLength: 160 },
+      avatarUrl: { ...nullableString, maxLength: 2048 },
       role,
       isActive: { type: "boolean" },
       ...durationMetadata,
@@ -246,6 +252,13 @@ export const schemas: Record<string, SchemaObject> = {
       name: { type: "string", minLength: 1, maxLength: 255 },
       username,
       email: { type: "string", format: "email", maxLength: 255 },
+      bio: { ...nullableString, maxLength: 160, description: "Pass an empty string to clear." },
+      avatarUrl: {
+        type: ["string", "null"],
+        maxLength: 2048,
+        description:
+          "`http(s)://` URL or root-relative path such as `/logo-mark.svg`. Empty string clears it.",
+      },
     },
   },
 

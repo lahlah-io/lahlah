@@ -11,14 +11,19 @@ export interface CurrentUser {
   avatarUrl: string | null;
 }
 
-/** Data pengguna sementara sampai autentikasi tersedia. */
-export const CURRENT_USER: CurrentUser = {
+/** Nilai awal sebelum sesi API selesai dimuat. */
+export const DEFAULT_USER: CurrentUser = {
   name: "Nama Pengguna",
-  plan: "Plus",
+  plan: "Free",
   bio: "Rencana perjalanan dan itinerary yang dibuat bareng Lahlah AI.",
   username: "namapengguna_",
   avatarUrl: null,
 };
+
+/** Nama plan dari API (`free`, `plus`) menjadi label UI. */
+export function toUserPlan(planName: string | null | undefined): UserPlan {
+  return planName?.trim().toLowerCase() === "plus" ? "Plus" : "Free";
+}
 
 /** Inisial maksimal dua huruf dari nama, dipakai saat foto profil kosong. */
 export function getUserInitials(name: string): string {

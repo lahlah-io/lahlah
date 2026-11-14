@@ -1,16 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { Map, MessagesSquare, PanelLeft, Sparkles } from "lucide-react";
+import { LoaderCircle, Map, MessagesSquare, PanelLeft, Sparkles } from "lucide-react";
 import { useLocation, useNavigate, useParams } from "react-router";
 
 import { Button } from "@/shared/components/ui/button";
-import {
-  MessageScroller,
-  MessageScrollerButton,
-  MessageScrollerContent,
-  MessageScrollerItem,
-  MessageScrollerProvider,
-  MessageScrollerViewport,
-} from "@/shared/components/ui/message-scroller";
 import {
   Sheet,
   SheetContent,
@@ -25,17 +17,25 @@ import {
 import { cn } from "@/shared/utils/cn";
 
 import { ThreadPanelContent } from "./thread-panel";
-import { ChatTurn, StreamingTurn } from "./chat-turn";
+import { ChatTurn, PendingTurn } from "./chat-turn";
 import { ItineraryPanel } from "./itinerary-panel";
+import AIContextMeter from "./smoothui/ai-context-meter";
+import AIConversation from "./smoothui/ai-conversation";
 import AIPromptInput from "./smoothui/ai-prompt-input";
+import { TripTask } from "./trip-task";
 import { useChatThreadsContext } from "../context/chat-threads-context";
-import { useSimulatedReply } from "../hooks/use-simulated-reply";
 
 const SUGGESTIONS = [
-  "Bantu saya menyusun ide baru",
-  "Ringkas topik yang sedang saya pelajari",
-  "Buat rencana untuk minggu ini",
+  "Buat itinerary pantai besok pagi",
+  "Rekomendasi kuliner Padang hari ini",
+  "Rute santai sore ini di Padang",
 ];
+
+/**
+ * Ukuran context window model chat. API belum mengekspos angka ini, jadi meter
+ * memakai anggaran tetap; ganti satu nilai ini saat API mengirimkannya.
+ */
+const CONTEXT_WINDOW_TOKENS = 128_000;
 
 type ChatView = "chat" | "itinerary";
 
@@ -53,16 +53,19 @@ function ChatWorkspace() {
   const {
     activeId,
     activeThread,
-    appendAssistantMessage,
-    appendUserMessage,
     deleteThread,
+    error,
     isDraft,
+    listLoading,
     renameThread,
     selectThread,
+    send,
+    sending,
+    sessionLoading,
     startDraft,
     threads,
+    usage,
   } = useChatThreadsContext();
-  const { cancel, start, turn } = useSimulatedReply();
   const [draft, setDraft] = useState("");
   const { openMobile, setOpenMobile } = useSidebar();
   const navigate = useNavigate();
@@ -72,9 +75,10 @@ function ChatWorkspace() {
   const view: ChatView = showTrip ? "itinerary" : "chat";
 
   // URL adalah sumber kebenaran: `/chat/:id` memilih thread, `/chat` draft,
-  // `.../trip` membuka tab trip. State store disinkronkan ke URL, bukan
-  // sebaliknya, supaya tautan bisa dibagikan dan reload tetap di tempat sama.
+  // `.../trip` membuka tab trip. Daftar thread belum diketahui sebelum API
+  // menjawab, jadi redirect ditunda sampai `listLoading` selesai.
   useEffect(() => {
+    if (listLoading) return;
     if (threadId) {
       if (!threads.some((thread) => thread.id === threadId)) {
         navigate("/chat", { replace: true });
@@ -86,7 +90,15 @@ function ChatWorkspace() {
     if (!showTrip && activeId) {
       navigate(`/chat/${activeId}`, { replace: true });
     }
-  }, [activeId, navigate, selectThread, showTrip, threadId, threads]);
+  }, [
+    activeId,
+    listLoading,
+    navigate,
+    selectThread,
+    showTrip,
+    threadId,
+    threads,
+  ]);
 
   const openMobileHistory = useCallback(() => setOpenMobile(true), [
     setOpenMobile,
@@ -96,19 +108,17 @@ function ChatWorkspace() {
   ]);
 
   const handleNewThread = useCallback(() => {
-    cancel();
     setDraft("");
     startDraft();
     navigate("/chat");
-  }, [cancel, navigate, startDraft]);
+  }, [navigate, startDraft]);
 
   const handleSelectThread = useCallback(
     (id: string) => {
-      cancel();
       setDraft("");
       navigate(`/chat/${id}`);
     },
-    [cancel, navigate],
+    [navigate],
   );
 
   const handleViewChange = useCallback(
@@ -121,33 +131,39 @@ function ChatWorkspace() {
 
   const handleRename = useCallback(
     (id: string, title: string) => {
-      renameThread(id, title);
+      void renameThread(id, title);
     },
     [renameThread],
   );
 
   const handleDelete = useCallback(
     (id: string) => {
-      cancel();
-      deleteThread(id);
+      void deleteThread(id);
     },
-    [cancel, deleteThread],
+    [deleteThread],
   );
 
   const handleSubmit = useCallback(
     (value: string) => {
-      const clean = value.trim();
-      if (!clean || turn.streaming) return;
-      appendUserMessage(clean);
+      if (sending) return;
       setDraft("");
-      start(clean, (text, citations) => {
-        appendAssistantMessage({ citations, text });
+      void send(value).then((result) => {
+        // Trip pertama langsung dibuka supaya user melihat hasilnya tanpa
+        // harus menebak tab mana yang berubah. Perubahan trip berikutnya
+        // tidak merebut halaman supaya user tidak kehilangan bacaan.
+        if (result?.firstTrip) navigate(`/chat/${result.sessionId}/trip`);
       });
     },
-    [appendAssistantMessage, appendUserMessage, start, turn.streaming],
+    [navigate, send, sending],
   );
 
-  const composerState = turn.streaming ? turn.state : "idle";
+  const composerState = sending ? "thinking" : "idle";
+  const messages = activeThread?.messages ?? [];
+  // Kegagalan kirim tampil sebagai status trip yang gagal, bukan layar kosong.
+  const showEmptyState =
+    !sending && !error && (isDraft || messages.length === 0);
+  const showSessionLoader =
+    sessionLoading && !isDraft && messages.length === 0;
 
   return (
     <div className="flex h-full min-h-0 w-full">
@@ -228,62 +244,68 @@ function ChatWorkspace() {
               inert={view !== "chat"}
               role="region"
             >
-              <MessageScrollerProvider
-                key={isDraft ? "draft" : activeThread?.id}
-                autoScroll
+              {/*
+                Scroller milik SmoothUI: mengikuti bawah hanya saat pembaca
+                sudah di bawah. `contentKey` berubah tiap ada pesan baru atau
+                saat status kirim berubah, supaya daftar langkah trip yang
+                baru muncul ikut terlihat.
+              */}
+              <AIConversation
+                className="min-h-0 flex-1"
+                contentKey={`${isDraft ? "draft" : activeId}-${messages.length}-${sending ? "sending" : "idle"}`}
               >
-                <MessageScroller className="min-h-0 flex-1">
-                  <MessageScrollerViewport>
-                    {/* `justify-end` pins short content to the bottom so the newest
-                        turn starts next to the composer; long transcripts keep the
-                        natural top-to-bottom flow and auto-scroll to the live edge. */}
-                    <MessageScrollerContent className="mx-auto flex min-h-full w-full max-w-3xl flex-col justify-end gap-5 px-4 py-8 sm:px-6">
-                      {isDraft ||
-                      !activeThread ||
-                      activeThread.messages.length === 0 ? (
-                        <MessageScrollerItem>
-                          <div className="flex min-h-[50vh] flex-col items-center justify-center text-center">
-                            <div className="mb-5 flex size-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-sm">
-                              <Sparkles className="size-7" aria-hidden="true" />
-                            </div>
-                            <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-                              Apa yang ingin kamu bahas?
-                            </h2>
-                            <p className="mt-3 max-w-md text-sm leading-6 text-muted-foreground">
-                              Mulai dengan sebuah pertanyaan. Jawaban
-                              disimulasikan di browser: ada jeda berpikir, lalu
-                              teks mengalir kata per kata.
-                            </p>
-                            <div className="mt-8 grid w-full max-w-xl gap-2 sm:grid-cols-3">
-                              {SUGGESTIONS.map((suggestion) => (
-                                <Button
-                                  key={suggestion}
-                                  variant="outline"
-                                  className="h-auto min-h-16 px-4 py-3 text-left whitespace-normal"
-                                  onClick={() => handleSubmit(suggestion)}
-                                  disabled={turn.streaming}
-                                >
-                                  {suggestion}
-                                </Button>
-                              ))}
-                            </div>
-                          </div>
-                        </MessageScrollerItem>
-                      ) : (
-                        <div className="flex min-h-[2vh] flex-1 flex-col justify-end gap-5">
-                          {activeThread.messages.map((message) => (
-                            <ChatTurn key={message.id} message={message} />
-                          ))}
-                          {turn.streaming ? (
-                            <StreamingTurn turn={turn} />
-                          ) : null}
-                        </div>
-                      )}
-                    </MessageScrollerContent>
-                  </MessageScrollerViewport>
-                  <MessageScrollerButton direction="end" />
-                </MessageScroller>
-              </MessageScrollerProvider>
+                {/* `justify-end` menempelkan konten pendek ke bawah supaya
+                    pesan terbaru berada dekat composer. */}
+                <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col justify-end gap-5 px-4 py-8 sm:px-6">
+                  {showEmptyState ? (
+                    <div className="flex min-h-[50vh] flex-col items-center justify-center text-center">
+                      <div className="mb-5 flex size-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-sm">
+                        <Sparkles className="size-7" aria-hidden="true" />
+                      </div>
+                      <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+                        Mau ke mana di Padang?
+                      </h2>
+                      <p className="mt-3 max-w-md text-sm leading-6 text-muted-foreground">
+                        Ceritakan rencanamu. Lahlah AI menyusun itinerary,
+                        menyimpan versinya, dan menggambar rutenya.
+                      </p>
+                      <div className="mt-8 grid w-full max-w-xl gap-2 sm:grid-cols-3">
+                        {SUGGESTIONS.map((suggestion) => (
+                          <Button
+                            key={suggestion}
+                            variant="outline"
+                            className="h-auto min-h-16 px-4 py-3 text-left whitespace-normal"
+                            onClick={() => handleSubmit(suggestion)}
+                            disabled={sending}
+                          >
+                            {suggestion}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex min-h-[2vh] flex-1 flex-col justify-end gap-5">
+                      {messages.map((message) => (
+                        <ChatTurn key={message.id} message={message} />
+                      ))}
+                      {sending ? <PendingTurn /> : null}
+                      {error?.kind === "send" ? (
+                        <TripTask detail={error.message} state="failed" />
+                      ) : null}
+                    </div>
+                  )}
+
+                  {showSessionLoader ? (
+                    <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
+                      <LoaderCircle
+                        className="size-4 animate-spin"
+                        aria-hidden="true"
+                      />
+                      Memuat percakapan…
+                    </div>
+                  ) : null}
+                </div>
+              </AIConversation>
 
               <div
                 className={cn(
@@ -293,6 +315,14 @@ function ChatWorkspace() {
                 )}
               >
                 <div className="mx-auto max-w-3xl">
+                  {error?.kind === "load" ? (
+                    <p
+                      role="alert"
+                      className="mb-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+                    >
+                      {error.message}
+                    </p>
+                  ) : null}
                   <AIPromptInput
                     aria-label="Tulis pesan untuk Lahlah AI"
                     placeholder="Tulis pesanmu di sini..."
@@ -300,8 +330,21 @@ function ChatWorkspace() {
                     state={composerState}
                     onValueChange={setDraft}
                     onSubmit={handleSubmit}
-                    onStop={cancel}
                   />
+                  {/* Meter konteks: hover untuk rincian token input vs output
+                      percakapan ini. Disembunyikan selama belum ada pesan. */}
+                  {usage.total > 0 ? (
+                    <div className="mt-2 flex justify-end">
+                      <AIContextMeter
+                        breakdown={[
+                          { label: "Token input", tokens: usage.input },
+                          { label: "Token output", tokens: usage.output },
+                        ]}
+                        limit={CONTEXT_WINDOW_TOKENS}
+                        used={usage.total}
+                      />
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </div>

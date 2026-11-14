@@ -6,6 +6,12 @@ import {
   type ReactNode,
 } from "react";
 import { ApiError, setApiSessionToken } from "@/shared/api/client";
+import { fetchMyPlan } from "@/shared/api/subscriptions";
+import {
+  resetCurrentUser,
+  updateCurrentUser,
+} from "@/shared/hooks/use-current-user";
+import { toUserPlan } from "@/shared/types/user";
 import * as authApi from "../services/auth.api";
 import { getPeridotClient } from "../services/peridot";
 import {
@@ -53,6 +59,28 @@ async function resolveSession(): Promise<SessionSnapshot> {
   }
 }
 
+/** Menyalin sesi API ke store profil. Plan dibaca terpisah, kegagalannya diam. */
+async function syncProfile(user: AppUser | null): Promise<void> {
+  if (!user) {
+    resetCurrentUser();
+    return;
+  }
+
+  updateCurrentUser({
+    name: user.name,
+    username: user.username,
+    bio: user.bio ?? "",
+    avatarUrl: user.avatarUrl,
+  });
+
+  try {
+    const plan = await fetchMyPlan();
+    updateCurrentUser({ plan: toUserPlan(plan.plan.name) });
+  } catch {
+    // Plan tetap "Free" bila ringkasan langganan belum bisa dibaca.
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>("loading");
   const [user, setUser] = useState<AppUser | null>(null);
@@ -66,6 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(snapshot.user);
       setStatus(snapshot.user ? "authenticated" : "anonymous");
       setError(snapshot.error);
+      void syncProfile(snapshot.user);
     });
 
     return () => {
@@ -78,6 +107,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(snapshot.user);
     setStatus(snapshot.user ? "authenticated" : "anonymous");
     setError(snapshot.error);
+    await syncProfile(snapshot.user);
     return snapshot.user;
   }, []);
 
@@ -95,6 +125,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(currentUser);
       setStatus("authenticated");
       setError(null);
+      void syncProfile(currentUser);
       return currentUser;
     } catch (cause) {
       setApiSessionToken(readStoredToken());
@@ -119,6 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setStatus("anonymous");
     setError(null);
+    resetCurrentUser();
   }, []);
 
   const value = useMemo<AuthContextValue>(

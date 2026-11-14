@@ -2,7 +2,7 @@
 
 import { cn } from "@/shared/utils/cn";
 import { motion, useReducedMotion } from "motion/react";
-import { Fragment, useEffect, useRef } from "react";
+import { Fragment, type ReactNode, useEffect, useRef } from "react";
 
 const EASE_OUT = [0.23, 1, 0.32, 1] as const;
 /**
@@ -51,22 +51,52 @@ export type AIResponseProps = {
 };
 
 type Token = {
+  bold?: boolean;
   citation?: AIResponseCitation;
+  code?: boolean;
+  italic?: boolean;
   value: string;
 };
+
+/** Inline markdown minimal: `code`, **bold**, *italic*. Tanpa dep baru. */
+const INLINE_SPLIT = /(`[^`\n]+`|\*\*[^*\n]+\*\*|\*[^*\n]+?\*)/g;
+
+function styleOf(part: string): Pick<Token, "bold" | "code" | "italic" | "value"> {
+  if (part.length >= 2 && part.startsWith("`") && part.endsWith("`")) {
+    return { code: true, value: part.slice(1, -1) };
+  }
+  if (part.length >= 5 && part.startsWith("**") && part.endsWith("**")) {
+    return { bold: true, value: part.slice(2, -2) };
+  }
+  if (part.length >= 3 && part.startsWith("*") && part.endsWith("*")) {
+    return { italic: true, value: part.slice(1, -1) };
+  }
+  return { value: part };
+}
 
 const tokenize = (text: string, citations: AIResponseCitation[]): Token[] =>
   text
     .split(TOKEN_SPLIT)
     .filter((value) => value !== "")
-    .map((value) => {
+    .flatMap((value): Token[] => {
       const match = value.match(CITATION_MARKER);
-      if (!match) {
-        return { value };
+      if (match) {
+        const index = Number(match[1]);
+        const citation = citations.find((entry) => entry.index === index);
+        return citation ? [{ citation, value }] : [{ value }];
       }
-      const index = Number(match[1]);
-      const citation = citations.find((entry) => entry.index === index);
-      return citation ? { citation, value } : { value };
+      if (WHITESPACE_ONLY.test(value)) return [{ value }];
+      // ponytail: tanpa list/heading/link parser; tambah saat model memakainya.
+      return value
+        .split(INLINE_SPLIT)
+        .filter((part) => part !== "")
+        .flatMap((part) => {
+          const styled = styleOf(part);
+          return styled.value
+            .split(/(\s+)/)
+            .filter((word) => word !== "")
+            .map((word) => ({ ...styled, value: word }));
+        });
     });
 
 /**
@@ -108,10 +138,17 @@ const AIResponse = ({
         // Whitespace and bare punctuation stay as text. Wrapping a comma in its
         // own inline-block would let the line break between a word and its
         // punctuation.
-        if (
-          WHITESPACE_ONLY.test(token.value) ||
-          !(token.citation || HAS_WORD_CHARACTER.test(token.value))
-        ) {
+        if (WHITESPACE_ONLY.test(token.value)) {
+          // Baris baru model jadi <br>; spasi biasa tetap teks agar pemenggalan
+          // kata tidak berubah.
+          return token.value.includes("\n") ? (
+            <br key={key} />
+          ) : (
+            <Fragment key={key}>{token.value}</Fragment>
+          );
+        }
+
+        if (!(token.citation || HAS_WORD_CHARACTER.test(token.value))) {
           return <Fragment key={key}>{token.value}</Fragment>;
         }
 
@@ -142,7 +179,7 @@ const AIResponse = ({
             // resolves — words stay blurred forever. Token arrival is the stagger.
             transition={shouldReduceMotion ? { duration: 0 } : WORD_TRANSITION}
           >
-            {token.value}
+            <StyledToken token={token}>{token.value}</StyledToken>
           </motion.span>
         );
       });
@@ -161,6 +198,28 @@ const AIResponse = ({
     </p>
   );
 };
+
+const STYLED_WRAPPER: Record<string, string> = {
+  bold: "font-semibold text-foreground",
+  code: "rounded bg-muted px-1 font-mono text-[13px]",
+  italic: "italic",
+};
+
+function StyledToken({
+  children,
+  token,
+}: {
+  children: ReactNode;
+  token: Token;
+}) {
+  const classes = [
+    token.bold ? STYLED_WRAPPER.bold : null,
+    token.italic ? STYLED_WRAPPER.italic : null,
+    token.code ? STYLED_WRAPPER.code : null,
+  ].filter(Boolean);
+  if (classes.length === 0) return <>{children}</>;
+  return <span className={classes.join(" ")}>{children}</span>;
+}
 
 const AIResponseCaret = ({
   shouldReduceMotion,

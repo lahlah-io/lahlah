@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 
+import { ApiError } from "@/shared/api/client";
 import {
   Avatar,
   AvatarFallback,
@@ -15,23 +16,51 @@ import {
 } from "@/shared/hooks/use-current-user";
 import { getUserInitials } from "@/shared/types/user";
 
+import { updateMyProfile } from "../services/profile.api";
+
+const USERNAME_PATTERN = /^[a-z0-9_]{3,30}$/;
+
 export function ProfileEditForm() {
   const navigate = useNavigate();
   const user = useCurrentUser();
   const [name, setName] = useState(user.name);
+  const [username, setUsername] = useState(user.username);
   const [bio, setBio] = useState(user.bio);
   const [avatarUrl, setAvatarUrl] = useState(user.avatarUrl ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  const usernameValid = USERNAME_PATTERN.test(username.trim().toLowerCase());
+  const canSave = name.trim().length > 0 && usernameValid && !saving;
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const trimmedName = name.trim();
-    if (!trimmedName) return;
-    updateCurrentUser({
-      name: trimmedName,
-      bio: bio.trim(),
-      avatarUrl: avatarUrl.trim() || null,
-    });
-    navigate("/profile");
+    if (!canSave) return;
+
+    setSaving(true);
+    setError(null);
+    try {
+      // Server (Zod) tetap otoritatif; di sini hanya normalisasi bentuk.
+      const profile = await updateMyProfile({
+        name: name.trim(),
+        username: username.trim().toLowerCase(),
+        bio: bio.trim(),
+        avatarUrl: avatarUrl.trim(),
+      });
+      updateCurrentUser({
+        name: profile.name,
+        username: profile.username,
+        bio: profile.bio ?? "",
+        avatarUrl: profile.avatarUrl,
+      });
+      navigate("/profile");
+    } catch (cause) {
+      setError(
+        cause instanceof ApiError ? cause.message : "Gagal menyimpan profil.",
+      );
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -52,8 +81,9 @@ export function ProfileEditForm() {
           <Input
             id="avatarUrl"
             className="mt-1.5"
-            placeholder="https://…"
+            placeholder="https://… atau /logo-mark.svg"
             inputMode="url"
+            maxLength={2048}
             value={avatarUrl}
             onChange={(event) => setAvatarUrl(event.target.value)}
           />
@@ -76,6 +106,28 @@ export function ProfileEditForm() {
       </div>
 
       <div>
+        <label htmlFor="username" className="text-sm font-medium">
+          Username
+        </label>
+        <Input
+          id="username"
+          className="mt-1.5"
+          autoComplete="username"
+          required
+          maxLength={30}
+          value={username}
+          onChange={(event) => setUsername(event.target.value)}
+          onBlur={() => setUsername((value) => value.trim().toLowerCase())}
+          aria-invalid={!usernameValid}
+        />
+        <p className="mt-1 text-xs text-muted-foreground">
+          {usernameValid
+            ? "Huruf kecil, angka, dan garis bawah (3–30 karakter)."
+            : "Username harus 3–30 karakter: huruf kecil, angka, atau garis bawah."}
+        </p>
+      </div>
+
+      <div>
         <label htmlFor="bio" className="text-sm font-medium">
           Bio
         </label>
@@ -91,17 +143,24 @@ export function ProfileEditForm() {
         </p>
       </div>
 
+      {error ? (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
+
       <div className="flex gap-2">
         <Button
           type="button"
           variant="secondary"
           className="flex-1"
+          disabled={saving}
           onClick={() => navigate("/profile")}
         >
           Batal
         </Button>
-        <Button type="submit" className="flex-1" disabled={!name.trim()}>
-          Simpan
+        <Button type="submit" className="flex-1" disabled={!canSave}>
+          {saving ? "Menyimpan…" : "Simpan"}
         </Button>
       </div>
     </form>

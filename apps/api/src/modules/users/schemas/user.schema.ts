@@ -11,6 +11,22 @@ const username = z
   .regex(/^[a-z0-9_]+$/, "Username hanya boleh berisi huruf kecil, angka, dan garis bawah");
 const email = z.email().max(255).transform((value) => value.toLowerCase());
 const role = z.enum(["user", "admin"]);
+const bio = z
+  .string()
+  .trim()
+  .max(160)
+  .transform((value) => (value === "" ? null : value))
+  .nullable();
+const avatarUrl = z
+  .string()
+  .trim()
+  .max(2048)
+  .refine(
+    (value) => value === "" || /^https?:\/\//i.test(value) || value.startsWith("/"),
+    "URL foto harus diawali http(s):// atau /",
+  )
+  .transform((value) => (value === "" ? null : value))
+  .nullable();
 
 export const createUserSchema = z.object({
   name,
@@ -20,7 +36,7 @@ export const createUserSchema = z.object({
 });
 
 export const updateUserSchema = z
-  .object({ name, username, email })
+  .object({ name, username, email, bio, avatarUrl })
   .partial()
   .refine((data) => Object.keys(data).length > 0, "At least one field is required");
 

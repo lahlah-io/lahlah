@@ -3,10 +3,7 @@ import { BadgeCheck, Check, ShieldCheck } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import { Button } from "@/shared/components/ui/button";
-import {
-  updateCurrentUser,
-  useCurrentUser,
-} from "@/shared/hooks/use-current-user";
+import { useCurrentUser } from "@/shared/hooks/use-current-user";
 import { cn } from "@/shared/utils/cn";
 
 const EASE: [number, number, number, number] = [0.22, 1, 0.36, 1];
@@ -151,12 +148,14 @@ export function UpgradePlan() {
               {period.note}
             </p>
 
+            {/* Endpoint pembayaran belum ada di API, jadi tombol ini tidak boleh
+                mengubah paket secara lokal. Aktifkan saat POST /subscriptions
+                tersedia. */}
             <Button
               className="mt-6 w-full sm:w-auto"
-              disabled={isPlus}
-              onClick={() => updateCurrentUser({ plan: "Plus" })}
+              disabled
             >
-              {isPlus ? "Paket aktif" : "Upgrade ke Plus"}
+              {isPlus ? "Paket aktif" : "Segera hadir"}
             </Button>
 
             <p className="mt-6 text-xs text-muted-foreground">

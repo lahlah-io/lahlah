@@ -41,6 +41,8 @@ const user = z.object({
   name: z.string(),
   username: z.string(),
   email: z.string().nullable(),
+  bio: z.string().nullable(),
+  avatarUrl: z.string().nullable(),
   role: z.enum(["user", "admin"]),
   isActive: z.boolean(),
   createdAt: z.iso.datetime(),

@@ -9,6 +9,8 @@ model User {
   name                   String                  @db.VarChar
   username               String                  @unique @db.VarChar
   email                  String?                 @unique @db.VarChar
+  bio                    String?                 @db.VarChar(160)
+  avatarUrl              String?                 @map("avatar_url") @db.VarChar(2048)
   role                   Role                    @default(user)
   isActive               Boolean                 @default(true) @map("is_active")
   createdAt              DateTime                @default(now()) @map("created_at") @db.Timestamptz

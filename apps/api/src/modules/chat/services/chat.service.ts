@@ -371,8 +371,35 @@ export function parseGeneralTimeOfDay(text: string): { startTime: string; endTim
   return null;
 }
 
-const DEFER_TIME =
-  /\b(terserah|terserahlah|bebas|kasih\s+(?:saja\s+)?(?:saran|rekomendasi)|beri(?:kan)?\s+(?:saya\s+)?(?:saja\s+)?(?:saran|rekomendasi)|rekomendasikan|pilihkan|pilih\s+saja|atur\s+saja|serahkan|ikut\s+(?:kamu|anda|saja)|gak?\s*tau|tidak\s*tahu|bingung|yang\s+penting)\b/i;
+/**
+ * Sinyal user menyerahkan keputusan waktu/kategori ke asisten. Sengaja luas:
+ * "terserah", "kasih saran", sampai "kamu tentukan saja" harus sama-sama
+ * dianggap delegasi — kalau tidak, balasan model bisa menjanjikan pencarian
+ * tanpa pernah menyusun trip.
+ */
+const DEFER_TIME = new RegExp(
+  [
+    "terserah(?:lah)?(?:\\s+(?:kamu|anda))?",
+    "bebas(?:\\s+(?:aja|saja))?",
+    "kasih\\s+(?:saja\\s+)?(?:saran|rekomendasi)",
+    "(?:beri|berikan|memberi|memberikan)\\s+(?:saya\\s+)?(?:saja\\s+)?(?:saran|rekomendasi)",
+    "rekomendasi(?:nya)?",
+    "rekomendasikan",
+    "pilihkan",
+    "pilih\\s+(?:saja|aja|sendiri)",
+    "(?:kamu|anda)\\s+(?:pilih|tentukan)",
+    "tentukan(?:\\s+(?:saja|aja|sendiri))?",
+    "atur\\s+saja",
+    "serahkan\\s+(?:saja\\s+)?(?:ke\\s+)?(?:kamu|anda|saya)",
+    "ikut\\s+(?:kamu|anda|saja)",
+    "(?:gak|nggak|enggak|tidak|ga)\\s*(?:tahu|tau)",
+    "bingung",
+    "yang\\s+(?:penting|terbaik|bagus|variatif)",
+    "apa\\s*(?:aja|saja)",
+    "sama\\s+saja",
+  ].join("|"),
+  "i",
+);
 
 /** User hands the time/category decision to the assistant ("terserah", "kasih saran"). */
 export function isDeferringTime(text: string): boolean {
@@ -480,11 +507,14 @@ export type AccumulatedTripParams = {
 };
 
 export function messageContributesParams(text: string, now?: Date): boolean {
-  return parseFlexibleDate(text, now) !== null
-    || parseFlexibleTimeRange(text) !== null
-    || parseGeneralTimeOfDay(text) !== null
-    || extractCategories(text).length > 0
-    || extractDestinationCount(text) != null;
+  return (
+    parseFlexibleDate(text, now) !== null ||
+    parseFlexibleTimeRange(text) !== null ||
+    parseGeneralTimeOfDay(text) !== null ||
+    extractCategories(text).length > 0 ||
+    extractDestinationCount(text) != null ||
+    isDeferringTime(text)
+  );
 }
 
 export function mergeCategories(prior: string[], text: string, latest: string[]): string[] {
@@ -1109,7 +1139,17 @@ export function createChatService(deps: ChatDeps) {
     const defersTime = isDeferringTime(input.content);
     const isGeneratorIntent = intent === "generate_itinerary" || intent === "modify_itinerary" || intent === "regenerate_itinerary";
     const wantsItinerary = TRIP_REQUEST.test(input.content);
-    const usesTripFlow = isGeneratorIntent || (contributes && (merged.pending || wantsItinerary)) || (defersTime && merged.pending);
+    // "Rekomendasi kuliner Padang hari ini" sudah membawa parameter sendiri;
+    // delegasi + parameter itu cukup untuk menyusun trip tanpa bertanya dulu.
+    const hasTripContext =
+      merged.pending ||
+      merged.params.categories.length > 0 ||
+      merged.params.travelDate != null ||
+      merged.params.startTime != null;
+    const usesTripFlow =
+      isGeneratorIntent ||
+      (contributes && (merged.pending || wantsItinerary)) ||
+      (defersTime && hasTripContext);
 
     // An existing trip already decides the date and window; reuse them so a follow-up never re-asks.
     const activeTrip = deps.itinerary
@@ -1202,11 +1242,19 @@ export function createChatService(deps: ChatDeps) {
     let assumedCategories: string[] | null = null;
     let assumedTime: { startTime: string; endTime: string } | null = null;
     if (usesTripFlow) {
-      if (merged.params.categories.length === 0 && defersTime && askedBefore(input.history, ASK_CATEGORY_MARKS)) {
+      // Delegasi ("terserah", "kamu tentukan saja") cukup untuk mengisi field
+      // kosong selama sudah ada konteks trip sebelumnya. Tanpa syarat ini,
+      // balasan model yang memparafrase pertanyaan membuat user terjebak
+      // menjawab berulang tanpa trip pernah dibuat.
+      const delegatedCategory =
+        defersTime && (askedBefore(input.history, ASK_CATEGORY_MARKS) || hasTripContext);
+      const delegatedTime =
+        defersTime && (askedBefore(input.history, ASK_TIME_MARKS) || hasTripContext);
+      if (merged.params.categories.length === 0 && delegatedCategory) {
         merged.params.categories = await pickCategories(deps);
         assumedCategories = merged.params.categories;
       }
-      if (merged.params.startTime == null && defersTime && askedBefore(input.history, ASK_TIME_MARKS)) {
+      if (merged.params.startTime == null && delegatedTime) {
         assumedTime = defaultTimeRange(merged.params.categories);
         merged.params.startTime = assumedTime.startTime;
         merged.params.endTime = assumedTime.endTime;
@@ -1283,7 +1331,7 @@ export function createChatService(deps: ChatDeps) {
       });
       return { intent, message, version, usage };
     } else {
-      const hint = intent === "general_chat" ? undefined : "Beberapa detail perjalanan belum lengkap (kategori, tanggal, atau jam). Tanyakan detail yang kurang dengan ramah.";
+      const hint = intent === "general_chat" ? undefined : "Beberapa detail perjalanan belum lengkap (kategori, tanggal, atau jam). Tanyakan detail yang kurang dengan ramah, jangan menjanjikan sedang mencari atau menyusun apa pun.";
       if (intent !== "general_chat") intent = "missing_information";
       const answer = await generateNaturalReply(deps, {
         userMessage: input.content,

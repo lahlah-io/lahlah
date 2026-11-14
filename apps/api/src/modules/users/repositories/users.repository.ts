@@ -15,6 +15,8 @@ export const userSelect = {
   name: true,
   username: true,
   email: true,
+  bio: true,
+  avatarUrl: true,
   role: true,
   isActive: true,
   createdAt: true,

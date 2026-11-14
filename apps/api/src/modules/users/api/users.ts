@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { requireAdmin, type AuthVariables } from "../../../shared/auth/middleware.js";
+import { requireAdmin, requireAuth, type AuthVariables } from "../../../shared/auth/middleware.js";
 import { zValidator } from "../../../shared/http/validator.js";
 import {
   changeUserRole,
@@ -21,22 +21,41 @@ import {
 
 const usersApi = new Hono<{ Variables: AuthVariables }>();
 
-usersApi.use("*", requireAdmin);
+// Profil milik sendiri: cukup `requireAuth`. Semua route admin lain memakai
+// `requireAdmin` per route supaya `/me` tidak ikut terkunci.
+usersApi.patch(
+  "/me",
+  requireAuth,
+  zValidator("json", updateUserSchema),
+  async (c) =>
+    c.json({
+      data: await updateUser(
+        c.get("auth").user.id,
+        c.req.valid("json"),
+        c.get("auth").user,
+      ),
+    }),
+);
 
-usersApi.get("/", zValidator("query", listUsersQuerySchema), async (c) =>
+usersApi.get("/", requireAdmin, zValidator("query", listUsersQuerySchema), async (c) =>
   c.json(await listUsers(c.req.valid("query"))),
 );
 
-usersApi.get("/:id", zValidator("param", userIdSchema), async (c) =>
+usersApi.get("/:id", requireAdmin, zValidator("param", userIdSchema), async (c) =>
   c.json({ data: await getUser(c.req.valid("param").id) }),
 );
 
-usersApi.post("/", zValidator("json", createUserSchema), async (c) =>
-  c.json({ data: await createUser(c.req.valid("json"), c.get("auth").user) }, 201),
+usersApi.post(
+  "/",
+  requireAdmin,
+  zValidator("json", createUserSchema),
+  async (c) =>
+    c.json({ data: await createUser(c.req.valid("json"), c.get("auth").user) }, 201),
 );
 
 usersApi.patch(
   "/:id",
+  requireAdmin,
   zValidator("param", userIdSchema),
   zValidator("json", updateUserSchema),
   async (c) =>
@@ -47,6 +66,7 @@ usersApi.patch(
 
 usersApi.patch(
   "/:id/role",
+  requireAdmin,
   zValidator("param", userIdSchema),
   zValidator("json", updateUserRoleSchema),
   async (c) =>
@@ -57,6 +77,7 @@ usersApi.patch(
 
 usersApi.patch(
   "/:id/status",
+  requireAdmin,
   zValidator("param", userIdSchema),
   zValidator("json", updateUserStatusSchema),
   async (c) =>
@@ -69,7 +90,7 @@ usersApi.patch(
     }),
 );
 
-usersApi.delete("/:id", zValidator("param", userIdSchema), async (c) =>
+usersApi.delete("/:id", requireAdmin, zValidator("param", userIdSchema), async (c) =>
   c.json({ data: await deactivateUser(c.req.valid("param").id, c.get("auth").user) }),
 );
 

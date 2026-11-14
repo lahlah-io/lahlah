@@ -7,14 +7,13 @@ import {
   MessageAvatar,
   MessageContent,
 } from "@/shared/components/ui/message";
-import { MessageScrollerItem } from "@/shared/components/ui/message-scroller";
 
 import AICitation from "./smoothui/ai-citation";
 import AILoader from "./smoothui/ai-loader";
 import AIOrbFace from "./smoothui/ai-orb-face";
 import AIResponse from "./smoothui/ai-response";
+import { TripTask } from "./trip-task";
 import type { ChatMessage } from "../types/chat";
-import type { SimulatedTurn } from "../hooks/use-simulated-reply";
 
 interface ChatTurnProps {
   message: ChatMessage;
@@ -22,24 +21,22 @@ interface ChatTurnProps {
 
 function UserTurn({ message }: ChatTurnProps) {
   return (
-    <MessageScrollerItem messageId={message.id} scrollAnchor>
-      <Message align="end">
-        <MessageAvatar>
-          <Avatar className="size-8">
-            <AvatarFallback>
-              <User className="size-4" aria-hidden="true" />
-            </AvatarFallback>
-          </Avatar>
-        </MessageAvatar>
-        <MessageContent>
-          <Bubble align="end" variant="default">
-            <BubbleContent className="whitespace-pre-wrap">
-              {message.text}
-            </BubbleContent>
-          </Bubble>
-        </MessageContent>
-      </Message>
-    </MessageScrollerItem>
+    <Message align="end">
+      <MessageAvatar>
+        <Avatar className="size-8">
+          <AvatarFallback>
+            <User className="size-4" aria-hidden="true" />
+          </AvatarFallback>
+        </Avatar>
+      </MessageAvatar>
+      <MessageContent>
+        <Bubble align="end" variant="default">
+          <BubbleContent className="whitespace-pre-wrap">
+            {message.text}
+          </BubbleContent>
+        </Bubble>
+      </MessageContent>
+    </Message>
   );
 }
 
@@ -49,73 +46,67 @@ interface AssistantTurnProps {
 
 function AssistantTurn({ message }: AssistantTurnProps) {
   return (
-    <MessageScrollerItem messageId={message.id}>
-      <Message align="start">
-        <MessageAvatar>
-          <AIOrbFace size={32} state="done" aria-label="Lahlah AI" />
-        </MessageAvatar>
-        <MessageContent>
-          <Bubble align="start" variant="muted">
-            <BubbleContent>
-              <AIResponse
-                text={message.text}
-                citations={message.citations?.map((citation) => ({
-                  id: citation.id,
-                  index: citation.index,
-                  title: citation.title,
-                  url: citation.url,
-                }))}
-              />
-              {message.citations && message.citations.length > 0 ? (
-                <span className="mt-2 flex flex-wrap items-center gap-1.5">
-                  {message.citations.map((citation) => (
-                    <AICitation
-                      key={citation.id}
-                      label={citation.index}
-                      title={citation.title}
-                      url={citation.url ?? "#"}
-                      description="Sumber dari jawaban simulasi ini."
-                    />
-                  ))}
-                </span>
-              ) : null}
-            </BubbleContent>
-          </Bubble>
-        </MessageContent>
-      </Message>
-    </MessageScrollerItem>
+    <Message align="start">
+      <MessageAvatar>
+        <AIOrbFace size={32} state="done" aria-label="Lahlah AI" />
+      </MessageAvatar>
+      <MessageContent>
+        {/* Status trip tampil di atas balasan: user melihat apa yang terjadi
+            sebelum membaca penjelasannya. */}
+        {message.task ? (
+          <TripTask detail={message.task.detail} state={message.task.state} />
+        ) : null}
+        <Bubble align="start" variant="muted">
+          <BubbleContent>
+            <AIResponse
+              text={message.text}
+              citations={message.citations?.map((citation) => ({
+                id: citation.id,
+                index: citation.index,
+                title: citation.title,
+                url: citation.url,
+              }))}
+            />
+            {message.citations && message.citations.length > 0 ? (
+              <span className="mt-2 flex flex-wrap items-center gap-1.5">
+                {message.citations.map((citation) => (
+                  <AICitation
+                    key={citation.id}
+                    label={citation.index}
+                    title={citation.title}
+                    url={citation.url ?? "#"}
+                    description="Sumber jawaban."
+                  />
+                ))}
+              </span>
+            ) : null}
+          </BubbleContent>
+        </Bubble>
+      </MessageContent>
+    </Message>
   );
 }
 
-interface StreamingTurnProps {
-  turn: SimulatedTurn;
-}
-
 /**
- * Live assistant row. `thinking` shows the loader with the orb looking away;
- * once words arrive, `AIResponse` streams them with a caret. The row is not a
- * `scrollAnchor` — the user's question above it already holds the position.
+ * Baris asisten sementara. API menjawab sekali jadi (bukan stream token), jadi
+ * yang ditampilkan status berpikir sampai jawaban tiba. Checklist trip berjalan
+ * di atas bubble supaya terlihat bahwa backend memang sedang bekerja.
  */
-export function StreamingTurn({ turn }: StreamingTurnProps) {
+export function PendingTurn({ label = "Menyusun jawaban" }: { label?: string }) {
   return (
-    <MessageScrollerItem messageId="streaming">
-      <Message align="start">
-        <MessageAvatar>
-          <AIOrbFace size={32} state={turn.state} aria-label="Lahlah AI sedang menjawab" />
-        </MessageAvatar>
-        <MessageContent>
-          <Bubble align="start" variant="muted">
-            <BubbleContent>
-              {turn.state === "thinking" ? (
-                <AILoader label="Berpikir" showElapsed variant="dots" />
-              ) : (
-                <AIResponse text={turn.draft} isStreaming />
-              )}
-            </BubbleContent>
-          </Bubble>
-        </MessageContent>
-      </Message>
-    </MessageScrollerItem>
+    <Message align="start">
+      <MessageAvatar>
+        <AIOrbFace size={32} state="thinking" aria-label="Lahlah AI sedang menjawab" />
+      </MessageAvatar>
+      <MessageContent>
+        <TripTask state="running" />
+        <Bubble align="start" variant="muted">
+          <BubbleContent>
+            <AILoader label={label} showElapsed variant="dots" />
+          </BubbleContent>
+        </Bubble>
+      </MessageContent>
+    </Message>
   );
 }
 
