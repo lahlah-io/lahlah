@@ -135,6 +135,17 @@ export const openApiDocument: OpenApiDocument = {
       "**Chat reply.** `intent` is one of the classifier labels listed on `ChatReply`;",
       "`version` is the itinerary snapshot to render on the map, or `null` for plain chat.",
       "",
+      "**Wilayah & estimasi biaya (enrichment, bukan syarat).** Setiap destinasi boleh punya",
+      "`district` (kecamatan, 11 nilai resmi di `District`) dan `details.estimatedCost`",
+      "(lihat `EstimatedCost`). Keduanya opsional: `district` bisa `null` dan `estimatedCost`",
+      "bisa tidak ada. Pakai sebagai pengaya jawaban/tampilan, bukan filter wajib — bila user",
+      "tidak menyebut wilayah atau biaya, hasil tanpa keduanya tetap sah. Alur yang disarankan:",
+      "`GET /api/v1/destinations/districts` untuk daftar wilayah + jumlah, lalu",
+      "`GET /api/v1/destinations?district=...&categoryId=...` untuk isi satu wilayah. Query",
+      "`district` menerima nama bebas (`padang barat`, `barat`, `Kec. Padang Bar.`) dan",
+      "dinormalisasi; nama di luar 11 kecamatan ditolak `400`. Filter `district` tidak",
+      "mengembalikan baris yang `district`-nya `null`, sedangkan filter kategori tetap.",
+      "",
       "**Admin-only.** Users, models, categories, destinations, and plan writes require",
       "the `admin` role. Plan reads are public for the pricing page.",
       "",
@@ -947,7 +958,9 @@ export const openApiDocument: OpenApiDocument = {
             in: "query",
             schema: { type: "string", minLength: 1, maxLength: 100 },
             description:
-              "Filter by kecamatan (`District`). Free text is normalised (`padang barat`, `barat`); unknown names return `400`.",
+              "Filter by kecamatan (`District`). Free text is normalised (`padang barat`, `barat`, `Kec. Padang Bar.`); " +
+              "unknown names return `400`. Rows whose `district` is `null` are excluded, so this narrows the catalog — " +
+              "drop it when the user did not name a wilayah.",
             example: "Padang Barat",
           },
           {
@@ -1001,7 +1014,8 @@ export const openApiDocument: OpenApiDocument = {
         description:
           "Public. Active Padang destinations grouped by kecamatan, sorted by `total` descending. " +
           "Use it to build a wilayah picker, then pass `district` to `GET /api/v1/destinations`. " +
-          "Destinations without a resolvable kecamatan are excluded, so totals may sum to less than the full catalog.",
+          "Destinations without a resolvable kecamatan are excluded, so totals may sum to less than the full catalog. " +
+          "Tabel `DistrictCount.total` adalah hitungan nyata, bukan estimasi; untuk biaya pakai `Destination.details.estimatedCost`.",
         responses: {
           "200": {
             description: "Kecamatan list with counts.",
@@ -1215,7 +1229,12 @@ export const openApiDocument: OpenApiDocument = {
         tags: ["Chat"],
         summary: "Send a message",
         operationId: "sendChatMessage",
-        description: "Returns the assistant reply, detected intent, and an itinerary version when applicable.",
+        description:
+          "Returns the assistant reply, detected intent, and an itinerary version when applicable. " +
+          "When the user names a wilayah or asks about budget, the assistant looks destinations up in the catalog and may " +
+          "mention `district` and `details.estimatedCost` in `message` as estimates (\"sekitar Rp20.000–50.000/orang\"). " +
+          "Those are free text, not structured fields: read them from `GET /api/v1/destinations` if you need values. " +
+          "If the user names no wilayah or budget, the reply is generated from the model's own knowledge and stays valid.",
         parameters: [idPath("Chat session id.")],
         requestBody: body("SendChatMessageRequest"),
         responses: {

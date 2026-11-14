@@ -614,6 +614,32 @@ export const schemas: Record<string, SchemaObject> = {
       total: { type: "integer", minimum: 0, example: 134, description: "Destinasi aktif di kecamatan ini." },
     },
   },
+  EstimatedCost: {
+    type: "object",
+    description:
+      "Estimasi biaya kasar per destinasi, disimpan di `Destination.details.estimatedCost`. " +
+      "Bukan harga resmi: `confidence` selalu `estimasi` dan `verified` masih `false` sampai diverifikasi lapangan. " +
+      "Tampilkan sebagai rentang (mis. \"sekitar Rp20.000–50.000/orang\") dan jangan dijumlahkan sebagai biaya final trip. " +
+      "`null` bila destinasi belum punya estimasi; jawaban tetap valid tanpa field ini.",
+    required: ["currency", "min", "max", "kind", "confidence", "verified"],
+    properties: {
+      currency: { type: "string", enum: ["IDR"], example: "IDR" },
+      min: { type: "integer", minimum: 0, example: 20000, description: "Batas bawah estimasi (inklusif)." },
+      max: { type: "integer", minimum: 0, example: 50000, description: "Batas atas estimasi (inklusif)." },
+      kind: {
+        type: "string",
+        enum: ["konsumsi", "tiket", "parkir", "gratis"],
+        example: "konsumsi",
+        description:
+          "`konsumsi` makanan/minuman, `tiket` tiket masuk, `parkir` biaya parkir, `gratis` tanpa biaya (min=max=0).",
+      },
+      unit: { type: "string", example: "per orang", description: "Satuan biaya, mis. `per orang`, `per kendaraan`." },
+      note: { type: "string", example: "estimasi minum + camilan" },
+      basis: { type: "string", example: "kedai kopi", description: "Kategori Google/katalog yang jadi dasar estimasi." },
+      confidence: { type: "string", enum: ["estimasi"], example: "estimasi" },
+      verified: { type: "boolean", example: false, description: "`true` hanya setelah dicek lapangan." },
+    },
+  },
   Destination: {
     type: "object",
     required: [
@@ -658,7 +684,11 @@ export const schemas: Record<string, SchemaObject> = {
         example: "Padang",
         description: "Kota administratif destinasi. Katalog chat hanya memakai `Padang`.",
       },
-      district: { $ref: "#/components/schemas/District" },
+      district: {
+        $ref: "#/components/schemas/District",
+        description:
+          "Kecamatan Kota Padang. Bisa `null` bila alamat tidak menyebut kecamatan/kelurahan; baris seperti itu tetap muncul di filter kategori, tetapi tidak di filter `district`.",
+      },
       source: destinationSource,
       sourcePlaceId: nullableString,
       createdBy: nullableUuid,
@@ -667,7 +697,9 @@ export const schemas: Record<string, SchemaObject> = {
       details: {
         type: "object",
         additionalProperties: true,
-        description: "Free-form metadata. PATCH merges instead of replacing.",
+        description:
+          "Free-form metadata. PATCH merges instead of replacing. " +
+          "Katalog seeder Padang mengisi `estimatedCost` (lihat `EstimatedCost`), `googleCategory`, `reviewRating`, `phone`, `link`.",
       },
       lastSyncedAt: nullableTimestamp,
       ...durationMetadata,
@@ -703,7 +735,18 @@ export const schemas: Record<string, SchemaObject> = {
         type: "object",
         additionalProperties: true,
         default: {},
-        example: { entranceFee: 10000 },
+        example: {
+          estimatedCost: {
+            currency: "IDR",
+            min: 20000,
+            max: 50000,
+            kind: "konsumsi",
+            unit: "per orang",
+            basis: "kedai kopi",
+            confidence: "estimasi",
+            verified: false,
+          },
+        },
       },
       categoryIds: {
         type: "array",

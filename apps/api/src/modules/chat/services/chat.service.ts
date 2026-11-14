@@ -31,7 +31,10 @@ async function ragContextMessage(deps: Pick<ChatDeps, "retrieveRagContext">, que
 
 const HISTORY_LIMIT = 20;
 export const SYSTEM_PROMPT =
-  "You are a helpful Padang travel assistant. For itinerary requests, you MUST use provided tools to fetch destination data from the database before suggesting places. Return concise Indonesian responses.";
+  "You are a helpful Padang travel assistant. For itinerary requests, you MUST use provided tools to fetch destination data from the database before suggesting places. Return concise Indonesian responses. " +
+  "Each destination may include `district` (kecamatan) and `details.estimatedCost` ({currency, min, max, kind, unit, basis, confidence}). " +
+  "Use them only as enrichment: mention the wilayah and say cost as an estimate (e.g. \"sekitar Rp20.000–50.000/orang\") when it helps the user's question. " +
+  "If a field is null or the user did not ask about cost/wilayah, answer from what you know without inventing numbers or districts.";
 
 type UserRow = { id: string; isActive: boolean };
 type ChatDeps = {
