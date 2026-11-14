@@ -14,6 +14,7 @@ export const intentLabels = [
   "select_itinerary_version",
   "publish_itinerary_version",
   "clarify_modification",
+  "feedback_itinerary",
   "missing_information",
 ] as const;
 
@@ -36,7 +37,7 @@ const classifierOutputSchema = z.object({
 });
 
 export const CLASSIFIER_SYSTEM_PROMPT =
-  'Classify the user message into exactly one intent. Respond with ONLY a JSON object in the form {"intent":"<label>","confidence":<0..1>}. Labels: general_chat, generate_itinerary, modify_itinerary, replace_destination, remove_destination, add_destination, regenerate_itinerary, select_itinerary_version, publish_itinerary_version, clarify_modification, missing_information.';
+  'Classify the user message into exactly one intent. Respond with ONLY a JSON object in the form {"intent":"<label>","confidence":<0..1>}. Labels: general_chat, generate_itinerary, modify_itinerary, replace_destination, remove_destination, add_destination, regenerate_itinerary, select_itinerary_version, publish_itinerary_version, clarify_modification, feedback_itinerary, missing_information.';
 
 const GREETINGS = ["halo", "hai", "hi", "hello", "assalamualaikum", "selamat pagi", "selamat siang", "selamat sore", "selamat malam"];
 
@@ -65,6 +66,10 @@ const RULE_PATTERNS: Array<{ intent: Intent; pattern: RegExp }> = [
   {
     intent: "add_destination",
     pattern: new RegExp(`${ADD_VERB.source}\\s+(?:\\d+\\s+)?${DESTINATION_NOUN.source}`),
+  },
+  {
+    intent: "feedback_itinerary",
+    pattern: /\b(?:tidak|gak|nggak|enggak|ga)\s+(?:masuk\s+akal|make\s+sense|logis|variasi|seimbang)\b|\bmakan\s+terus\b|\bterlalu\s+banyak\b|\bkurang\s+variasi\b|\bcoba\s+cek\b|\bkok\s+(?:gitu|begitu|aneh|gini)\b/i,
   },
   { intent: "clarify_modification", pattern: DISLIKE },
 ];
@@ -120,6 +125,7 @@ export async function classify(message: string, env: EnvLike = process.env, sess
         { role: "system", content: CLASSIFIER_SYSTEM_PROMPT },
         { role: "user", content: message },
       ],
+      sessionId: sessionId ?? undefined,
     });
     content = result.content;
     usage = result.usage

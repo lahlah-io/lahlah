@@ -6,7 +6,7 @@ import type { AiMessage, AiToolDefinition } from "../../../integrations/ai/schem
 import { classify, type Intent } from "./classifier.js";
 import { formatItineraryReply, generateNaturalReply, isClearlyOffTopic, OFF_TOPIC_REPLY, ONE_TRIP_PER_CHAT } from "./answerer.js";
 import { buildConversationContext } from "./conversation-context.js";
-import { generateItinerary } from "./itinerary-generator.js";
+import { generateItinerary, scheduleStops } from "./itinerary-generator.js";
 import { createToolExecutor, mergeDestinationRows } from "./tools.js";
 import { parseModification } from "./modification.js";
 import { applyModification, orderCandidates } from "./modification-ops.js";
@@ -40,6 +40,8 @@ type ChatDeps = {
   itinerary?: ItineraryVersionGateway;
   searchDestinations: (input: { keywords?: string; categories?: string[] }) => Promise<unknown[]>;
   getDestinationDetails: (input: { destinationIds: string[] }) => Promise<unknown[]>;
+  /** Injectable randomness for the category pick; tests pass a fixed function. */
+  random?: () => number;
 };
 
 export type TripDetails = { travelDate: string; startTime: string; endTime: string; categories: string[]; destinationCount?: number };
@@ -110,13 +112,20 @@ export function parseFlexibleDate(text: string, now = new Date()): string | null
     const mm = MONTHS[named[2]!];
     if (mm) return `${named[3]}-${mm}-${named[1]!.padStart(2, "0")}`;
   }
-  const lower = text.toLowerCase();
+  const lower = text.toLowerCase().replace(/['’]/g, "");
   const today = todayYmd(now);
   if (/\bhari ini\b/.test(lower)) return today;
   if (/\bbesok\b/.test(lower)) return addDaysYmd(today, 1);
   if (/\blusa\b/.test(lower)) return addDaysYmd(today, 2);
-  // shortcut: named weekdays with no explicit date use today (MVP).
-  if (/\b(senin|selasa|rabu|kamis|jumat|jum'at|sabtu|minggu|tanggal)\b/i.test(text)) return today;
+  // A named weekday means its next occurrence; "selasa" spoken on Saturday is not today.
+  const weekday = ["minggu", "senin", "selasa", "rabu", "kamis", "jumat", "sabtu"].findIndex((d) =>
+    new RegExp(`\\b${d}\\b`).test(lower),
+  );
+  if (weekday >= 0) {
+    const todayDow = new Date(`${today}T00:00:00Z`).getUTCDay();
+    return addDaysYmd(today, (weekday - todayDow + 7) % 7);
+  }
+  if (/\btanggal\b/.test(lower)) return today;
   return null;
 }
 
@@ -201,8 +210,16 @@ export type TripParseOutcome =
   | { kind: "general_time"; dateHint: string | null; categories: string[] }
   | { kind: "missing"; dateHint: string | null; timeHint: { startTime: string; endTime: string } | null; categories: string[] };
 
+export function parseFullDay(text: string): { startTime: string; endTime: string } | null {
+  return /\b(?:sehari(?:an)?(?:\s+penuh)?|satu\s+hari|1\s+hari|full\s*day)\b/i.test(text)
+    ? { startTime: "08:00", endTime: "21:00" }
+    : null;
+}
+
 export function parseGeneralTimeOfDay(text: string): { startTime: string; endTime: string } | null {
   const lower = text.toLowerCase();
+  const full = parseFullDay(lower);
+  if (full) return full;
   // shortcut: abaikan bila pengguna sudah menyebut jam eksplisit ("jam 10 pagi" tetap general_time).
   if (/\b(jam|pukul)\b/.test(lower)) return null;
   if (/\b(dini\s*hari)\b/.test(lower)) return { startTime: "00:00", endTime: "05:59" };
@@ -211,6 +228,94 @@ export function parseGeneralTimeOfDay(text: string): { startTime: string; endTim
   if (/\b(sore|petang|sunset)\b/.test(lower)) return { startTime: "15:00", endTime: "17:59" };
   if (/\b(malam|night)\b/.test(lower)) return { startTime: "18:00", endTime: "23:59" };
   return null;
+}
+
+const DEFER_TIME =
+  /\b(terserah|terserahlah|bebas|kasih\s+(?:saja\s+)?(?:saran|rekomendasi)|beri(?:kan)?\s+(?:saya\s+)?(?:saja\s+)?(?:saran|rekomendasi)|rekomendasikan|pilihkan|pilih\s+saja|atur\s+saja|serahkan|ikut\s+(?:kamu|anda|saja)|gak?\s*tau|tidak\s*tahu|bingung|yang\s+penting)\b/i;
+
+/** User hands the time/category decision to the assistant ("terserah", "kasih saran"). */
+export function isDeferringTime(text: string): boolean {
+  return DEFER_TIME.test(text);
+}
+
+// Sentinels: a follow-up question is asked once per field, never repeated.
+const ASK_CATEGORY_LEAD = "Mau ke tempat seperti apa?";
+const ASK_CATEGORY = `${ASK_CATEGORY_LEAD} Pilih pantai, kuliner, alam, budaya, atau belanja. Kalau terserah, bilang saja nanti saya pilihkan yang variatif.`;
+// Old wording is matched too, so a session that already asked is not asked again.
+const ASK_CATEGORY_MARKS = [ASK_CATEGORY_LEAD, "Kategori mau ke mana"];
+const ASK_TIME_MARKS = ["Jam berapa rencananya?", "Jam berapa mau mulai"];
+
+function askedBefore(history: Array<{ role: string; content: string }>, marks: string[]): boolean {
+  return history.some((m) => m.role === "assistant" && marks.some((mark) => m.content.includes(mark)));
+}
+
+const CATEGORY_POOL = ["pantai", "alam", "kuliner", "budaya", "sejarah", "santai", "belanja"];
+
+/** Two categories that actually have destinations, so a deferred pick is never empty. */
+async function pickCategories(deps: ChatDeps): Promise<string[]> {
+  const rows = await deps.searchDestinations({}).catch(() => []);
+  const slugs = [
+    ...new Set(
+      rows.flatMap((row) => {
+        const cats = (row as { categories?: unknown } | null)?.categories;
+        if (!Array.isArray(cats)) return [];
+        return cats
+          .map((c) => (c && typeof c === "object" ? (c as { slug?: unknown }).slug : null))
+          .filter((s): s is string => typeof s === "string" && CATEGORY_POOL.includes(s));
+      }),
+    ),
+  ];
+  const pool = slugs.length > 0 ? slugs : CATEGORY_POOL;
+  const rng = deps.random ?? Math.random;
+  const shuffled = [...pool];
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j]!, shuffled[i]!];
+  }
+  return shuffled.slice(0, 2);
+}
+
+const TIME_CHANGE_HINT = /\b(?:ubah|ganti|jadwal(?:nya)?|mulai|majukan|mundur|jadi|menjadi)\b/i;
+
+export type TimeChange = { startTime: string; endTime?: string };
+
+/** Only reads time changes; caller must already know an active trip exists. */
+export function parseTimeChange(text: string): TimeChange | null {
+  const range = parseFlexibleTimeRange(text);
+  if (range) return range;
+  const full = parseFullDay(text);
+  if (full) return full;
+  const slot = parseGeneralTimeOfDay(text);
+  if (slot) {
+    const bareSlot = /^\s*(?:pagi|siang|sore|petang|malam|sunset|dini\s*hari)(?:\s+(?:aja|saja|dong))?\s*$/i.test(text);
+    if (TIME_CHANGE_HINT.test(text) || bareSlot) return slot;
+  }
+  const clock = /\b(?:jam|pukul)\s*(?:jadi|ke|menjadi|mulai|dari)?\s*(\d{1,2}(?:[:.]\d{2})?)\s*(pagi|siang|sore|petang|malam)?\b/i.exec(text);
+  if (clock && TIME_CHANGE_HINT.test(text)) {
+    const startTime = parseFlexibleClock(clock[1]!, clock[2]);
+    if (startTime) return { startTime };
+  }
+  return null;
+}
+
+function minutesOf(hhmm: string): number {
+  const [h, m] = hhmm.split(":").map(Number);
+  return (h ?? 0) * 60 + (m ?? 0);
+}
+
+function shiftMinutes(hhmm: string, delta: number): string {
+  const total = Math.max(0, Math.min(23 * 60 + 59, minutesOf(hhmm) + delta));
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
+/** A start-only change keeps the current day span so the trip stays intact. */
+export function applyTimeChange(
+  change: TimeChange,
+  current: { startTime: string; endTime: string },
+): { startTime: string; endTime: string } {
+  if (change.endTime != null) return { startTime: change.startTime, endTime: change.endTime };
+  const span = Math.max(60, minutesOf(current.endTime) - minutesOf(current.startTime));
+  return { startTime: change.startTime, endTime: addMinutes(change.startTime, span) };
 }
 
 export function analyzeTripRequest(text: string, now = new Date()): TripParseOutcome {
@@ -313,7 +418,7 @@ export function resolveEffectiveRequest(p: AccumulatedTripParams, now = new Date
       startTime: p.startTime ?? time.startTime,
       endTime: p.endTime ?? time.endTime,
       categories: p.categories,
-      destinationCount: p.destinationCount ?? 8,
+      ...(p.destinationCount != null ? { destinationCount: p.destinationCount } : {}),
     },
   };
 }
@@ -334,6 +439,33 @@ function generatedStops(generated: ReturnType<typeof generateItinerary>): Itiner
     category: null,
   }));
 }
+
+/** Same destinations in the same order at the same times means nothing changed. */
+function sameStops(a: ItineraryVersionStop[], b: ItineraryVersionStop[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((s, i) =>
+    (s.destinationId ?? "") === (b[i]!.destinationId ?? "") &&
+    (s.arrivalTime ?? "") === (b[i]!.arrivalTime ?? ""));
+}
+
+/** Derive per-stop durations from consecutive arrivals; last stop falls back to 60 min. */
+function stopDurations(stops: ItineraryVersionStop[]): number[] {
+  return stops.map((s, i) => {
+    const next = stops[i + 1];
+    if (next?.arrivalTime && s.arrivalTime) {
+      const diff = minutesOf(next.arrivalTime) - minutesOf(s.arrivalTime);
+      if (diff > 0) return diff;
+    }
+    return s.visitDurationMin ?? 60;
+  });
+}
+
+const ASK_TIME_LEAD = "Jam berapa rencananya?";
+const ASK_TIME = `${ASK_TIME_LEAD} Pilih pagi (06:00–10:59), siang (11:00–14:59), sore (15:00–17:59), malam (18:00–23:59), atau seharian (08:00–21:00). Kalau terserah, bilang saja nanti saya pilihkan.`;
+const ASK_DETAILS = `${ASK_CATEGORY}\n\n${ASK_TIME}`;
+
+const BARE_MODIFICATION =
+  /^\s*(?:tolong\s+|coba\s+)?(?:ganti(?:in|kan)?|ubah(?:in|kan)?|tuker(?:in)?|modifikasi(?:kan)?|hapus(?:in)?)(?:\s+(?:dong|aja|saja|ya|nih|deh|itu|semua|yang\s+lain))*\s*[.!?]*\s*$/i;
 
 function buildRouteJson(stops: Array<{ position: number; latitude: number; longitude: number }>) {
   const legs = [];
@@ -422,7 +554,7 @@ async function runItineraryToolFlow(input: {
   for (let round = 0; round < maxRounds; round++) {
     const providerStarted = Date.now();
     try {
-      last = await run({ role: "tool", config, messages, tools, toolChoice: "required" });
+      last = await run({ role: "tool", config, messages, tools, toolChoice: "required", sessionId: input.sessionId });
     } catch (err) {
       await chatRepository.appendMessage({
         sessionId: input.sessionId,
@@ -465,9 +597,8 @@ async function runItineraryToolFlow(input: {
       try {
         const result = await executeTool(call.name, call.arguments);
         const toolLatencyMs = Date.now() - toolStarted;
-        if (call.name === "search_destinations" || call.name === "get_destination_details") {
-          mergeDestinationRows(collected, result);
-        }
+        // Merge any array result: alias names would otherwise skip the collection.
+        if (Array.isArray(result)) mergeDestinationRows(collected, result);
         await chatRepository.appendMessage({
           sessionId: input.sessionId,
           role: "tool",
@@ -532,6 +663,94 @@ export function createChatService(deps: ChatDeps) {
     return variants[Math.floor(Math.random() * variants.length)]!;
   }
 
+  async function applyTripTimeChange(input: {
+    userId: string;
+    sessionId: string;
+    content: string;
+    sourceMessageId?: string;
+    change: TimeChange;
+  }): Promise<{ intent: Intent; message: string; version: ItineraryVersionView; usage: Record<string, never> } | null> {
+    const gateway = deps.itinerary;
+    if (!gateway) return null;
+    const active = await gateway.getActiveVersion({ userId: input.userId, sessionId: input.sessionId });
+    if (!active || active.stops.length === 0) return null;
+
+    const durations = stopDurations(active.stops);
+    let starts: string[];
+    let startTime: string;
+    let endTime: string;
+    if (input.change.endTime == null) {
+      // Start-only change shifts the whole schedule; destinations and relative gaps stay put.
+      const delta = minutesOf(input.change.startTime) - minutesOf(active.startTime);
+      starts = active.stops.map((s) => shiftMinutes(s.arrivalTime ?? active.startTime, delta));
+      startTime = input.change.startTime;
+      endTime = addMinutes(starts[starts.length - 1]!, durations[durations.length - 1]!);
+    } else {
+      const next = applyTimeChange(input.change, { startTime: active.startTime, endTime: active.endTime });
+      const scheduled = scheduleStops(
+        active.stops.map((s, i) => ({
+          id: s.destinationId ?? "",
+          name: s.name,
+          latitude: s.latitude,
+          longitude: s.longitude,
+          durationMin: durations[i]!,
+        })),
+        next.startTime,
+      );
+      starts = scheduled.destinations.map((d) => d.startTime);
+      startTime = next.startTime;
+      endTime = scheduled.endTime;
+    }
+
+    const stops: ItineraryVersionStop[] = active.stops.map((s, i) => ({
+      position: i + 1,
+      destinationId: s.destinationId,
+      name: s.name,
+      latitude: s.latitude,
+      longitude: s.longitude,
+      arrivalTime: starts[i]!,
+      visitDurationMin: durations[i]!,
+      category: s.category,
+    }));
+
+    if (sameStops(active.stops, stops)) {
+      return {
+        intent: "modify_itinerary",
+        message: `Jam trip kamu sudah ${active.startTime}–${active.endTime}, jadi tidak ada yang saya ubah.`,
+        version: active,
+        usage: {},
+      };
+    }
+
+    const route = buildRouteJson(
+      stops.map((s) => ({ position: s.position, latitude: s.latitude, longitude: s.longitude })),
+    );
+    const saved = await gateway.saveDraftVersion({
+      userId: input.userId,
+      sessionId: input.sessionId,
+      travelDate: active.travelDate,
+      startTime,
+      endTime,
+      stops,
+      routeJson: route.json,
+      changeType: "reschedule",
+      changeInstruction: input.content,
+      basedOnVersion: active.versionNumber,
+      sourceMessageId: input.sourceMessageId ?? null,
+    });
+
+    return {
+      intent: "modify_itinerary",
+      message: formatItineraryReply({
+        kind: "update",
+        ...saved,
+        requestedEndTime: input.change.endTime ?? undefined,
+      }),
+      version: saved,
+      usage: {},
+    };
+  }
+
   async function applyChatModification(input: {
     userId: string;
     sessionId: string;
@@ -585,7 +804,13 @@ export function createChatService(deps: ChatDeps) {
           ? active.stops.find((s) => s.name.toLowerCase() === scoped.targetName!.trim().toLowerCase())
           : undefined;
     const targetCategory = target?.category ?? null;
-    const ordered = orderCandidates(candidates, targetCategory);
+    const takenIds = new Set(active.stops.map((s) => s.destinationId).filter((id): id is string => id != null));
+    const ordered = orderCandidates(
+      input.mod.operation === "replace_destination"
+        ? candidates.filter((c) => !takenIds.has(c.destinationId))
+        : candidates,
+      targetCategory,
+    );
 
     let applied: ReturnType<typeof applyModification>;
     try {
@@ -651,22 +876,43 @@ export function createChatService(deps: ChatDeps) {
       }
     }
 
-    const baseArrival = active.stops[active.stops.length - 1]?.arrivalTime ?? active.startTime;
-    const stops = applied.stops.map((s) => {
-      const geo = pool.get(s.destinationId);
-      if (!geo) throw new HttpError(422, "MODIFY_CANDIDATE_MISSING", "Destination details are unavailable");
-      const arrivalTime = geo.arrivalTime ?? addMinutes(baseArrival, 60 * Math.max(1, s.position - active.stops.length));
+    const activeDurations = stopDurations(active.stops);
+    const durationByDestination = new Map(
+      active.stops.map((s, i) => [s.destinationId ?? "", activeDurations[i]!] as const),
+    );
+    const scheduled = scheduleStops(
+      applied.stops.map((s) => {
+        const geo = pool.get(s.destinationId);
+        if (!geo) throw new HttpError(422, "MODIFY_CANDIDATE_MISSING", "Destination details are unavailable");
+        return {
+          id: s.destinationId,
+          name: s.name,
+          latitude: geo.latitude,
+          longitude: geo.longitude,
+          durationMin: durationByDestination.get(s.destinationId) ?? geo.visitDurationMin ?? 60,
+        };
+      }),
+      active.startTime,
+    );
+    const stops: ItineraryVersionStop[] = scheduled.destinations.map((d, i) => ({
+      position: d.order,
+      destinationId: d.id,
+      name: d.name,
+      latitude: d.latitude ?? 0,
+      longitude: d.longitude ?? 0,
+      arrivalTime: d.startTime,
+      visitDurationMin: Math.max(1, minutesOf(d.endTime) - minutesOf(d.startTime)),
+      category: applied.stops[i]?.category ?? pool.get(d.id)?.category ?? null,
+    }));
+
+    if (sameStops(active.stops, stops)) {
       return {
-        position: s.position,
-        destinationId: s.destinationId,
-        name: s.name,
-        latitude: geo.latitude,
-        longitude: geo.longitude,
-        arrivalTime,
-        visitDurationMin: geo.visitDurationMin ?? 60,
-        category: s.category ?? geo.category,
+        intent: "modify_itinerary",
+        message: "Trip kamu belum berubah, jadi saya tidak membuat versi baru. Mau ubah yang lain?",
+        version: active,
+        usage: {},
       };
-    });
+    }
 
     const route = buildRouteJson(stops);
     const saved = await gateway.saveDraftVersion({
@@ -674,7 +920,7 @@ export function createChatService(deps: ChatDeps) {
       sessionId: input.sessionId,
       travelDate: active.travelDate,
       startTime: active.startTime,
-      endTime: active.endTime,
+      endTime: scheduled.endTime,
       stops,
       routeJson: route.json,
       changeType: input.mod.operation,
@@ -707,12 +953,28 @@ export function createChatService(deps: ChatDeps) {
       ? { inputTokens: classified.usage.promptTokens, outputTokens: classified.usage.completionTokens }
       : {};
 
+    // Feedback on the existing trip is a regeneration with fixes, not a missing-detail prompt.
+    const isFeedback = intent === "feedback_itinerary";
+    if (isFeedback) intent = "regenerate_itinerary";
+
     const merged = accumulateTripParams(input.history, input.content, new Date());
-    const outcome = resolveEffectiveRequest(merged.params);
     const contributes = messageContributesParams(input.content);
+    const defersTime = isDeferringTime(input.content);
     const isGeneratorIntent = intent === "generate_itinerary" || intent === "modify_itinerary" || intent === "regenerate_itinerary";
     const wantsItinerary = TRIP_REQUEST.test(input.content);
-  const usesTripFlow = isGeneratorIntent || (contributes && (merged.pending || wantsItinerary));
+    const usesTripFlow = isGeneratorIntent || (contributes && (merged.pending || wantsItinerary)) || (defersTime && merged.pending);
+
+    // An existing trip already decides the date and window; reuse them so a follow-up never re-asks.
+    const activeTrip = deps.itinerary
+      ? await deps.itinerary.getActiveVersion({ userId: input.userId, sessionId: input.sessionId })
+      : null;
+    if (activeTrip && (isGeneratorIntent || defersTime)) {
+      merged.params.travelDate ??= activeTrip.travelDate;
+      merged.params.startTime ??= activeTrip.startTime;
+      merged.params.endTime ??= activeTrip.endTime;
+      // Feedback asks for a better mix; searching unfiltered is what fixes "makan terus".
+      if (isFeedback) merged.params.categories = [];
+    }
 
     const modification = parseModification(input.content);
     const isModificationIntent =
@@ -734,9 +996,83 @@ export function createChatService(deps: ChatDeps) {
       if (applied) return { intent: applied.intent, message: applied.message, version: applied.version, usage };
     }
 
+    // Classifier says "change a destination" but the parser found no target: ask, never regenerate.
+    const destinationIntent =
+      intent === "replace_destination" ||
+      intent === "remove_destination" ||
+      intent === "add_destination" ||
+      intent === "select_itinerary_version" ||
+      intent === "clarify_modification";
+    if (!modification && destinationIntent && deps.itinerary) {
+      const active = await deps.itinerary.getActiveVersion({ userId: input.userId, sessionId: input.sessionId });
+      if (active) {
+        return {
+          intent: "modify_itinerary",
+          message: oneOf(
+            "Baik, destinasi mana yang ingin diubah? Sebutkan nomor atau namanya, misal \"ganti destinasi ke-2\" atau \"hapus destinasi ke-2\".",
+            "Siap! Mau diganti atau dihapus destinasi yang mana? Contohnya \"ganti destinasi ke-2\" atau \"hapus destinasi ke-2\".",
+          ),
+          version: active,
+          usage,
+        };
+      }
+    }
+
+    // A time change on an existing trip keeps the destinations and rebuilds the schedule.
+    const timeChange = parseTimeChange(input.content);
+    if (timeChange && !modification && !TRIP_REQUEST.test(input.content) && deps.itinerary) {
+      const changed = await applyTripTimeChange({
+        userId: input.userId,
+        sessionId: input.sessionId,
+        content: input.content,
+        sourceMessageId: input.sourceMessageId,
+        change: timeChange,
+      });
+      if (changed) return { intent: changed.intent, message: changed.message, version: changed.version, usage };
+    }
+
+    // Target-less "ganti dong" must never rewrite the trip.
+    if (BARE_MODIFICATION.test(input.content) && deps.itinerary) {
+      const active = await deps.itinerary.getActiveVersion({ userId: input.userId, sessionId: input.sessionId });
+      if (active) {
+        return {
+          intent: "modify_itinerary",
+          message: oneOf(
+            "Baik, destinasi mana yang ingin diubah? Sebutkan nomor atau namanya, misal \"ganti destinasi ke-3\" atau \"hapus destinasi ke-3\".",
+            "Siap! Mau diganti atau dihapus destinasi itu? Contohnya \"ganti destinasi ke-3\" atau \"hapus destinasi ke-3\".",
+          ),
+          version: active,
+          usage,
+        };
+      }
+    }
+
     if (wantsMultipleItineraries(input.content) && isGeneratorIntent) {
       return { intent, message: ONE_TRIP_PER_CHAT, version: null, usage };
     }
+
+    // Missing details: ask once per field; a later "terserah" fills that field instead of re-asking.
+    let assumedCategories: string[] | null = null;
+    let assumedTime: { startTime: string; endTime: string } | null = null;
+    if (usesTripFlow) {
+      if (merged.params.categories.length === 0 && defersTime && askedBefore(input.history, ASK_CATEGORY_MARKS)) {
+        merged.params.categories = await pickCategories(deps);
+        assumedCategories = merged.params.categories;
+      }
+      if (merged.params.startTime == null && defersTime && askedBefore(input.history, ASK_TIME_MARKS)) {
+        assumedTime = defaultTimeRange(merged.params.categories);
+        merged.params.startTime = assumedTime.startTime;
+        merged.params.endTime = assumedTime.endTime;
+      }
+      // Feedback deliberately drops the category filter to broaden the mix, so it is never "missing".
+      const missingCategory = merged.params.categories.length === 0 && !isFeedback;
+      const missingTime = merged.params.startTime == null;
+      if (missingCategory || missingTime) {
+        const message = missingCategory && missingTime ? ASK_DETAILS : missingCategory ? ASK_CATEGORY : ASK_TIME;
+        return { intent: "missing_information", message, version: null, usage };
+      }
+    }
+    const outcome = resolveEffectiveRequest(merged.params);
 
     // Non-generator turns that only "look like" trip params (e.g. "cuaca di bogor hari ini") may get no tool call; answer naturally instead of erroring.
     const result = usesTripFlow && outcome.kind === "ready"
@@ -753,34 +1089,50 @@ export function createChatService(deps: ChatDeps) {
         inputTokens: (usage.inputTokens ?? 0) + (result.usage.inputTokens ?? 0),
         outputTokens: (usage.outputTokens ?? 0) + (result.usage.outputTokens ?? 0),
       };
+      const stops = generatedStops(generated);
+      const endTime = generated.endTime ?? outcome.trip.endTime;
+      let unchanged = false;
       if (deps.itinerary) {
-        const stops = generatedStops(generated);
-        const route = buildRouteJson(
-          stops.map((s) => ({ position: s.position, latitude: s.latitude, longitude: s.longitude })),
-        );
-        version = await deps.itinerary.saveDraftVersion({
-          userId: input.userId,
-          sessionId: input.sessionId,
-          travelDate: outcome.trip.travelDate,
-          startTime: outcome.trip.startTime,
-          endTime: outcome.trip.endTime,
-          stops,
-          routeJson: route.json,
-          changeType: merged.pending ? "regenerate" : "generate",
-          sourceMessageId: input.sourceMessageId ?? null,
-        });
+        const active = activeTrip;
+        if (active && active.travelDate === outcome.trip.travelDate && sameStops(active.stops, stops)) {
+          version = active;
+          unchanged = true;
+        } else {
+          const route = buildRouteJson(
+            stops.map((s) => ({ position: s.position, latitude: s.latitude, longitude: s.longitude })),
+          );
+          version = await deps.itinerary.saveDraftVersion({
+            userId: input.userId,
+            sessionId: input.sessionId,
+            travelDate: outcome.trip.travelDate,
+            startTime: outcome.trip.startTime,
+            endTime,
+            stops,
+            routeJson: route.json,
+            changeType: merged.pending ? "regenerate" : "generate",
+            sourceMessageId: input.sourceMessageId ?? null,
+          });
+        }
       }
       const defaults: string[] = [];
       if (merged.params.travelDate == null) defaults.push(`tanggal hari ini (${outcome.trip.travelDate})`);
-      if (merged.params.startTime == null) defaults.push(`jam ${outcome.trip.startTime}-${outcome.trip.endTime}`);
+      if (merged.params.startTime == null) defaults.push(`rekomendasi jam ${outcome.trip.startTime}-${endTime}`);
+      if (assumedCategories) defaults.push(`kategori pilihan saya (${assumedCategories.join(", ")})`);
+      if (assumedTime) defaults.push(`rekomendasi jam ${assumedTime.startTime}-${endTime}`);
       const message = formatItineraryReply({
-        kind: "generate",
+        kind: unchanged ? "select" : "generate",
         versionNumber: version?.versionNumber ?? 1,
         travelDate: outcome.trip.travelDate,
         startTime: outcome.trip.startTime,
-        endTime: outcome.trip.endTime,
-        stops: version?.stops ?? generatedStops(generated),
+        endTime,
+        stops: version?.stops ?? stops,
         defaults,
+        adjustment: isFeedback
+          ? "saya seimbangkan kategorinya dan urutkan ulang rutenya biar tidak makan terus"
+          : undefined,
+        requestedCount: generated.requestedCount,
+        actualCount: generated.actualCount,
+        requestedEndTime: merged.params.endTime != null ? outcome.trip.endTime : undefined,
       });
       return { intent, message, version, usage };
     } else {
@@ -790,6 +1142,7 @@ export function createChatService(deps: ChatDeps) {
         userMessage: input.content,
         history: input.history,
         hint,
+        sessionId: input.sessionId,
       });
       const generatedUsage = {
         inputTokens: (usage.inputTokens ?? 0) + (answer.usage.inputTokens ?? 0),
@@ -836,8 +1189,10 @@ export function createChatService(deps: ChatDeps) {
     async deleteSession(input: { userId: string; sessionId: string }) {
       productionGate();
       await requireActiveUser(deps, input.userId);
-      await requireOwnedSession(input.userId, input.sessionId);
-      await chatRepository.deleteSession(input.sessionId);
+      const session = await chatRepository.findSessionByIdRaw(input.sessionId);
+      if (!session) throw new HttpError(404, "SESSION_NOT_FOUND", "Chat session not found");
+      if (session.userId !== input.userId) throw new HttpError(403, "FORBIDDEN", "Session access denied");
+      if (session.deletedAt == null) await chatRepository.deleteSession(input.sessionId);
       return { data: { deleted: true } };
     },
 

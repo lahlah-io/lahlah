@@ -76,7 +76,7 @@ export async function createSession(input: { userId: string; modelId: string; ti
 }
 
 export async function listSessions(input: { userId: string; page: number; limit: number }) {
-  const where: Prisma.ChatSessionWhereInput = { userId: input.userId };
+  const where: Prisma.ChatSessionWhereInput = { userId: input.userId, deletedAt: null };
   const [data, total] = await prisma.$transaction([
     prisma.chatSession.findMany({ where, skip: (input.page - 1) * input.limit, take: input.limit, orderBy: { createdAt: "desc" }, select: sessionSelect }),
     prisma.chatSession.count({ where }),
@@ -84,7 +84,11 @@ export async function listSessions(input: { userId: string; page: number; limit:
   return { data, meta: { page: input.page, limit: input.limit, total } };
 }
 
-export const findSessionById = (id: string) => prisma.chatSession.findUnique({ where: { id }, select: sessionSelect });
+export const findSessionById = (id: string) =>
+  prisma.chatSession.findFirst({ where: { id, deletedAt: null }, select: sessionSelect });
+
+export const findSessionByIdRaw = (id: string) =>
+  prisma.chatSession.findUnique({ where: { id }, select: { id: true, userId: true, deletedAt: true } });
 
 export async function updateSession(input: { id: string; title?: string; summary?: string | null; status?: string }) {
   const data: Prisma.ChatSessionUpdateInput = {};
@@ -94,8 +98,9 @@ export async function updateSession(input: { id: string; title?: string; summary
   return prisma.chatSession.update({ where: { id: input.id }, data, select: sessionSelect });
 }
 
+/** Soft delete: baris tetap ada, hanya disembunyikan dari daftar & akses. */
 export async function deleteSession(id: string) {
-  await prisma.chatSession.delete({ where: { id } });
+  await prisma.chatSession.update({ where: { id }, data: { deletedAt: new Date() } });
 }
 
 export async function listMessages(input: { sessionId: string; page: number; limit: number }) {

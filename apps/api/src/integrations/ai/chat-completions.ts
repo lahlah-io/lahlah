@@ -85,6 +85,8 @@ export async function completeChat(input: {
   messages: AiMessage[];
   tools?: AiToolDefinition[];
   toolChoice?: "auto" | "required";
+  /** Stable routing id for gateways that require x-opencode-session. */
+  sessionId?: string;
 }): Promise<CompletionResult> {
   const url = `${input.config.baseUrl.replace(/\/$/, "")}/chat/completions`;
   const body: Record<string, unknown> = {
@@ -99,7 +101,11 @@ export async function completeChat(input: {
   try {
     response = await fetch(url, {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${input.config.apiKey}` },
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${input.config.apiKey}`,
+        "x-opencode-session": input.sessionId || "lahlah-api",
+      },
       body: JSON.stringify(body),
     });
   } catch {

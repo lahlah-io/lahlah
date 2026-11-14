@@ -106,10 +106,6 @@ export async function send(chat: ChatServiceLike, userId: string, sessionId: str
 }
 
 export async function cleanupUser(userId: string) {
-  await prisma.tripStop.deleteMany({ where: { version: { trip: { members: { some: { userId } } } } } });
-  await prisma.tripVersion.deleteMany({ where: { trip: { members: { some: { userId } } } } });
-  await prisma.destinationCheckpoint.deleteMany({ where: { tripDestination: { trip: { members: { some: { userId } } } } } });
-  await prisma.tripDestination.deleteMany({ where: { trip: { members: { some: { userId } } } } });
   await prisma.trip.deleteMany({ where: { members: { some: { userId } } } });
   await prisma.chatMessage.deleteMany({ where: { session: { userId } } });
   await prisma.chatSession.deleteMany({ where: { userId } });

@@ -33,7 +33,7 @@ afterAll(async () => {
   }
 });
 
-test("itinerary schema foundation: 1:1 session, versions/stops/route constraints", async () => {
+test("itinerary schema: one trip per chat session, append-only trip_destinations", async () => {
   const user = await createUser();
   createdUserIds.push(user.id);
   const model = await getOrCreateModel();
@@ -43,107 +43,65 @@ test("itinerary schema foundation: 1:1 session, versions/stops/route constraints
     select: { id: true },
   });
 
-  const itinerary = await prisma.trip.create({
+  const trip = await prisma.trip.create({
     data: {
-      session: { connect: { id: session.id } },
+      chatSessionId: session.id,
       title: "Trip",
-      currentVersion: 1,
-      members: { create: { userId: user.id, role: "owner" } },
+      members: { create: { userId: user.id } },
     },
-    select: { id: true, sessionId: true, currentVersion: true },
+    select: { id: true, chatSessionId: true },
   });
-
-  assert.equal(itinerary.sessionId, session.id);
-  assert.equal(itinerary.currentVersion, 1);
-
-  // Prisma keeps the one-to-one session link unique by detaching the previous trip.
-  await prisma.trip.create({
-    data: {
-      session: { connect: { id: session.id } },
-      title: "Dup session",
-      members: { create: { userId: user.id, role: "owner" } },
-    },
-  });
-  assert.equal(await prisma.trip.count({ where: { sessionId: session.id } }), 1);
-
-  const v1 = await prisma.tripVersion.create({
-    data: {
-      tripId: itinerary.id,
-      version: 1,
-      changeType: "initial",
-      status: "confirmed",
-    },
-    select: { id: true, version: true },
-  });
-  assert.equal(v1.version, 1);
+  assert.equal(trip.chatSessionId, session.id);
 
   await assert.rejects(
     () =>
-      prisma.tripVersion.create({
-        data: {
-          tripId: itinerary.id,
-          version: 1,
-          changeType: "dup",
-          status: "draft",
-        },
+      prisma.trip.create({
+        data: { chatSessionId: session.id, title: "Dup session", members: { create: { userId: user.id } } },
       }),
     (err: any) => err?.code === "P2002",
   );
 
-  const s1 = await prisma.tripStop.create({
-    data: {
-      tripVersionId: v1.id,
-      position: 1,
-      name: "Stop A",
-      latitude: -0.95,
-      longitude: 100.35,
-    },
-    select: { id: true, position: true },
+  const destinations = await prisma.destination.findMany({
+    where: { city: "Padang", isActive: true },
+    take: 2,
+    select: { id: true },
+    orderBy: { createdAt: "asc" },
   });
-  const s2 = await prisma.tripStop.create({
-    data: {
-      tripVersionId: v1.id,
-      position: 2,
-      name: "Stop B",
-      latitude: -0.96,
-      longitude: 100.36,
-    },
-    select: { id: true, position: true },
-  });
-  assert.equal(s1.position, 1);
-  assert.equal(s2.position, 2);
+  assert.equal(destinations.length, 2, "need >=2 active Padang destinations (run seed)");
 
-  await assert.rejects(
-    () =>
-      prisma.tripStop.create({
-        data: {
-          tripVersionId: v1.id,
-          position: 1,
-          name: "Dup pos",
-          latitude: -0.97,
-          longitude: 100.37,
-        },
-      }),
-    (err: any) => err?.code === "P2002",
-  );
-
-  const stops = await prisma.tripStop.findMany({
-    where: { tripVersionId: v1.id },
-    orderBy: { position: "asc" },
-    select: { position: true },
+  const createdAt = new Date("2026-12-01T08:00:00.000Z");
+  const visitAt = new Date("2026-12-01T09:00:00.000Z");
+  const first = await prisma.tripDestination.create({
+    data: { tripId: trip.id, destinationId: destinations[0]!.id, visitAt, createdAt },
+    select: { id: true, createdAt: true, visitAt: true },
   });
-  assert.deepEqual(stops.map((s) => s.position), [1, 2]);
+  assert.equal(first.createdAt.getTime(), createdAt.getTime());
 
-  const withRoute = await prisma.tripVersion.update({
-    where: { id: v1.id },
+  // Append-only: same destination may appear again in a later batch.
+  const second = await prisma.tripDestination.create({
     data: {
-      routeJson: {
-        type: "LineString",
-        coordinates: [[100.37, -0.97]],
-        legs: [],
-      },
+      tripId: trip.id,
+      destinationId: destinations[0]!.id,
+      visitAt,
+      createdAt: new Date(createdAt.getTime() + 1000),
     },
-    select: { routeJson: true },
+    select: { id: true, createdAt: true },
   });
-  assert.ok(withRoute.routeJson);
+  assert.notEqual(second.id, first.id);
+  assert.notEqual(second.createdAt.getTime(), first.createdAt.getTime());
+
+  // Ordering is carried by visit_at, not a position column.
+  await prisma.tripDestination.create({
+    data: { tripId: trip.id, destinationId: destinations[1]!.id, visitAt: new Date("2026-12-01T07:00:00.000Z"), createdAt },
+  });
+  const ordered = await prisma.tripDestination.findMany({
+    where: { tripId: trip.id },
+    orderBy: { visitAt: "asc" },
+    select: { destinationId: true },
+  });
+  assert.equal(ordered[0]!.destinationId, destinations[1]!.id);
+
+  // A chat session delete is a soft delete: the row survives.
+  await prisma.chatSession.update({ where: { id: session.id }, data: { deletedAt: new Date() } });
+  assert.ok(await prisma.chatSession.findUnique({ where: { id: session.id }, select: { id: true } }));
 });

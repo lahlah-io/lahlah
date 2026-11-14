@@ -141,7 +141,7 @@ Satu modul `destinations` mengekspor dua router: `categoriesApi` dan `destinatio
 ## Chat, itinerary, dan routing
 
 - `chat`: sesi/pesan percakapan + RAG destinasi Padang + tool calls (`search_destinations`, `get_destination_details`) + versi pesan regenerate/activate. Cari destinasi tidak memakai baris `source=admin` tanpa kategori (output scraper belum kurasi).
-- `itinerary`: versi immutable + select/save/restore/publish, sinkron destinasi final, `Trip`/`UserTrip` untuk kolaborasi (`owner`/`editor`/`viewer`).
+- `itinerary`: `trip_destinations` append-only; satu versi = kelompok baris dengan `created_at` identik. Urutan stop dari `visit_at`. Endpoint `versions`/`restore` tetap ada; restore menyalin batch lama menjadi batch baru. `Trip`/`UserTrip` untuk kolaborasi tanpa `role` (anggota pertama = owner).
 - `routes`: kalkulasi rute OSRM (`car`/`motorcycle`/`foot`); fallback garis lurus `source: fallback` saat provider gagal/timeout.
 
 ## Belum termasuk

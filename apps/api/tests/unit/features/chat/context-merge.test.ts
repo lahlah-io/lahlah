@@ -208,7 +208,6 @@ describe("resolveEffectiveRequest", () => {
         startTime: "15:00",
         endTime: "18:00",
         categories: ["kuliner"],
-        destinationCount: 8,
       });
     }
   });
@@ -222,7 +221,6 @@ describe("resolveEffectiveRequest", () => {
         startTime: "11:00",
         endTime: "14:59",
         categories: ["kuliner"],
-        destinationCount: 8,
       },
     });
   });
@@ -236,7 +234,6 @@ describe("resolveEffectiveRequest", () => {
         startTime: "15:00",
         endTime: "18:00",
         categories: ["kuliner"],
-        destinationCount: 8,
       },
     });
   });
@@ -251,7 +248,6 @@ describe("resolveEffectiveRequest", () => {
         startTime: "06:00",
         endTime: "10:59",
         categories: ["pantai"],
-        destinationCount: 8,
       },
     });
   });

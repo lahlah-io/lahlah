@@ -5,9 +5,7 @@ import {
   itineraryIdParamSchema,
   itineraryOwnerQuerySchema,
   itinerarySessionParamSchema,
-  itineraryVersionOwnerSchema,
   itineraryVersionParamSchema,
-  publishItineraryVersionSchema,
   restoreItineraryVersionSchema,
 } from "../schemas/itinerary.schema.js";
 
@@ -52,50 +50,6 @@ export function createItineraryApi(service: ItineraryService) {
   );
 
   api.post(
-    "/:id/versions/:version/select",
-    zValidator("param", itineraryVersionParamSchema),
-    zValidator("json", itineraryVersionOwnerSchema),
-    async (c) =>
-      c.json(
-        await service.selectVersionById({
-          id: c.req.valid("param").id,
-          version: c.req.valid("param").version,
-          userId: c.req.valid("json").userId,
-        }),
-      ),
-  );
-
-  api.post(
-    "/:id/versions/:version/save",
-    zValidator("param", itineraryVersionParamSchema),
-    zValidator("json", itineraryVersionOwnerSchema),
-    async (c) =>
-      c.json(
-        await service.setVersionSaved({
-          id: c.req.valid("param").id,
-          version: c.req.valid("param").version,
-          userId: c.req.valid("json").userId,
-          isSaved: true,
-        }),
-      ),
-  );
-
-  api.delete(
-    "/:id/versions/:version/save",
-    zValidator("param", itineraryVersionParamSchema),
-    zValidator("query", itineraryOwnerQuerySchema),
-    async (c) =>
-      c.json(
-        await service.setVersionSaved({
-          id: c.req.valid("param").id,
-          version: c.req.valid("param").version,
-          userId: c.req.valid("query").userId,
-          isSaved: false,
-        }),
-      ),
-  );
-
-  api.post(
     "/:id/restore/:version",
     zValidator("param", itineraryVersionParamSchema),
     zValidator("json", restoreItineraryVersionSchema),
@@ -105,20 +59,6 @@ export function createItineraryApi(service: ItineraryService) {
           id: c.req.valid("param").id,
           version: c.req.valid("param").version,
           ...c.req.valid("json"),
-        }),
-      ),
-  );
-
-  api.post(
-    "/:id/publish/:version",
-    zValidator("param", itineraryVersionParamSchema),
-    zValidator("json", publishItineraryVersionSchema),
-    async (c) =>
-      c.json(
-        await service.publishVersion({
-          id: c.req.valid("param").id,
-          version: c.req.valid("param").version,
-          userId: c.req.valid("json").userId,
         }),
       ),
   );

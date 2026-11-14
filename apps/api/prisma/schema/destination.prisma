@@ -29,7 +29,6 @@ model Destination {
   creator               User?                  @relation("DestinationCreator", fields: [createdBy], references: [id], onDelete: SetNull)
   categories        DestinationCategory[]
   tripDestinations  TripDestination[]
-  tripStops         TripStop[]
 
   @@unique([source, sourcePlaceId])
   @@index([city, isActive])

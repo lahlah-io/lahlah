@@ -32,34 +32,34 @@ afterAll(async () => {
   }
 });
 
-test("creates trip with session link and owner membership", async () => {
+test("creates trip with chat session link and member row", async () => {
   const { user, session } = await seed();
   const trip = await prisma.trip.create({
     data: {
-      session: { connect: { id: session.id } },
+      chatSessionId: session.id,
       title: "Liburan Padang",
-      members: { create: { userId: user.id, role: "owner" } },
+      members: { create: { userId: user.id } },
     },
     include: { members: true },
   });
-  assert.equal(trip.sessionId, session.id);
+  assert.equal(trip.chatSessionId, session.id);
   assert.equal(trip.title, "Liburan Padang");
   assert.equal(trip.members.length, 1);
-  assert.equal(trip.members[0]!.role, "owner");
+  assert.equal(trip.members[0]!.userId, user.id);
 });
 
 test("user_trip enforces unique user_id and trip_id", async () => {
   const { user, session } = await seed();
   const trip = await prisma.trip.create({
     data: {
-      session: { connect: { id: session.id } },
+      chatSessionId: session.id,
       title: "Unique Test Trip",
-      members: { create: { userId: user.id, role: "owner" } },
+      members: { create: { userId: user.id } },
     },
   });
   await assert.rejects(
     prisma.userTrip.create({
-      data: { userId: user.id, tripId: trip.id, role: "editor" },
+      data: { userId: user.id, tripId: trip.id },
     }),
     (error: unknown) => (error as { code?: string }).code === "P2002",
   );

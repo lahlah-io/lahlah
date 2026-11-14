@@ -19,6 +19,14 @@ const KNOWN_CATEGORY_SLUGS = new Set([
   "keluarga",
 ]);
 
+// Models hallucinate descriptive names; map them onto the two real tools instead of failing the turn.
+const TOOL_ALIASES: Record<string, string> = {
+  fetch_destinations_by_category: "search_destinations",
+  fetch_destinations: "search_destinations",
+  search_destination: "search_destinations",
+  get_destination_detail: "get_destination_details",
+};
+
 const searchArgsSchema = z.object({
   keywords: z.string().trim().max(200).optional(),
   categories: z
@@ -109,8 +117,17 @@ function parse<T>(schema: z.ZodType<T>, raw: unknown): T {
 
 export function createToolExecutor(deps: ToolDeps) {
   return async function executeTool(name: string, rawArgs: unknown): Promise<unknown> {
-    if (name === "search_destinations") {
-      const args = parse(searchArgsSchema, rawArgs);
+    const canonical = TOOL_ALIASES[name] ?? name;
+    if (canonical === "search_destinations") {
+      // Models invent a singular "category" argument; fold it into the real categories list.
+      const raw = (rawArgs && typeof rawArgs === "object" ? rawArgs : {}) as Record<string, unknown>;
+      const single = typeof raw.category === "string" ? [raw.category] : [];
+      const args = parse(
+        searchArgsSchema,
+        single.length > 0
+          ? { ...raw, categories: [...(Array.isArray(raw.categories) ? raw.categories : []), ...single] }
+          : rawArgs,
+      );
       // shortcut: union model categories with the user's requested categories,
       // the model sometimes searches only one of several requested categories.
       const categories = [...new Set([...(args.categories ?? []), ...(deps.defaultCategories ?? [])])];
@@ -152,7 +169,7 @@ export function createToolExecutor(deps: ToolDeps) {
       const rows = await searchRows(categories);
       return rows.length > 0 ? rows.slice(0, SEARCH_LIMIT) : retryWithoutKeywords().then((r) => r.slice(0, SEARCH_LIMIT));
     }
-    if (name === "get_destination_details") {
+    if (canonical === "get_destination_details") {
       const args = parse(detailArgsSchema, rawArgs);
       const ids = args.destinationIds ?? (args.destinationId ? [args.destinationId] : []);
       const rows = await deps.getDestinationDetails({ destinationIds: ids });

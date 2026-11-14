@@ -199,8 +199,6 @@ test("health and openapi docs return their documented shapes", async () => {
     "/api/v1/itineraries/by-session/{sessionId}",
     "/api/v1/itineraries/{id}/versions",
     "/api/v1/itineraries/{id}/versions/{version}",
-    "/api/v1/itineraries/{id}/versions/{version}/select",
-    "/api/v1/itineraries/{id}/versions/{version}/save",
     "/api/v1/itineraries/{id}/restore/{version}",
   ]) {
     assert.ok(specBody.paths?.[path], `missing OpenAPI path ${path}`);
@@ -365,19 +363,11 @@ test("chat and itinerary response shapes match the OpenAPI contract", async () =
     assert.equal(bySessionRes.status, 200);
     expectShape(responseShapes.itineraryDetail, await bySessionRes.json(), "itinerary by session");
 
-    const selectRes = await itineraryApp.request(
-      `/api/v1/itineraries/${saved.itineraryId}/versions/1/select`,
-      { method: "POST", headers: json, body: JSON.stringify({ userId }) },
+    const versionsRes2 = await itineraryApp.request(
+      `/api/v1/itineraries/${saved.itineraryId}/versions?userId=${userId}`,
     );
-    assert.equal(selectRes.status, 200);
-    expectShape(responseShapes.itineraryDetail, await selectRes.json(), "itinerary select");
-
-    const saveRes = await itineraryApp.request(
-      `/api/v1/itineraries/${saved.itineraryId}/versions/1/save`,
-      { method: "POST", headers: json, body: JSON.stringify({ userId }) },
-    );
-    assert.equal(saveRes.status, 200);
-    expectShape(responseShapes.itineraryVersion, await saveRes.json(), "itinerary save");
+    assert.equal(versionsRes2.status, 200);
+    expectShape(responseShapes.itineraryVersionList, await versionsRes2.json(), "itinerary version list");
   } finally {
     await new Promise<void>((resolve, reject) => provider.close((err) => (err ? reject(err) : resolve())));
     if (userId) await cleanupUser(userId);
@@ -521,7 +511,7 @@ test("new chat session, message version, and itinerary version endpoints match t
       "itinerary version detail",
     );
     assert.equal(versionDetailBody.data.version, 1);
-    assert.equal(versionDetailBody.data.routeJson.legs.length, 1);
+    assert.equal(versionDetailBody.data.routeJson, null);
 
     const restoreRes = await itineraryApp.request(
       `/api/v1/itineraries/${itineraryId}/restore/1`,

@@ -42,6 +42,21 @@ describe("trip wording (rule layer)", () => {
   );
 });
 
+describe("trip feedback (rule layer)", () => {
+  test.each([
+    "ini tidak masuk akal, makan terus",
+    "terlalu banyak kuliner",
+    "coba cek lagi rutenya",
+  ])("%s maps to feedback_itinerary", async (text) => {
+    const restore = forbidProvider();
+    try {
+      expect(await classify(text, env)).toMatchObject({ intent: "feedback_itinerary", source: "rule" });
+    } finally {
+      restore();
+    }
+  });
+});
+
 describe("modification intents (rule layer)", () => {
   test("ganti destinasi maps to replace_destination", async () => {
     const restore = forbidProvider();

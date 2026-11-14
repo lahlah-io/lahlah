@@ -14,5 +14,3 @@ export const restoreItineraryVersionSchema = z.object({
   userId,
   expectedVersion: z.number().int().min(1).optional(),
 });
-export const publishItineraryVersionSchema = z.object({ userId });
-export const itineraryVersionOwnerSchema = z.object({ userId });

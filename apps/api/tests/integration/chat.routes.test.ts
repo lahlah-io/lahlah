@@ -1,4 +1,4 @@
-﻿import assert from "node:assert/strict";
+import assert from "node:assert/strict";
 import { afterAll, test } from "vitest";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
@@ -83,8 +83,6 @@ async function createTestUser() {
 }
 
 async function cleanupUser(userId: string) {
-  await prisma.tripStop.deleteMany({ where: { version: { trip: { members: { some: { userId } } } } } });
-  await prisma.tripVersion.deleteMany({ where: { trip: { members: { some: { userId } } } } });
   await prisma.destinationCheckpoint.deleteMany({ where: { tripDestination: { trip: { members: { some: { userId } } } } } });
   await prisma.tripDestination.deleteMany({ where: { trip: { members: { some: { userId } } } } });
   await prisma.trip.deleteMany({ where: { members: { some: { userId } } } });
@@ -252,7 +250,7 @@ test("itinerary request performs tool call and persists an instant version", asy
     }
     if (body.data.version.routeJson) assert.equal((body.data.version.routeJson as { type: string }).type, "LineString");
 
-    const itineraryCount = await prisma.trip.count({ where: { sessionId: session.id } });
+    const itineraryCount = await prisma.trip.count({ where: { chatSessionId: session.id } });
     assert.equal(itineraryCount, 1);
   } finally {
     await provider.close();

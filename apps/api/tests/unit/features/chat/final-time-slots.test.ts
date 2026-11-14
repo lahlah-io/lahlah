@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { parseGeneralTimeOfDay, resolveEffectiveRequest } from "../../../../src/modules/chat/services/chat.service.js";
+import { parseFullDay, parseGeneralTimeOfDay, parseTimeChange, resolveEffectiveRequest } from "../../../../src/modules/chat/services/chat.service.js";
 
 describe("final time slots", () => {
   test("dini hari 00:00-05:59", () => {
@@ -24,7 +24,7 @@ describe("final time slots", () => {
 });
 
 describe("default destination count", () => {
-  test("defaults to 8 when date and time ready and no count given", () => {
+  test("no count leaves destinationCount unset so the scheduler decides", () => {
     const outcome = resolveEffectiveRequest({
       travelDate: "2026-11-21",
       startTime: "09:00",
@@ -33,7 +33,7 @@ describe("default destination count", () => {
     });
     expect(outcome.kind).toBe("ready");
     if (outcome.kind !== "ready") return;
-    expect(outcome.trip.destinationCount).toBe(8);
+    expect(outcome.trip.destinationCount).toBeUndefined();
   });
 
   test("keeps explicit count", () => {
@@ -47,5 +47,32 @@ describe("default destination count", () => {
     expect(outcome.kind).toBe("ready");
     if (outcome.kind !== "ready") return;
     expect(outcome.trip.destinationCount).toBe(3);
+  });
+});
+
+describe("full day", () => {
+  test("seharian means morning through night", () => {
+    expect(parseFullDay("seharian")).toEqual({ startTime: "08:00", endTime: "21:00" });
+    expect(parseFullDay("1 hari")).toEqual({ startTime: "08:00", endTime: "21:00" });
+    expect(parseGeneralTimeOfDay("seharian aja")).toEqual({ startTime: "08:00", endTime: "21:00" });
+  });
+});
+
+describe("parseTimeChange", () => {
+  test("explicit start", () => {
+    expect(parseTimeChange("ubah jam jadi 10 pagi")).toEqual({ startTime: "10:00" });
+  });
+
+  test("bare slot and seharian", () => {
+    expect(parseTimeChange("sore aja")).toEqual({ startTime: "15:00", endTime: "17:59" });
+    expect(parseTimeChange("jadwalnya jadi seharian")).toEqual({ startTime: "08:00", endTime: "21:00" });
+  });
+
+  test("explicit range", () => {
+    expect(parseTimeChange("ubah jam jadi 8 sampai 12")).toEqual({ startTime: "08:00", endTime: "12:00" });
+  });
+
+  test("ignores ordinary chatter", () => {
+    expect(parseTimeChange("saya mau ngedate besok")).toBeNull();
   });
 });

@@ -1,4 +1,4 @@
-﻿import assert from "node:assert/strict";
+import assert from "node:assert/strict";
 import { afterAll, test } from "vitest";
 import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
@@ -29,8 +29,6 @@ async function padangRows(min: number) {
 
 afterAll(async () => {
   for (const userId of createdUserIds) {
-    await prisma.tripStop.deleteMany({ where: { version: { trip: { members: { some: { userId } } } } } });
-    await prisma.tripVersion.deleteMany({ where: { trip: { members: { some: { userId } } } } });
     await prisma.destinationCheckpoint.deleteMany({ where: { tripDestination: { trip: { members: { some: { userId } } } } } });
     await prisma.tripDestination.deleteMany({ where: { trip: { members: { some: { userId } } } } });
     await prisma.trip.deleteMany({ where: { members: { some: { userId } } } });
@@ -95,13 +93,25 @@ test("chat generation immediately creates Version 1 in DB without draft records"
     body: JSON.stringify({ userId: user.id, content: "Buat itinerary di Padang untuk 1 hari" }),
   });
   assert.equal(msgRes.status, 200);
+  const first = (await msgRes.json()) as { data: { intent: string; version: unknown } };
+  assert.equal(first.data.intent, "missing_information", "missing category is asked, not invented");
+  assert.equal(first.data.version, null);
 
-  const trip = await prisma.trip.findUnique({ where: { sessionId } });
+  const answer = await app.request(`/api/v1/chat/sessions/${sessionId}/messages`, {
+    method: "POST",
+    headers: json,
+    body: JSON.stringify({ userId: user.id, content: "pantai" }),
+  });
+  assert.equal(answer.status, 200);
+
+  const trip = await prisma.trip.findUnique({ where: { chatSessionId: sessionId } });
   assert.ok(trip, "Trip must exist for session");
 
-  const itinerary = await prisma.trip.findUnique({ where: { sessionId }, include: { versions: true } });
-  assert.ok(itinerary, "Itinerary must exist");
-  assert.equal(itinerary.versions.length, 1);
-  assert.equal(itinerary.versions[0]!.version, 1);
-  assert.equal(itinerary.versions[0]!.status, "generated");
+  const batchRows = await prisma.tripDestination.findMany({
+    where: { tripId: trip.id },
+    orderBy: { visitAt: "asc" },
+    select: { id: true },
+  });
+  assert.ok(batchRows.length > 0, "Trip must have destinations");
+  assert.equal(await prisma.tripDestination.count({ where: { tripId: trip.id } }), rows.length);
 });

@@ -35,6 +35,7 @@ test("builds classifier request without tools using resolved config", async () =
     assert.equal(String(url), "https://cls.example/v1/chat/completions");
     const headers = new Headers(init?.headers);
     assert.equal(headers.get("authorization"), "Bearer cls-key");
+    assert.equal(headers.get("x-opencode-session"), "chat-123");
     const body = JSON.parse(String(init?.body));
     assert.equal(body.model, "cls-model");
     assert.equal(body.tools, undefined);
@@ -48,6 +49,7 @@ test("builds classifier request without tools using resolved config", async () =
       role: "classifier",
       config: cfg,
       messages: [{ role: "user", content: "hi" }],
+      sessionId: "chat-123",
     });
     assert.equal(out.content, "ok");
     assert.deepEqual(out.toolCalls, []);

@@ -1,4 +1,4 @@
-﻿import assert from "node:assert/strict";
+import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, test } from "vitest";
 import { prisma } from "../../src/db/client.js";
@@ -10,8 +10,6 @@ const PREV_NODE_ENV = process.env.NODE_ENV;
 const createdUserIds: string[] = [];
 
 async function cleanupUser(userId: string) {
-  await prisma.tripStop.deleteMany({ where: { version: { trip: { members: { some: { userId } } } } } });
-  await prisma.tripVersion.deleteMany({ where: { trip: { members: { some: { userId } } } } });
   await prisma.destinationCheckpoint.deleteMany({ where: { tripDestination: { trip: { members: { some: { userId } } } } } });
   await prisma.tripDestination.deleteMany({ where: { trip: { members: { some: { userId } } } } });
   await prisma.trip.deleteMany({ where: { members: { some: { userId } } } });

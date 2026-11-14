@@ -20,9 +20,7 @@ import {
   itineraryIdParamSchema,
   itineraryOwnerQuerySchema,
   itinerarySessionParamSchema,
-  itineraryVersionOwnerSchema,
   itineraryVersionParamSchema,
-  publishItineraryVersionSchema,
   restoreItineraryVersionSchema,
 } from "./modules/itinerary/schemas/itinerary.schema.js";
 import { routeRequestSchema } from "./modules/routing/schemas/routing.schema.js";
@@ -290,6 +288,7 @@ const itineraryDestination = z.object({
   destinationId: z.uuid(),
   visitAt: z.iso.datetime().nullable(),
   estimatedCost: z.number().nullable(),
+  distance: z.number().nullable().optional(),
   notes: z.string().nullable(),
   createdAt: z.iso.datetime(),
 });
@@ -772,85 +771,22 @@ const openApiDocument = {
         },
       },
     },
-    "/api/v1/itineraries/{id}/versions/{version}/select": {
-      post: {
-        tags: ["itineraries"],
-        summary: "Pilih versi sebagai itinerary aktif",
-        description:
-          "Dalam satu transaksi: validasi ownership, set is_selected, sinkronkan itinerary_destinations, " +
-          "dan set status confirmed. Tidak mengubah snapshot versi mana pun.",
-        parameters: params(itineraryVersionParamSchema, "path"),
-        requestBody: jsonBody(itineraryVersionOwnerSchema),
-        responses: {
-          "200": response("Versi aktif", envelope("ItineraryDetail")),
-          "400": errorResponse("Validasi parameter atau body gagal"),
-          "401": errorResponse("User tidak aktif"),
-          "404": errorResponse("Itinerary atau versi tidak ditemukan"),
-          "503": errorResponse("Auth belum dikonfigurasi"),
-        },
-      },
-    },
-    "/api/v1/itineraries/{id}/versions/{version}/save": {
-      post: {
-        tags: ["itineraries"],
-        summary: "Simpan versi itinerary",
-        parameters: params(itineraryVersionParamSchema, "path"),
-        requestBody: jsonBody(itineraryVersionOwnerSchema),
-        responses: {
-          "200": response("Versi ditandai saved", envelope("ItineraryVersion")),
-          "400": errorResponse("Validasi parameter atau body gagal"),
-          "401": errorResponse("User tidak aktif"),
-          "404": errorResponse("Itinerary atau versi tidak ditemukan"),
-          "503": errorResponse("Auth belum dikonfigurasi"),
-        },
-      },
-      delete: {
-        tags: ["itineraries"],
-        summary: "Batalkan saved pada versi itinerary",
-        parameters: [...params(itineraryVersionParamSchema, "path"), ...params(itineraryOwnerQuerySchema, "query")],
-        responses: {
-          "200": response("Versi tidak lagi saved", envelope("ItineraryVersion")),
-          "400": errorResponse("Validasi parameter gagal"),
-          "401": errorResponse("User tidak aktif"),
-          "404": errorResponse("Itinerary atau versi tidak ditemukan"),
-          "503": errorResponse("Auth belum dikonfigurasi"),
-        },
-      },
-    },
     "/api/v1/itineraries/{id}/restore/{version}": {
       post: {
         tags: ["itineraries"],
         summary: "Pulihkan versi itinerary",
         description:
-          "Menyalin snapshot versi lama menjadi versi baru yang immutable. Versi lama tidak diubah. " +
+          "Menyalin isi versi lama menjadi batch trip_destinations baru. Versi lama tidak diubah. " +
           "Kirim `expectedVersion` untuk optimistic concurrency; bila tidak cocok, respons 409 `VERSION_CONFLICT`.",
         parameters: params(itineraryVersionParamSchema, "path"),
         requestBody: jsonBody(restoreItineraryVersionSchema),
         responses: {
-          "200": response("Versi baru dibuat dari snapshot", envelope("ItineraryDetail")),
+          "200": response("Versi baru dibuat dari batch lama", envelope("ItineraryDetail")),
           "400": errorResponse("Validasi parameter atau body gagal"),
           "401": errorResponse("User tidak aktif"),
           "403": errorResponse("Itinerary milik user lain"),
           "404": errorResponse("Itinerary atau versi tidak ditemukan"),
           "409": errorResponse("Versi berubah (VERSION_CONFLICT)"),
-          "503": errorResponse("Auth belum dikonfigurasi"),
-        },
-      },
-    },
-    "/api/v1/itineraries/{id}/publish/{version}": {
-      post: {
-        tags: ["itineraries"],
-        summary: "Publikasikan versi itinerary terpilih",
-        description:
-          "Menyalin stops dari versi yang dipilih ke baris destinasi final dalam satu transaksi. Tidak membuat versi baru.",
-        parameters: params(itineraryVersionParamSchema, "path"),
-        requestBody: jsonBody(publishItineraryVersionSchema),
-        responses: {
-          "200": response("Versi dipublikasikan", envelope("ItineraryDetail")),
-          "400": errorResponse("Validasi parameter atau body gagal"),
-          "401": errorResponse("User tidak aktif"),
-          "403": errorResponse("Itinerary milik user lain"),
-          "404": errorResponse("Itinerary atau versi tidak ditemukan"),
           "503": errorResponse("Auth belum dikonfigurasi"),
         },
       },

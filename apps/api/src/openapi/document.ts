@@ -1266,102 +1266,23 @@ export const openApiDocument: OpenApiDocument = {
       },
     },
 
-    "/api/v1/itineraries/{id}/versions/{version}/select": {
-      post: {
-        tags: ["Itineraries"],
-        summary: "Select a version as active",
-        operationId: "selectItineraryVersion",
-        description:
-          "One transaction: validates ownership, marks the version selected, syncs final destinations, " +
-          "and confirms the itinerary. No snapshot is mutated.",
-        parameters: [idPath("Itinerary id."), versionPath("Version number.")],
-        requestBody: body("ItineraryOwnerRequest"),
-        responses: {
-          "200": { description: "Active version.", content: json(single("Itinerary")) },
-          "400": validation,
-          "401": unauthorized,
-          "404": notFound("ITINERARY_NOT_FOUND / VERSION_NOT_FOUND"),
-          "500": internal,
-        },
-      },
-    },
-
-    "/api/v1/itineraries/{id}/versions/{version}/save": {
-      post: {
-        tags: ["Itineraries"],
-        summary: "Save an itinerary version",
-        operationId: "saveItineraryVersion",
-        parameters: [idPath("Itinerary id."), versionPath("Version number.")],
-        requestBody: body("ItineraryOwnerRequest"),
-        responses: {
-          "200": { description: "Version marked saved.", content: json(single("ItineraryVersion")) },
-          "400": validation,
-          "401": unauthorized,
-          "404": notFound("ITINERARY_NOT_FOUND / VERSION_NOT_FOUND"),
-          "500": internal,
-        },
-      },
-      delete: {
-        tags: ["Itineraries"],
-        summary: "Unsave an itinerary version",
-        operationId: "unsaveItineraryVersion",
-        parameters: [
-          idPath("Itinerary id."),
-          versionPath("Version number."),
-          {
-            name: "userId",
-            in: "query",
-            required: true,
-            schema: { type: "string", format: "uuid" },
-            description: "Owner of the itinerary.",
-          },
-        ],
-        responses: {
-          "200": { description: "Version no longer saved.", content: json(single("ItineraryVersion")) },
-          "400": validation,
-          "401": unauthorized,
-          "404": notFound("ITINERARY_NOT_FOUND / VERSION_NOT_FOUND"),
-          "500": internal,
-        },
-      },
-    },
-
     "/api/v1/itineraries/{id}/restore/{version}": {
       post: {
         tags: ["Itineraries"],
         summary: "Restore an itinerary version",
         operationId: "restoreItineraryVersion",
         description:
-          "Copies an old snapshot into a new immutable version. Send `expectedVersion` for optimistic " +
+          "Copies an old version into a new trip_destinations batch. Send `expectedVersion` for optimistic " +
           "concurrency; a mismatch returns 409 `VERSION_CONFLICT`.",
         parameters: [idPath("Itinerary id."), versionPath("Version number to restore from.")],
         requestBody: body("RestoreItineraryVersionRequest"),
         responses: {
-          "200": { description: "New version created from snapshot.", content: json(single("Itinerary")) },
+          "200": { description: "New version created from the old batch.", content: json(single("Itinerary")) },
           "400": validation,
           "401": unauthorized,
           "403": forbidden,
           "404": notFound("ITINERARY_NOT_FOUND / VERSION_NOT_FOUND"),
           "409": errorResponse("Version changed (`VERSION_CONFLICT`)."),
-          "500": internal,
-        },
-      },
-    },
-
-    "/api/v1/itineraries/{id}/publish/{version}": {
-      post: {
-        tags: ["Itineraries"],
-        summary: "Publish the selected itinerary version",
-        operationId: "publishItineraryVersion",
-        description: "Copies the stops of the chosen version into the final destinations in one transaction.",
-        parameters: [idPath("Itinerary id."), versionPath("Version number.")],
-        requestBody: body("ItineraryOwnerRequest"),
-        responses: {
-          "200": { description: "Version published.", content: json(single("Itinerary")) },
-          "400": validation,
-          "401": unauthorized,
-          "403": forbidden,
-          "404": notFound("ITINERARY_NOT_FOUND / VERSION_NOT_FOUND"),
           "500": internal,
         },
       },

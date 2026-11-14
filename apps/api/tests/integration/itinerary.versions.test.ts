@@ -14,11 +14,11 @@ async function padangDestinations(limit = 2) {
   const rows = await prisma.destination.findMany({
     where: { city: "Padang", isActive: true, latitude: { not: null }, longitude: { not: null } },
     take: limit,
-    select: { id: true, name: true, latitude: true, longitude: true },
+    select: { id: true, name: true },
     orderBy: { createdAt: "asc" },
   });
   assert.ok(rows.length >= 2, "need >=2 active Padang destinations (run seed)");
-  return rows.map((r) => ({ ...r, latitude: Number(r.latitude), longitude: Number(r.longitude) }));
+  return rows;
 }
 
 async function createUser() {
@@ -43,32 +43,12 @@ function stopsFrom(rows: Awaited<ReturnType<typeof padangDestinations>>): Itiner
     position: i + 1,
     destinationId: r.id,
     name: r.name,
-    latitude: r.latitude,
-    longitude: r.longitude,
+    latitude: 0,
+    longitude: 0,
     arrivalTime: `${String(8 + i).padStart(2, "0")}:30`,
     visitDurationMin: 60,
     category: null,
   }));
-}
-
-function routeFor(rows: Awaited<ReturnType<typeof padangDestinations>>) {
-  return {
-    type: "LineString",
-    coordinates: rows.map((r) => [r.longitude, r.latitude]),
-    legs: [
-      {
-        fromPosition: 1,
-        toPosition: 2,
-        transportMode: "car",
-        distanceM: null,
-        durationSec: null,
-        geometry: { type: "LineString", coordinates: rows.map((r) => [r.longitude, r.latitude]) },
-        provider: "fallback",
-        profile: "straight_line",
-        fallback: true,
-      },
-    ],
-  };
 }
 
 function buildService() {
@@ -86,19 +66,18 @@ function buildApp(service = buildService()) {
 
 async function cleanup(userIds: string[]) {
   for (const userId of userIds) {
-    const its = await prisma.trip.findMany({ where: { members: { some: { userId } } }, select: { id: true } });
-    for (const it of its) {
-      await prisma.destinationCheckpoint.deleteMany({ where: { tripDestination: { tripId: it.id } } });
-      await prisma.tripDestination.deleteMany({ where: { tripId: it.id } });
-    }
     await prisma.trip.deleteMany({ where: { members: { some: { userId } } } });
     await prisma.chatSession.deleteMany({ where: { userId } });
     await prisma.user.delete({ where: { id: userId } }).catch(() => undefined);
   }
 }
 
-/** Seed an instant version (status "generated") and activate it via /versions/1/select. */
-async function confirmedItinerary(userId: string, sessionId: string, rows: Awaited<ReturnType<typeof padangDestinations>>) {
+/** Save one batch (version 1) for the session and return the app + trip id. */
+async function seededItinerary(
+  userId: string,
+  sessionId: string,
+  rows: Awaited<ReturnType<typeof padangDestinations>>,
+) {
   const service = buildService();
   const app = buildApp(service);
   const v1 = await service.saveDraftVersion({
@@ -108,15 +87,9 @@ async function confirmedItinerary(userId: string, sessionId: string, rows: Await
     startTime: "08:00",
     endTime: "17:00",
     stops: stopsFrom(rows),
-    routeJson: routeFor(rows),
+    routeJson: null,
     changeType: "generate",
   });
-  const res = await app.request(`/api/v1/itineraries/${v1.itineraryId}/versions/1/select`, {
-    method: "POST",
-    headers: json,
-    body: JSON.stringify({ userId }),
-  });
-  assert.equal(res.status, 200, "select failed");
   return { app, id: v1.itineraryId };
 }
 
@@ -125,28 +98,41 @@ afterAll(() => {
   else process.env.NODE_ENV = PREV_NODE_ENV;
 });
 
-test("itinerary detail reconstructs current snapshot (stops + route legs) from DB", async () => {
+test("itinerary detail reconstructs the latest trip_destinations batch", async () => {
   process.env.NODE_ENV = "test";
   const user = await createUser();
   const session = await createSession(user.id);
   const rows = await padangDestinations(2);
   try {
-    const { app, id } = await confirmedItinerary(user.id, session.id, rows);
+    const { app, id } = await seededItinerary(user.id, session.id, rows);
     const res = await app.request(`/api/v1/itineraries/${id}?userId=${user.id}`);
     assert.equal(res.status, 200);
-    const body = await res.json() as { data: { id: string; currentVersion: number; version: { version: number; status: string; stops: Array<{ position: number; name: string }>; routeJson: { legs: Array<{ provider: string; fallback: boolean }> } } } };
+    const body = (await res.json()) as {
+      data: {
+        id: string;
+        currentVersion: number;
+        version: {
+          version: number;
+          changeType: string;
+          status: string;
+          routes: unknown[];
+          routeJson: unknown;
+          stops: Array<{ position: number; name: string }>;
+        };
+      };
+    };
     assert.equal(body.data.id, id);
     assert.equal(body.data.currentVersion, 1);
     assert.equal(body.data.version.version, 1);
-    assert.equal(body.data.version.status, "generated");
+    assert.equal(body.data.version.changeType, "snapshot");
+    assert.equal(body.data.version.status, "confirmed");
     assert.deepEqual(body.data.version.stops.map((s) => s.position), [1, 2]);
     assert.deepEqual(body.data.version.stops.map((s) => s.name), rows.map((r) => r.name));
-    assert.equal(body.data.version.routeJson.legs.length, 1);
-    assert.equal(body.data.version.routeJson.legs[0]!.fallback, true);
+    assert.equal(body.data.version.routeJson, null);
 
     const bySession = await app.request(`/api/v1/itineraries/by-session/${session.id}?userId=${user.id}`);
     assert.equal(bySession.status, 200);
-    const bySessionBody = await bySession.json() as { data: { id: string; version: { version: number } } };
+    const bySessionBody = (await bySession.json()) as { data: { id: string; version: { version: number } } };
     assert.equal(bySessionBody.data.id, id);
     assert.equal(bySessionBody.data.version.version, 1);
   } finally {
@@ -154,48 +140,59 @@ test("itinerary detail reconstructs current snapshot (stops + route legs) from D
   }
 });
 
-test("itinerary versions: list, fetch specific, restore creates new immutable version", async () => {
+test("itinerary versions: list, fetch, restore appends a batch", async () => {
   process.env.NODE_ENV = "test";
   const user = await createUser();
   const session = await createSession(user.id);
   const rows = await padangDestinations(2);
   try {
-    const { app, id } = await confirmedItinerary(user.id, session.id, rows);
+    const { app, id } = await seededItinerary(user.id, session.id, rows);
+    const batchesBefore = await prisma.tripDestination.count({ where: { tripId: id } });
+    assert.equal(batchesBefore, 2);
 
     const list = await app.request(`/api/v1/itineraries/${id}/versions?userId=${user.id}`);
     assert.equal(list.status, 200);
-    const listBody = await list.json() as { data: Array<{ version: number; status: string }> };
+    const listBody = (await list.json()) as {
+      data: Array<{ version: number; status: string; changeType: string; stopCount: number; isSelected: boolean }>;
+    };
     assert.deepEqual(listBody.data.map((v) => v.version), [1]);
-    assert.equal(listBody.data[0]!.status, "generated");
+    assert.equal(listBody.data[0]!.status, "confirmed");
+    assert.equal(listBody.data[0]!.changeType, "snapshot");
+    assert.equal(listBody.data[0]!.stopCount, 2);
+    assert.equal(listBody.data[0]!.isSelected, true);
 
     const one = await app.request(`/api/v1/itineraries/${id}/versions/1?userId=${user.id}`);
     assert.equal(one.status, 200);
-    const oneBody = await one.json() as { data: { version: number; stops: Array<{ id: string }> } };
+    const oneBody = (await one.json()) as { data: { version: number; stops: Array<{ id: string }> } };
     assert.equal(oneBody.data.version, 1);
     assert.equal(oneBody.data.stops.length, 2);
 
     const restored = await app.request(`/api/v1/itineraries/${id}/restore/1`, {
-      method: "POST", headers: json, body: JSON.stringify({ userId: user.id, expectedVersion: 1 }),
+      method: "POST",
+      headers: json,
+      body: JSON.stringify({ userId: user.id, expectedVersion: 1 }),
     });
     assert.equal(restored.status, 200);
-    const restoredBody = await restored.json() as { data: { currentVersion: number; version: { version: number; changeType: string; stops: Array<{ id: string }> } } };
+    const restoredBody = (await restored.json()) as {
+      data: { currentVersion: number; version: { version: number; changeType: string; stops: Array<{ id: string }> } };
+    };
     assert.equal(restoredBody.data.currentVersion, 2);
     assert.equal(restoredBody.data.version.version, 2);
-    assert.equal(restoredBody.data.version.changeType, "restore");
+    assert.equal(restoredBody.data.version.changeType, "snapshot");
     assert.equal(restoredBody.data.version.stops.length, 2);
     assert.notEqual(restoredBody.data.version.stops[0]!.id, oneBody.data.stops[0]!.id);
 
+    // Append-only: old batch rows survive alongside the restored copy.
+    assert.equal(await prisma.tripDestination.count({ where: { tripId: id } }), 4);
+
     const versionsAfter = await app.request(`/api/v1/itineraries/${id}/versions?userId=${user.id}`);
-    const versionsAfterBody = await versionsAfter.json() as { data: Array<{ version: number }> };
+    const versionsAfterBody = (await versionsAfter.json()) as { data: Array<{ version: number }> };
     assert.deepEqual(versionsAfterBody.data.map((v) => v.version), [1, 2]);
 
-    // v1 immutable
-    const v1 = await app.request(`/api/v1/itineraries/${id}/versions/1?userId=${user.id}`);
-    const v1Body = await v1.json() as { data: { changeType: string } };
-    assert.equal(v1Body.data.changeType, "generate");
-
     const stale = await app.request(`/api/v1/itineraries/${id}/restore/1`, {
-      method: "POST", headers: json, body: JSON.stringify({ userId: user.id, expectedVersion: 1 }),
+      method: "POST",
+      headers: json,
+      body: JSON.stringify({ userId: user.id, expectedVersion: 1 }),
     });
     assert.equal(stale.status, 409);
 
@@ -213,14 +210,16 @@ test("itinerary version endpoints enforce ownership", async () => {
   const session = await createSession(user.id);
   const rows = await padangDestinations(2);
   try {
-    const { app, id } = await confirmedItinerary(user.id, session.id, rows);
+    const { app, id } = await seededItinerary(user.id, session.id, rows);
 
     assert.equal((await app.request(`/api/v1/itineraries/${id}?userId=${other.id}`)).status, 404);
     assert.equal((await app.request(`/api/v1/itineraries/${id}/versions?userId=${other.id}`)).status, 404);
     assert.equal((await app.request(`/api/v1/itineraries/by-session/${session.id}?userId=${other.id}`)).status, 404);
 
     const restore = await app.request(`/api/v1/itineraries/${id}/restore/1`, {
-      method: "POST", headers: json, body: JSON.stringify({ userId: other.id }),
+      method: "POST",
+      headers: json,
+      body: JSON.stringify({ userId: other.id }),
     });
     assert.equal(restore.status, 404);
   } finally {

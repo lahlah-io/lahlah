@@ -127,6 +127,53 @@ function orderByNearest(candidates: CandidateDestination[]): CandidateDestinatio
   return ordered;
 }
 
+export type SchedulableStop = {
+  id: string;
+  name: string;
+  latitude: number | null;
+  longitude: number | null;
+  durationMin: number;
+};
+
+export type GeneratedStop = {
+  id: string;
+  name: string;
+  order: number;
+  startTime: string;
+  endTime: string;
+  latitude: number | null;
+  longitude: number | null;
+};
+
+/** Sequential schedule with no end-time clamp: every stop gets its own duration. */
+export function scheduleStops(
+  stops: SchedulableStop[],
+  startTime: string,
+): { destinations: GeneratedStop[]; endTime: string } {
+  const start = parseMinutes(startTime);
+  if (start == null) invalid();
+  const destinations: GeneratedStop[] = [];
+  let cursor = start;
+  for (const c of stops) {
+    const dur = Math.max(1, Math.floor(c.durationMin));
+    const stopEnd = cursor + dur;
+    destinations.push({
+      id: c.id,
+      name: c.name,
+      order: destinations.length + 1,
+      startTime: formatMinutes(cursor),
+      endTime: formatMinutes(stopEnd),
+      latitude: c.latitude,
+      longitude: c.longitude,
+    });
+    cursor = stopEnd;
+  }
+  return { destinations, endTime: formatMinutes(cursor) };
+}
+
+const MEAL_CATEGORY = "kuliner";
+const MEAL_CAP = 2;
+
 export function generateItinerary(req: unknown, candidatesInput: unknown) {
   const request = parseRequest(req);
   const start = parseMinutes(request.startTime)!;
@@ -136,48 +183,67 @@ export function generateItinerary(req: unknown, candidatesInput: unknown) {
   // request category, greedy-route inside each group, then round-robin groups
   // so one category cannot starve the others in the final trip.
   const cats = request.categories.map((c) => c.toLowerCase());
+  const candidates = asCandidates(candidatesInput);
   const grouped = new Map<string, CandidateDestination[]>();
-  for (const c of asCandidates(candidatesInput)) {
+  const categoryOf = new Map<string, string>();
+  for (const c of candidates) {
     const slugs = (c.categories ?? []).map((s) => s.toLowerCase());
     const hit = cats.find((cat) => slugs.includes(cat) || slugs.includes(`seed-${cat}`));
-    if (hit) grouped.set(hit, [...(grouped.get(hit) ?? []), c]);
+    if (hit) {
+      grouped.set(hit, [...(grouped.get(hit) ?? []), c]);
+      categoryOf.set(c.id, hit);
+    }
   }
   const routeGroups = cats.map((cat) => grouped.get(cat)).filter((g): g is CandidateDestination[] => (g?.length ?? 0) > 0);
   const orderedAll = routeGroups.length > 1
     ? roundRobin(routeGroups.map(orderByNearest))
-    : orderByNearest(asCandidates(candidatesInput));
-  const ordered = requested != null ? orderedAll.slice(0, requested) : orderedAll;
+    : orderByNearest(candidates);
 
-  // Schedule from details.estimated_duration_minutes (fallback DEFAULT_DURATION_MINUTES). No road/speed/opening-hours assumptions.
-  const destinations: Array<{
-    id: string;
-    name: string;
-    order: number;
-    startTime: string;
-    endTime: string;
-    latitude: number | null;
-    longitude: number | null;
-  }> = [];
+  const isMeal = (c: CandidateDestination) =>
+    categoryOf.get(c.id) === MEAL_CATEGORY ||
+    (c.categories ?? []).some((s) => s.toLowerCase().replace(/^seed-/, "") === MEAL_CATEGORY);
+  // A single requested category is the user's plan; with a mix, half the day as restaurants is absurd.
+  const capMeals = cats.length !== 1;
+
+  // Explicit count is always filled. Without a count, keep candidates whose start still
+  // falls inside the window; the real end time may run past the requested end (reported back).
+  const chosen: CandidateDestination[] = [];
   let cursor = start;
-  for (const c of ordered) {
-    const dur = durationMinutes(c.details);
-    const stopEnd = cursor + dur;
-    if (stopEnd > end) break;
-    destinations.push({
+  let meals = 0;
+  for (const c of orderedAll) {
+    if (requested != null) {
+      if (chosen.length >= requested) break;
+    } else if (cursor >= end) {
+      break;
+    }
+    // An island needs a boat; give it its own day instead of squeezing it into a city walk.
+    if (/\bpulau\b/i.test(c.name)) {
+      if (chosen.length === 0) chosen.push(c);
+      continue;
+    }
+    if (capMeals && isMeal(c) && meals >= MEAL_CAP) continue;
+    chosen.push(c);
+    if (isMeal(c)) meals += 1;
+    cursor += durationMinutes(c.details);
+  }
+
+  const scheduled = scheduleStops(
+    orderByNearest(chosen).map((c) => ({
       id: c.id,
       name: c.name,
-      order: destinations.length + 1,
-      startTime: formatMinutes(cursor),
-      endTime: formatMinutes(stopEnd),
       latitude: isCoordinate(c) ? c.latitude : null,
       longitude: isCoordinate(c) ? c.longitude : null,
-    });
-    cursor = stopEnd;
-  }
+      durationMin: durationMinutes(c.details),
+    })),
+    request.startTime,
+  );
 
   return {
     travelDate: request.travelDate,
-    destinations,
-    route: routeLineString(destinations),
+    destinations: scheduled.destinations,
+    route: routeLineString(scheduled.destinations),
+    endTime: scheduled.endTime,
+    requestedCount: requested ?? null,
+    actualCount: scheduled.destinations.length,
   };
 }

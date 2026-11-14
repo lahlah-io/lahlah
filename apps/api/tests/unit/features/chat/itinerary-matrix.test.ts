@@ -59,14 +59,15 @@ describe("itinerary generation matrix", () => {
     expect(result.destinations.at(-1)?.endTime).not.toBe("12:01");
   });
 
-  test("ITI-003: 13:30-16:00 fits 150 minutes", () => {
+  test("ITI-003: 13:30-16:00 keeps the stop starting at 15:30 and reports the real end", () => {
     const result = generateItinerary(request("13:30", "16:00"), [
       candidate("a", -0.95, 100.35),
       candidate("b", -0.94, 100.35),
       candidate("c", -0.93, 100.35),
     ]);
-    expectValidSchedule(result, "13:30", "16:00");
-    expect(minutes(result.destinations.at(-1)!.endTime) - minutes("13:30")).toBeLessThanOrEqual(150);
+    expect(result.destinations).toHaveLength(3);
+    expect(result.destinations.map((d) => d.startTime)).toEqual(["13:30", "14:30", "15:30"]);
+    expect(result.endTime).toBe("16:30");
   });
 
   test("ITI-006: a single destination still produces a realistic schedule", () => {

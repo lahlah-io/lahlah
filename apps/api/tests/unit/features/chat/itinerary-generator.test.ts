@@ -108,7 +108,7 @@ test("greedy nearest-neighbor is deterministic and stable on tie", async () => {
   assert.deepEqual(r1.destinations.map((d) => d.order), [1, 2, 3]);
 });
 
-test("schedule does not exceed endTime", async () => {
+test("schedule keeps stops that start inside the window and reports the real end", async () => {
   const { generateItinerary } = await loadGenerator();
   const many: CandidateDestination[] = Array.from({ length: 10 }, (_, i) => ({
     id: `d${i}`,
@@ -118,10 +118,15 @@ test("schedule does not exceed endTime", async () => {
     details: { estimated_duration_minutes: 90 },
   }));
   const result = generateItinerary({ ...baseReq, startTime: "09:00", endTime: "11:00" }, many) as {
-    destinations: Array<{ endTime: string }>;
+    destinations: Array<{ startTime: string; endTime: string }>;
+    endTime: string;
+    actualCount: number;
   };
-  assert.ok(result.destinations.length <= 2);
-  for (const d of result.destinations) assert.ok(d.endTime <= "11:00");
+  // 09:00 and 10:30 both start before 11:00; the second ends at 12:00 (reported).
+  assert.equal(result.destinations.length, 2);
+  assert.equal(result.endTime, "12:00");
+  assert.equal(result.actualCount, 2);
+  for (const d of result.destinations) assert.ok(d.startTime < "11:00");
 });
 
 test("returned destinations are only from candidates DB", async () => {
@@ -168,16 +173,41 @@ test("destinationCount caps output before scheduling", async () => {
   assert.equal(r1.destinations.length, 1);
 });
 
-test("no destinationCount stays schedule-clamped", async () => {
+test("no destinationCount takes candidates until the window is full", async () => {
   const { generateItinerary } = await loadGenerator();
   const result = generateItinerary({ ...baseReq, startTime: "08:00", endTime: "20:00" }, tenCandidates) as {
     destinations: Array<{ endTime: string }>;
+    requestedCount: number | null;
+    actualCount: number;
   };
-  assert.ok(result.destinations.length <= 10);
-  for (const d of result.destinations) assert.ok(d.endTime <= "20:00");
+  assert.equal(result.destinations.length, 10);
+  assert.equal(result.requestedCount, null);
+  assert.equal(result.actualCount, 10);
 });
 
-test("requested categories are balanced in the final trip", async () => {
+test("explicit count is honored even when it runs past the window", async () => {
+  const { generateItinerary } = await loadGenerator();
+  const result = generateItinerary(
+    { ...baseReq, startTime: "15:00", endTime: "17:59", destinationCount: 3 },
+    candidates,
+  ) as { destinations: unknown[]; endTime: string; requestedCount: number; actualCount: number };
+  assert.equal(result.destinations.length, 3);
+  assert.equal(result.endTime, "18:00");
+  assert.equal(result.requestedCount, 3);
+  assert.equal(result.actualCount, 3);
+});
+
+test("actualCount reports a candidate shortage", async () => {
+  const { generateItinerary } = await loadGenerator();
+  const result = generateItinerary(
+    { ...baseReq, startTime: "08:00", endTime: "20:00", destinationCount: 5 },
+    candidates,
+  ) as { destinations: unknown[]; requestedCount: number; actualCount: number };
+  assert.equal(result.requestedCount, 5);
+  assert.equal(result.actualCount, 3);
+});
+
+test("requested categories are all represented without meal domination", async () => {
   const { generateItinerary } = await loadGenerator();
   const mixed: CandidateDestination[] = [
     { id: "p1", name: "P1", latitude: -0.9, longitude: 100.35, details: {}, categories: ["pantai"] },
@@ -188,7 +218,40 @@ test("requested categories are balanced in the final trip", async () => {
   const result = generateItinerary({ ...baseReq, startTime: "09:00", endTime: "13:00", categories: ["pantai", "kuliner"] }, mixed) as {
     destinations: Array<{ id: string }>;
   };
-  assert.deepEqual(result.destinations.map((d) => d.id), ["p1", "k1", "p2", "p3"]);
+  // Order is by proximity now; membership carries the balance guarantee.
+  assert.deepEqual(result.destinations.map((d) => d.id).sort(), ["k1", "p1", "p2", "p3"]);
+});
+
+test("a mixed day never becomes mostly restaurants", async () => {
+  const { generateItinerary } = await loadGenerator();
+  const mixed: CandidateDestination[] = [
+    ...Array.from({ length: 5 }, (_, i) => ({
+      id: `p${i}`, name: `Pantai ${i}`, latitude: -0.9, longitude: 100.35 + i * 0.001, details: {}, categories: ["pantai"],
+    })),
+    ...Array.from({ length: 5 }, (_, i) => ({
+      id: `k${i}`, name: `Kuliner ${i}`, latitude: -0.9, longitude: 100.36 + i * 0.001, details: {}, categories: ["kuliner"],
+    })),
+  ];
+  const result = generateItinerary(
+    { ...baseReq, startTime: "08:00", endTime: "20:00", destinationCount: 10, categories: ["pantai", "kuliner"] },
+    mixed,
+  ) as { destinations: Array<{ id: string }> };
+  const meals = result.destinations.filter((d) => d.id.startsWith("k")).length;
+  assert.ok(meals <= 2, `expected at most 2 kuliner stops, got ${meals}`);
+  assert.ok(result.destinations.length > meals);
+});
+
+test("an island gets its own day instead of joining a crowded walk", async () => {
+  const { generateItinerary } = await loadGenerator();
+  const withIsland: CandidateDestination[] = [
+    { id: "a", name: "Pantai A", latitude: -0.9, longitude: 100.35, details: {}, categories: ["pantai"] },
+    { id: "b", name: "Pulau Pasumpahan", latitude: -1.0, longitude: 100.4, details: {}, categories: ["pantai"] },
+    { id: "c", name: "Pantai C", latitude: -0.91, longitude: 100.36, details: {}, categories: ["pantai"] },
+  ];
+  const result = generateItinerary({ ...baseReq, startTime: "08:00", endTime: "20:00" }, withIsland) as {
+    destinations: Array<{ name: string }>;
+  };
+  assert.ok(result.destinations.every((d) => !/pulau/i.test(d.name)), "island dropped from a multi-stop day");
 });
 
 test("destinationCount zero or non-integer is rejected", async () => {

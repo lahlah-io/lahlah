@@ -47,7 +47,7 @@ test("ensureTripForSessionTx creates trip and membership idempotently", async ()
   assert.equal(trip2?.id, trip1?.id);
 
   const membership = await findTripMembership(user.id, trip1!.id);
-  assert.equal(membership?.role, "owner");
+  assert.ok(membership?.id);
 });
 
 test("checkUserTripAccess validates access via membership", async () => {
