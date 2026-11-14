@@ -47,6 +47,7 @@ const forbidden = errorResponse(
   "Admin role required (`FORBIDDEN`), or the account is inactive (`ACCOUNT_INACTIVE`).",
 );
 const internal = errorResponse("Unexpected server error (`INTERNAL_ERROR`).");
+const inactiveAccount = errorResponse("Account is inactive (`ACCOUNT_INACTIVE`).");
 const payloadTooLarge = errorResponse("Body exceeds 1 MiB (`PAYLOAD_TOO_LARGE`).");
 const unavailable = (code: string, description: string) =>
   errorResponse(`${description} (\`${code}\`).`);
@@ -151,7 +152,9 @@ export const openApiDocument: OpenApiDocument = {
     { name: "Categories", description: "Admin destination categories (create a category before destinations use it)." },
     { name: "Destinations", description: "Destination catalog. Reads are public; writes are admin (delete is soft; create accepts `categoryIds[]`)." },
     { name: "Chat", description: "Conversational trip planning with RAG destinations and tool calls." },
-    { name: "Itineraries", description: "Trip itineraries with versioned `trip_destinations` batches, restore, and version reads." },
+    { name: "Itineraries", description: "Trip itineraries with versioned `trip_destinations` batches, restore, publish (sets `isPublic` only), and like/view." },
+    { name: "Trips", description: "One active trip per user (mark/clear) and geofenced check-ins with camera photos." },
+    { name: "Images", description: "Image proxy (resize + WebP + disk cache) and user-uploaded checkpoint photos." },
     { name: "Routes", description: "OSRM driving routes between waypoints." },
     { name: "Health", description: "Liveness and readiness probes." },
   ],
@@ -1391,6 +1394,166 @@ export const openApiDocument: OpenApiDocument = {
       },
     },
 
+    "/api/v1/itineraries/feed": {
+      get: {
+        tags: ["Itineraries"],
+        summary: "List published itineraries for the home feed",
+        operationId: "getTripFeed",
+        description:
+          "Requires a session. Returns trips with `isPublic: true` ordered by `updatedAt` desc (publishing " +
+          "bumps it, so fresh trips rise). `stopCount`, `destinationNames`, and `coverImageUrl` come from " +
+          "the newest itinerary version; `coverImageUrl` is wrapped in the image proxy when the photo host " +
+          "is allowlisted, otherwise the raw URL, or `null` when no stop has a photo.\n\n" +
+          "Paging: increment `page` while `meta.hasMore` is true. `page`/`limit` can repeat an item if a trip " +
+          "is published between two requests; switch to a cursor if that ever matters.",
+        security: sessionSecurity,
+        parameters: [
+          {
+            name: "page",
+            in: "query",
+            required: false,
+            description: "1-based page number.",
+            schema: { type: "integer", minimum: 1, default: 1 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            required: false,
+            description: "Cards per page (1-50, default 12).",
+            schema: { type: "integer", minimum: 1, maximum: 50, default: 12 },
+          },
+        ],
+        responses: {
+          "200": { description: "Feed page.", content: json(ref("FeedPage")) },
+          "400": validation,
+          "401": unauthorized,
+          "500": internal,
+        },
+      },
+    },
+
+    "/api/v1/itineraries/trending": {
+      get: {
+        tags: ["Itineraries"],
+        summary: "List trending itineraries",
+        operationId: "listTrendingItineraries",
+        description:
+          "Public, no session needed. Ranks published trips by " +
+          "`(likes*3 + views + shares*5) / (hoursSinceLastActivity + 2)^1.5`, newest batch of activity " +
+          "counted as `max(trip.createdAt, last like, last view, last share)`. Private trips are excluded.",
+        parameters: [
+          {
+            name: "limit",
+            in: "query",
+            required: false,
+            description: "Rows to return (1-50, default 20).",
+            schema: { type: "integer", minimum: 1, maximum: 50, default: 20 },
+          },
+        ],
+        responses: {
+          "200": { description: "Trending rows, highest score first.", content: json(bareList("TrendingItinerary")) },
+          "400": validation,
+          "500": internal,
+        },
+      },
+    },
+
+    "/api/v1/itineraries/{id}/publish": {
+      post: {
+        tags: ["Itineraries"],
+        summary: "Publish the active itinerary version",
+        operationId: "publishItinerary",
+        description:
+          "Sets `isPublic: true` on the trip. Nothing else changes: no version is created, deleted, or " +
+          "rewritten, and `currentVersion` stays the newest batch. Publish an older version by calling " +
+          "`restore` first (that appends a copy as the new active version). Owner-only.",
+        security: sessionSecurity,
+        parameters: [idPath("Itinerary id.")],
+        responses: {
+          "200": { description: "Trip published.", content: json(single("ItineraryPublishResult")) },
+          "400": validation,
+          "401": unauthorized,
+          "403": inactiveAccount,
+          "404": notFound("ITINERARY_NOT_FOUND"),
+          "500": internal,
+        },
+      },
+      delete: {
+        tags: ["Itineraries"],
+        summary: "Unpublish an itinerary",
+        operationId: "unpublishItinerary",
+        description: "Sets `isPublic: false`. Versions are untouched. Owner-only.",
+        security: sessionSecurity,
+        parameters: [idPath("Itinerary id.")],
+        responses: {
+          "200": { description: "Trip unpublished.", content: json(single("ItineraryPublishResult")) },
+          "400": validation,
+          "401": unauthorized,
+          "403": inactiveAccount,
+          "404": notFound("ITINERARY_NOT_FOUND"),
+          "500": internal,
+        },
+      },
+    },
+
+    "/api/v1/itineraries/{id}/like": {
+      post: {
+        tags: ["Itineraries"],
+        summary: "Like an itinerary",
+        operationId: "likeItinerary",
+        description:
+          "Idempotent: liking twice keeps `likeCount` at 1. The liker is the session user; no `userId` " +
+          "input is accepted.",
+        security: sessionSecurity,
+        parameters: [idPath("Itinerary id.")],
+        responses: {
+          "200": { description: "Like state and count.", content: json(single("ItineraryLikeResult")) },
+          "400": validation,
+          "401": unauthorized,
+          "403": inactiveAccount,
+          "404": notFound("ITINERARY_NOT_FOUND"),
+          "500": internal,
+        },
+      },
+      delete: {
+        tags: ["Itineraries"],
+        summary: "Remove a like",
+        operationId: "unlikeItinerary",
+        description: "Idempotent: unliking twice keeps `likeCount` at 0 and still returns 200.",
+        security: sessionSecurity,
+        parameters: [idPath("Itinerary id.")],
+        responses: {
+          "200": { description: "Like state and count.", content: json(single("ItineraryLikeResult")) },
+          "400": validation,
+          "401": unauthorized,
+          "403": inactiveAccount,
+          "404": notFound("ITINERARY_NOT_FOUND"),
+          "500": internal,
+        },
+      },
+    },
+
+    "/api/v1/itineraries/{id}/view": {
+      post: {
+        tags: ["Itineraries"],
+        summary: "Record a view",
+        operationId: "viewItinerary",
+        description:
+          "One view per user per trip. The first call returns `counted: true` and raises `viewCount`; " +
+          "repeat calls return `counted: false` and leave the count unchanged. The viewer is the session user.",
+        security: sessionSecurity,
+        parameters: [idPath("Itinerary id.")],
+        responses: {
+          "200": { description: "Whether the view was counted, plus the current count.", content: json(single("ItineraryViewResult")) },
+          "400": validation,
+          "401": unauthorized,
+          "403": inactiveAccount,
+          "404": notFound("ITINERARY_NOT_FOUND"),
+          "500": internal,
+        },
+      },
+    },
+
     "/api/v1/itineraries/{id}": {
       get: {
         tags: ["Itineraries"],
@@ -1412,6 +1575,221 @@ export const openApiDocument: OpenApiDocument = {
           "400": validation,
           "401": unauthorized,
           "404": notFound("ITINERARY_NOT_FOUND"),
+          "500": internal,
+        },
+      },
+    },
+
+    "/api/v1/trips/active": {
+      get: {
+        tags: ["Trips"],
+        summary: "Get the caller's active trip",
+        operationId: "getActiveTrip",
+        description:
+          "Returns the trip the caller marked as active (`GET` counterpart of `POST /trips/{tripId}/active`). " +
+          "A trip created from a chat session becomes active automatically. `total` counts the stops of the " +
+          "newest itinerary version; `checked` counts how many of those the caller already checked in at.",
+        security: sessionSecurity,
+        responses: {
+          "200": { description: "Active trip summary.", content: json(single("ActiveTrip")) },
+          "401": unauthorized,
+          "404": notFound("NO_ACTIVE_TRIP"),
+          "500": internal,
+        },
+      },
+    },
+
+    "/api/v1/trips/{tripId}/active": {
+      post: {
+        tags: ["Trips"],
+        summary: "Mark a trip as active",
+        operationId: "activateTrip",
+        description:
+          "Idempotent. Clears any other active trip of the caller, so at most one stays active. " +
+          "Requires trip membership.",
+        parameters: [
+          {
+            name: "tripId",
+            in: "path",
+            required: true,
+            description: "Trip id.",
+            schema: { type: "string", format: "uuid" },
+          },
+        ],
+        security: sessionSecurity,
+        responses: {
+          "200": { description: "Trip is now active.", content: json(single("ActiveTrip")) },
+          "400": validation,
+          "401": unauthorized,
+          "403": errorResponse("Caller is not a trip member (`FORBIDDEN`)."),
+          "404": notFound("TRIP_NOT_FOUND"),
+          "500": internal,
+        },
+      },
+      delete: {
+        tags: ["Trips"],
+        summary: "Clear the active trip",
+        operationId: "deactivateTrip",
+        description: "Marks the trip inactive for the caller. Safe to repeat.",
+        parameters: [
+          {
+            name: "tripId",
+            in: "path",
+            required: true,
+            description: "Trip id.",
+            schema: { type: "string", format: "uuid" },
+          },
+        ],
+        security: sessionSecurity,
+        responses: {
+          "200": { description: "Trip is no longer active.", content: json(single("TripActiveState")) },
+          "400": validation,
+          "401": unauthorized,
+          "403": errorResponse("Caller is not a trip member (`FORBIDDEN`)."),
+          "500": internal,
+        },
+      },
+    },
+
+    "/api/v1/trips/{tripId}/checkpoints": {
+      get: {
+        tags: ["Checkpoints"],
+        summary: "List trip checkpoints",
+        operationId: "listTripCheckpoints",
+        description:
+          "Latest check-in per destination for the trip, plus progress over the active itinerary version.",
+        parameters: [
+          {
+            name: "tripId",
+            in: "path",
+            required: true,
+            description: "Trip id.",
+            schema: { type: "string", format: "uuid" },
+          },
+        ],
+        security: sessionSecurity,
+        responses: {
+          "200": { description: "Checkpoint progress.", content: json(single("CheckpointProgress")) },
+          "400": validation,
+          "401": unauthorized,
+          "403": errorResponse("Caller is not a trip member (`FORBIDDEN`)."),
+          "404": notFound("TRIP_NOT_FOUND"),
+          "500": internal,
+        },
+      },
+      post: {
+        tags: ["Checkpoints"],
+        summary: "Check in at a trip destination",
+        operationId: "createTripCheckpoint",
+        description:
+          "Server recomputes the distance between the submitted device coordinates and the destination. " +
+          "Rejected when the distance exceeds 100 m, the GPS accuracy is worse than 100 m, " +
+          "or the destination has no coordinates. Repeating a check-in returns the existing row.\n\n" +
+          "Send either `multipart/form-data` (with an optional camera photo in `image`) or JSON. " +
+          "A multipart photo is resized to 1200 px, re-encoded as WebP (quality 80), stripped of EXIF/GPS, " +
+          "and its `imageUrl` points at `GET /api/v1/images/upload/checkpoints/{file}`.",
+        parameters: [
+          {
+            name: "tripId",
+            in: "path",
+            required: true,
+            description: "Trip id.",
+            schema: { type: "string", format: "uuid" },
+          },
+        ],
+        security: sessionSecurity,
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": { schema: { $ref: "#/components/schemas/CreateCheckpointRequest" } },
+            "multipart/form-data": {
+              schema: { $ref: "#/components/schemas/CreateCheckpointFormRequest" },
+            },
+          },
+        },
+        responses: {
+          "201": { description: "Checkpoint created.", content: json(single("Checkpoint")) },
+          "200": { description: "Already checked in; returns the existing checkpoint.", content: json(single("Checkpoint")) },
+          "400": validation,
+          "401": unauthorized,
+          "403": errorResponse("Caller is not a trip member (`FORBIDDEN`)."),
+          "404": notFound("TRIP_DESTINATION_NOT_FOUND"),
+          "413": errorResponse("Uploaded photo exceeds `IMAGE_MAX_BYTES` (`IMAGE_TOO_LARGE`)."),
+          "415": errorResponse("Uploaded file is not an image (`IMAGE_UNSUPPORTED_TYPE`)."),
+          "422": errorResponse(
+            "`CHECKPOINT_TOO_FAR`, `LOCATION_INACCURATE`, `DESTINATION_NO_COORDS`, or `IMAGE_UNSUPPORTED`.",
+          ),
+          "500": internal,
+        },
+      },
+    },
+
+    "/api/v1/images/upload/checkpoints/{file}": {
+      get: {
+        tags: ["Images"],
+        summary: "Fetch an uploaded checkpoint photo",
+        operationId: "getCheckpointImage",
+        description:
+          "Returns a photo stored by a multipart check-in. Names are server-generated (`<uuid>.webp`); " +
+          "anything else is a 404, so path traversal is impossible. Responses are immutable for a year.",
+        parameters: [
+          {
+            name: "file",
+            in: "path",
+            required: true,
+            description: "Server-generated file name.",
+            schema: { type: "string", pattern: "^[0-9a-f-]{36}\\.webp$" },
+          },
+        ],
+        responses: {
+          "200": {
+            description: "WebP image bytes.",
+            content: { "image/webp": { schema: { type: "string", format: "binary" } } },
+          },
+          "404": errorResponse("Unknown file name (`IMAGE_NOT_FOUND`)."),
+          "500": internal,
+        },
+      },
+    },
+
+    "/api/v1/images": {
+      get: {
+        tags: ["Images"],
+        summary: "Fetch a compressed image",
+        operationId: "getCompressedImage",
+        description:
+          "Downloads an allowlisted https image, resizes it to `w` (never upscales), re-encodes it as " +
+          "WebP (quality 80), and caches the result on disk. Only hosts in `IMAGE_PROXY_HOSTS` are accepted " +
+          "(default `upload.wikimedia.org`); private/loopback addresses and redirects are refused. " +
+          "Responses are immutable for a year and carry an `ETag`, so repeat calls with `If-None-Match` " +
+          "return 304.",
+        parameters: [
+          {
+            name: "src",
+            in: "query",
+            required: true,
+            description: "Absolute https URL of the original image.",
+            schema: { type: "string", format: "uri", maxLength: 2048 },
+          },
+          {
+            name: "w",
+            in: "query",
+            required: false,
+            description: "Target width in pixels; larger images are scaled down, smaller ones are left alone.",
+            schema: { type: "integer", minimum: 200, maximum: 1600, default: 800 },
+          },
+        ],
+        responses: {
+          "200": {
+            description: "WebP image bytes.",
+            content: { "image/webp": { schema: { type: "string", format: "binary" } } },
+          },
+          "304": { description: "Image unchanged for the supplied `If-None-Match` value." },
+          "400": errorResponse("Validation failed, or the source host is not allowed (`IMAGE_SOURCE_NOT_ALLOWED`)."),
+          "413": errorResponse("Original image exceeds `IMAGE_MAX_BYTES` (`IMAGE_TOO_LARGE`)."),
+          "415": errorResponse("Source is not an image (`IMAGE_UNSUPPORTED_TYPE`)."),
+          "422": errorResponse("Image format could not be processed (`IMAGE_UNSUPPORTED`)."),
+          "502": errorResponse("Downloading the original image failed (`IMAGE_FETCH_FAILED`)."),
           "500": internal,
         },
       },

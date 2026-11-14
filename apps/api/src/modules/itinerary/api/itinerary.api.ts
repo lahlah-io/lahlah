@@ -1,16 +1,40 @@
 ﻿import { Hono } from "hono";
 import { zValidator } from "../../../shared/http/validator.js";
+import { requireAuth, type AuthVariables } from "../../../shared/auth/middleware.js";
 import type { ItineraryService } from "../services/itinerary.service.js";
 import {
+  feedQuerySchema,
   itineraryIdParamSchema,
   itineraryOwnerQuerySchema,
   itinerarySessionParamSchema,
   itineraryVersionParamSchema,
   restoreItineraryVersionSchema,
+  trendingQuerySchema,
 } from "../schemas/itinerary.schema.js";
 
 export function createItineraryApi(service: ItineraryService) {
-  const api = new Hono();
+  const api = new Hono<{ Variables: AuthVariables }>();
+
+  // Registered before `/:id`, otherwise "trending" is parsed as a uuid param.
+  api.get(
+    "/trending",
+    zValidator("query", trendingQuerySchema),
+    async (c) => c.json(await service.listTrending({ limit: c.req.valid("query").limit })),
+  );
+
+  // Registered before `/:id` like `/trending`.
+  api.get(
+    "/feed",
+    requireAuth,
+    zValidator("query", feedQuerySchema),
+    async (c) =>
+      c.json(
+        await service.listFeed({
+          ...c.req.valid("query"),
+          userId: c.get("auth").user.id,
+        }),
+      ),
+  );
 
   api.get(
     "/by-session/:sessionId",
@@ -61,6 +85,50 @@ export function createItineraryApi(service: ItineraryService) {
           ...c.req.valid("json"),
         }),
       ),
+  );
+
+  api.post(
+    "/:id/publish",
+    requireAuth,
+    zValidator("param", itineraryIdParamSchema),
+    async (c) =>
+      c.json(
+        await service.publish({ id: c.req.valid("param").id, userId: c.get("auth").user.id }),
+      ),
+  );
+
+  api.delete(
+    "/:id/publish",
+    requireAuth,
+    zValidator("param", itineraryIdParamSchema),
+    async (c) =>
+      c.json(
+        await service.unpublish({ id: c.req.valid("param").id, userId: c.get("auth").user.id }),
+      ),
+  );
+
+  api.post(
+    "/:id/like",
+    requireAuth,
+    zValidator("param", itineraryIdParamSchema),
+    async (c) =>
+      c.json(await service.like({ id: c.req.valid("param").id, userId: c.get("auth").user.id })),
+  );
+
+  api.delete(
+    "/:id/like",
+    requireAuth,
+    zValidator("param", itineraryIdParamSchema),
+    async (c) =>
+      c.json(await service.unlike({ id: c.req.valid("param").id, userId: c.get("auth").user.id })),
+  );
+
+  api.post(
+    "/:id/view",
+    requireAuth,
+    zValidator("param", itineraryIdParamSchema),
+    async (c) =>
+      c.json(await service.view({ id: c.req.valid("param").id, userId: c.get("auth").user.id })),
   );
 
   api.get("/:id", zValidator("param", itineraryIdParamSchema), zValidator("query", itineraryOwnerQuerySchema), async (c) =>

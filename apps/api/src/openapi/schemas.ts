@@ -1003,6 +1003,7 @@ export const schemas: Record<string, SchemaObject> = {
     required: [
       "id", "userId", "sessionId", "currentVersion", "tripDate", "durationDays", "city",
       "transportMode", "title", "content", "status", "isPublic", "shareSlug", "metadata",
+      "likeCount", "viewCount", "likedByMe",
       "createdAt", "updatedAt", "destinations", "version",
     ],
     properties: {
@@ -1017,8 +1018,20 @@ export const schemas: Record<string, SchemaObject> = {
       title: { type: "string" },
       content: { type: "string" },
       status: { type: "string", enum: ["draft", "final"] },
-      isPublic: { type: "boolean" },
-      shareSlug: nullableString,
+      isPublic: {
+        type: "boolean",
+        description: "Set only by `publish`/`unpublish`. Defaults to `false`.",
+      },
+      shareSlug: {
+        ...nullableString,
+        description: "Reserved for public links; always `null` today because no public-by-slug route exists yet.",
+      },
+      likeCount: integer,
+      viewCount: integer,
+      likedByMe: {
+        type: "boolean",
+        description: "Whether the `userId` given in the query has liked this trip.",
+      },
       metadata: jsonObject,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -1187,6 +1200,112 @@ export const schemas: Record<string, SchemaObject> = {
     },
   },
 
+  ItineraryPublishResult: {
+    type: "object",
+    description:
+      "Publish/unpublish result. Only `trips.is_public` changes; no version row is added, removed, or rewritten.",
+    required: ["id", "isPublic"],
+    properties: {
+      id: uuid,
+      isPublic: {
+        type: "boolean",
+        description: "`true` after publish, `false` after unpublish.",
+      },
+    },
+  },
+
+  ItineraryLikeResult: {
+    type: "object",
+    description: "Idempotent like state plus the current like count for the trip.",
+    required: ["liked", "likeCount"],
+    properties: {
+      liked: { type: "boolean", description: "Caller's like state after the call." },
+      likeCount: { type: "integer", minimum: 0 },
+    },
+  },
+
+  ItineraryViewResult: {
+    type: "object",
+    description:
+      "View is one-per-user-per-trip: repeat calls return `counted: false` and leave `viewCount` unchanged.",
+    required: ["counted", "viewCount"],
+    properties: {
+      counted: { type: "boolean", description: "`true` only when this call created the view row." },
+      viewCount: { type: "integer", minimum: 0 },
+    },
+  },
+
+  FeedItinerary: {
+    type: "object",
+    description: "One home-feed card. Stop fields describe the newest itinerary version.",
+    required: [
+      "id", "title", "author", "stopCount", "destinationNames", "coverImageUrl",
+      "likeCount", "viewCount", "likedByMe", "updatedAt",
+    ],
+    properties: {
+      id: uuid,
+      title: { type: "string" },
+      author: {
+        type: ["object", "null"],
+        description: "Earliest member (owner) of the trip, or `null` for legacy rows.",
+        required: ["name", "username"],
+        properties: {
+          name: { type: "string" },
+          username: { type: ["string", "null"] },
+        },
+      },
+      stopCount: { type: "integer", minimum: 0 },
+      destinationNames: { type: "array", items: { type: "string" } },
+      coverImageUrl: {
+        ...nullableString,
+        description:
+          "Proxy URL (`/api/v1/images?src=...&w=800`) when the photo host is allowlisted, the raw URL " +
+          "otherwise, or `null` when no stop in the newest version has a photo.",
+      },
+      likeCount: integer,
+      viewCount: integer,
+      likedByMe: { type: "boolean" },
+      updatedAt: timestamp,
+    },
+  },
+
+  FeedMeta: {
+    type: "object",
+    required: ["page", "limit", "total", "hasMore"],
+    properties: {
+      page: { type: "integer", minimum: 1 },
+      limit: { type: "integer", minimum: 1, maximum: 50 },
+      total: { type: "integer", minimum: 0, description: "Published trips overall." },
+      hasMore: { type: "boolean", description: "`false` on the last page." },
+    },
+  },
+
+  FeedPage: {
+    type: "object",
+    required: ["data", "meta"],
+    properties: {
+      data: { type: "array", items: { $ref: "#/components/schemas/FeedItinerary" } },
+      meta: { $ref: "#/components/schemas/FeedMeta" },
+    },
+  },
+
+  TrendingItinerary: {
+    type: "object",
+    description:
+      "One trending row. `score = (likes*3 + views + shares*5) / (hoursSinceLastActivity + 2)^1.5`, " +
+      "so a trip decays as it goes quiet. Only published trips (`isPublic: true`) are ranked.",
+    required: ["id", "title", "createdAt", "likeCount", "viewCount", "shareCount", "score"],
+    properties: {
+      id: uuid,
+      title: { type: "string" },
+      createdAt: timestamp,
+      likeCount: integer,
+      viewCount: integer,
+      shareCount: integer,
+      score: { type: "number", minimum: 0, description: "Ranking score; returned for debugging, not stable across requests." },
+    },
+  },
+
   GeoLineString: geoLineString,
 
   RouteResult: {
@@ -1223,6 +1342,113 @@ export const schemas: Record<string, SchemaObject> = {
         },
       },
       profile: { type: "string", enum: ["car", "motorcycle", "foot"], default: "car" },
+    },
+  },
+
+  ActiveTrip: {
+    type: "object",
+    description: "Summary of the caller's active trip.",
+    required: ["tripId", "title", "isPublic", "total", "checked", "updatedAt"],
+    properties: {
+      tripId: uuid,
+      title: { type: "string" },
+      isPublic: { type: "boolean" },
+      total: { type: "integer", minimum: 0, description: "Stops in the newest itinerary version." },
+      checked: { type: "integer", minimum: 0, description: "Stops the caller already checked in at." },
+      updatedAt: timestamp,
+    },
+  },
+
+  TripActiveState: {
+    type: "object",
+    required: ["tripId", "isActive"],
+    properties: {
+      tripId: uuid,
+      isActive: { type: "boolean", enum: [false] },
+    },
+  },
+
+  Checkpoint: {
+    type: "object",
+    description: "A stored check-in. Coordinates are the device position at check-in time.",
+    required: [
+      "id", "tripDestinationId", "destinationId", "destinationName", "latitude", "longitude",
+      "accuracyMeters", "distanceMeters", "note", "imageUrl", "checkedAt",
+    ],
+    properties: {
+      id: uuid,
+      tripDestinationId: uuid,
+      destinationId: uuid,
+      destinationName: { type: "string" },
+      latitude: { type: "number", minimum: -90, maximum: 90 },
+      longitude: { type: "number", minimum: -180, maximum: 180 },
+      accuracyMeters: { type: ["number", "null"], minimum: 0 },
+      distanceMeters: { type: ["number", "null"], minimum: 0 },
+      note: nullableString,
+      imageUrl: {
+        ...nullableString,
+        description:
+          "Photo path for uploaded camera images (`/api/v1/images/upload/checkpoints/<uuid>.webp`), " +
+          "an external URL from a JSON check-in, or null when no photo was sent.",
+        example: "/api/v1/images/upload/checkpoints/6f1c2a3e-1b2c-4d5e-8f90-123456789abc.webp",
+      },
+      checkedAt: timestamp,
+    },
+  },
+
+  CheckpointProgress: {
+    type: "object",
+    required: ["tripId", "total", "checked", "items"],
+    properties: {
+      tripId: uuid,
+      total: { type: "integer", minimum: 0, description: "Stops in the active itinerary version." },
+      checked: { type: "integer", minimum: 0 },
+      items: { type: "array", items: { $ref: "#/components/schemas/Checkpoint" } },
+    },
+  },
+
+  CreateCheckpointRequest: {
+    type: "object",
+    required: ["tripDestinationId", "latitude", "longitude"],
+    properties: {
+      tripDestinationId: uuid,
+      latitude: { type: "number", minimum: -90, maximum: 90 },
+      longitude: { type: "number", minimum: -180, maximum: 180 },
+      accuracyMeters: {
+        type: "number",
+        minimum: 0,
+        maximum: 100000,
+        description: "GPS accuracy in metres. Values above 100 are rejected.",
+      },
+      note: { type: "string", maxLength: 500 },
+      imageUrl: {
+        type: "string",
+        format: "uri",
+        maxLength: 2048,
+        description:
+          "Legacy only. Prefer `multipart/form-data` with an `image` file so the photo is compressed " +
+          "and stripped of EXIF/GPS; a URL here is stored verbatim.",
+      },
+    },
+  },
+
+  CreateCheckpointFormRequest: {
+    type: "object",
+    description: "multipart/form-data variant of `CreateCheckpointRequest`; numbers arrive as strings.",
+    required: ["tripDestinationId", "latitude", "longitude"],
+    properties: {
+      tripDestinationId: uuid,
+      latitude: { type: "string", pattern: "^-?\\d+(\\.\\d+)?$", example: "-0.9471" },
+      longitude: { type: "string", pattern: "^-?\\d+(\\.\\d+)?$", example: "100.4172" },
+      accuracyMeters: { type: "string", example: "8" },
+      note: { type: "string", maxLength: 500 },
+      image: {
+        type: "string",
+        format: "binary",
+        description:
+          "Camera photo (image/*). Resized to 1200 px, converted to WebP, EXIF/GPS stripped, " +
+          "stored under `UPLOAD_DIR`. Larger than `IMAGE_MAX_BYTES` (default 5 MB) → 413.",
+      },
     },
   },
 };

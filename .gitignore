@@ -38,6 +38,9 @@ apps/api/log/
 # Local credentials
 *.pem
 
+# Runtime caches (image proxy output)
+.cache/
+
 # Husky hooks and commitlint config stay local-only
 .husky/
 commitlint.config.cjs

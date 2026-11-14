@@ -21,6 +21,7 @@ model TripView {
   trip Trip  @relation(fields: [tripId], references: [id], onDelete: Cascade)
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
+  @@unique([tripId, userId])
   @@index([tripId, viewedAt])
   @@map("trip_views")
 }

@@ -14,7 +14,15 @@ import {
   destinationsApi,
   listKnowledgeBaseDestinations,
 } from "./modules/destinations/index.js";
-import { createItineraryApi, createItineraryService } from "./modules/itinerary/index.js";
+import {
+  createCheckpointApi,
+  createCheckpointService,
+  createItineraryApi,
+  createItineraryService,
+  createTripApi,
+  createTripService,
+} from "./modules/itinerary/index.js";
+import { createImagesApi, createImagesService } from "./modules/images/index.js";
 import { modelsApi } from "./modules/models/index.js";
 import { subscriptionPlansApi } from "./modules/subscription-plans/index.js";
 import { subscriptionsApi } from "./modules/subscriptions/index.js";
@@ -76,6 +84,14 @@ const itineraryService = createItineraryService({
 
 const knowledgeBaseRows = async () => listKnowledgeBaseDestinations();
 
+const imagesService = createImagesService({
+  allowedHosts: env.IMAGE_PROXY_HOSTS,
+  cacheDir: env.IMAGE_CACHE_DIR,
+  uploadDir: env.UPLOAD_DIR,
+  maxBytes: env.IMAGE_MAX_BYTES,
+  timeoutMs: env.IMAGE_FETCH_TIMEOUT_MS,
+});
+
 const chatService = createChatService({
   itinerary: itineraryService,
   findUserById: (id) => usersRepository.findUserById(id).then((u) => (u ? { id: u.id, isActive: u.isActive } : null)),
@@ -107,7 +123,15 @@ apiV1.route("/subscriptions", subscriptionsApi);
 apiV1.route("/categories", categoriesApi);
 apiV1.route("/destinations", destinationsApi);
 apiV1.route("/chat", createChatApi(chatService));
+apiV1.route("/trips", createTripApi(createTripService()));
+apiV1.route(
+  "/trips",
+  createCheckpointApi(createCheckpointService(), imagesService, {
+    maxImageBytes: env.IMAGE_MAX_BYTES,
+  }),
+);
 apiV1.route("/itineraries", createItineraryApi(itineraryService));
+apiV1.route("/images", createImagesApi(imagesService));
 apiV1.route("/routes", createRoutingApi(routingService));
 
 const routes = new Hono();

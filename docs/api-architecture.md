@@ -41,7 +41,7 @@ apps/api/
         └── schemas/             # Skema lintas fitur, misalnya pagination
 ```
 
-Modul yang ada: `auth`, `users`, `models`, `subscription-plans`, `subscriptions`, `destinations` (destinations sekaligus categories), `chat`, `itinerary` (termasuk `Trip`/`UserTrip`), dan `routing`.
+Modul yang ada: `auth`, `users`, `models`, `subscription-plans`, `subscriptions`, `destinations` (destinations sekaligus categories), `chat`, `itinerary` (termasuk `Trip`/`UserTrip`), `images` (proxy kompresi gambar), dan `routing`.
 
 Session, billing, dan audit ditaruh di `shared/` karena dipakai beberapa modul sekaligus dan modul tidak boleh saling mengimpor. `shared/` boleh mengakses Prisma melalui repository-nya sendiri, tetapi tidak boleh mengimpor `modules/`.
 
@@ -141,8 +141,11 @@ Satu modul `destinations` mengekspor dua router: `categoriesApi` dan `destinatio
 ## Chat, itinerary, dan routing
 
 - `chat`: sesi/pesan percakapan + RAG destinasi Padang + tool calls (`search_destinations`, `get_destination_details`) + versi pesan regenerate/activate. Cari destinasi tidak memakai baris `source=admin` tanpa kategori (output scraper belum kurasi).
-- `itinerary`: `trip_destinations` append-only; satu versi = kelompok baris dengan `created_at` identik. Urutan stop dari `visit_at`. Endpoint `versions`/`restore` tetap ada; restore menyalin batch lama menjadi batch baru. `Trip`/`UserTrip` untuk kolaborasi tanpa `role` (anggota pertama = owner).
+- `itinerary`: `trip_destinations` append-only; satu versi = kelompok baris dengan `created_at` identik. Urutan stop dari `visit_at`. Endpoint `versions`/`restore` tetap ada; restore menyalin batch lama menjadi batch baru. `Trip`/`UserTrip` untuk kolaborasi tanpa `role` (anggota pertama = owner). Publish (`POST`/`DELETE /itineraries/{id}/publish`) hanya mengubah `trips.is_public`; tidak ada versi yang dibuat, dihapus, atau ditulis ulang. Like/view memakai `requireAuth` (`user_id` dari sesi): like idempoten lewat PK `(user_id, trip_id)`, view satu per user per trip lewat unique index `(trip_id, user_id)`. `likeCount`/`viewCount`/`likedByMe` ikut di respons detail itinerary. `GET /itineraries/trending` publik (tanpa sesi) dan hanya meranking trip `is_public`: `(likes*3 + views + shares*5) / (jam_sejak_aktivitas_terakhir + 2)^1.5`, dihitung satu query agregat tanpa tabel snapshot.
+- `trips`: aktif trip disimpan di `user_trips.status = 'active'` (kolom lama, tidak dipakai fitur lain); `POST /trips/{tripId}/active` mengosongkan penanda lama dan menetapkan yang baru dalam satu transaksi, `DELETE` menghapusnya, `GET /trips/active` mengembalikan ringkasan (judul, `total` stop versi terakhir, `checked` check-in user). Trip baru dari sesi chat otomatis jadi aktif.
 - `routes`: kalkulasi rute OSRM (`car`/`motorcycle`/`foot`); fallback garis lurus `source: fallback` saat provider gagal/timeout.
+- `feed`: `GET /itineraries/feed?page=&limit=` (`requireAuth`, halaman beranda) mengembalikan trip `is_public` urut `updated_at desc, id desc`, satu kartu per trip: penulis (anggota pertama), `stopCount`/`destinationNames` dari versi terakhir, `coverImageUrl` (dibungkus `/images?src=&w=800` bila host ada di `IMAGE_PROXY_HOSTS`), `likeCount`/`viewCount` dari agregat, dan `likedByMe` satu query per halaman. `meta.hasMore` untuk infinite scroll; `page`/`limit` bisa menduplikasi kartu bila ada publish di tengah scroll, ganti ke cursor kalau terasa.
+- `images`: `GET /images?src=...&w=...` mengunduh gambar https dari host whitelist (`IMAGE_PROXY_HOSTS`, default `upload.wikimedia.org`), resize `fit: inside` tanpa memperbesar, encode WebP kualitas 80, lalu cache di `IMAGE_CACHE_DIR`. Redirect ditolak, alamat privat/loopback ditolak setelah DNS resolve, body dibatasi `IMAGE_MAX_BYTES`. `destinations.image_url` tetap URL asli; FE memakai URL proxy agar kompresi berlaku untuk data lama tanpa backfill. Foto checkpoint dari kamera diunggah lewat `multipart/form-data` (`image`), dikompres `sharp` ke WebP 1200 px (EXIF/GPS dibuang), disimpan di `UPLOAD_DIR` (default `.cache/uploads/checkpoints`) dan disajikan `GET /images/upload/checkpoints/{uuid}.webp`; nama file divalidasi sehingga tidak ada path traversal. Check-in JSON lama tetap didukung lewat `imageUrl`.
 
 ## Belum termasuk
 

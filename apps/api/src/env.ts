@@ -55,5 +55,14 @@ export const env = z
     OSRM_BASE_URL: z.string().default("https://router.project-osrm.org"),
     OSRM_TIMEOUT_MS: z.coerce.number().int().min(1000).max(30000).default(8000),
     OSRM_CACHE_TTL_HOURS: z.coerce.number().int().min(1).max(168).default(24),
+    IMAGE_PROXY_HOSTS: z
+      .string()
+      .default("upload.wikimedia.org")
+      .transform((value) => value.split(",").map((host) => host.trim().toLowerCase()).filter(Boolean)),
+    IMAGE_CACHE_DIR: z.string().min(1).default(".cache/images"),
+    // Directory for user-uploaded photos (checkpoint check-ins). Local disk for now.
+    UPLOAD_DIR: z.string().min(1).default(".cache/uploads"),
+    IMAGE_MAX_BYTES: z.coerce.number().int().min(1024).max(20_000_000).default(5_000_000),
+    IMAGE_FETCH_TIMEOUT_MS: z.coerce.number().int().min(500).max(30_000).default(5000),
   })
   .parse(process.env);
