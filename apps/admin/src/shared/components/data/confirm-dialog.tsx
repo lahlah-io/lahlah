@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ApiError } from "@/shared/api/client";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/components/ui/alert";
+import { Button } from "@/shared/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -13,15 +14,18 @@ import {
 function describeError(cause: unknown): string {
   if (cause instanceof ApiError) return `${cause.code}: ${cause.message}`;
   if (cause instanceof Error) return cause.message;
-  return "Gagal menghapus.";
+  return "Gagal memproses.";
 }
 
-export function ConfirmDeleteDialog({
+export function ConfirmDialog({
   open,
   title,
   description,
   pending,
   confirmLabel,
+  pendingLabel,
+  errorTitle,
+  variant = "destructive",
   onClose,
   onConfirm,
 }: {
@@ -30,6 +34,9 @@ export function ConfirmDeleteDialog({
   description: string;
   pending: boolean;
   confirmLabel: string;
+  pendingLabel?: string;
+  errorTitle?: string;
+  variant?: "default" | "destructive";
   onClose: () => void;
   onConfirm: () => Promise<void>;
 }) {
@@ -54,29 +61,57 @@ export function ConfirmDeleteDialog({
         </DialogHeader>
         {error ? (
           <Alert variant="destructive">
-            <AlertTitle>Gagal menghapus</AlertTitle>
+            <AlertTitle>{errorTitle ?? "Gagal memproses"}</AlertTitle>
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         ) : null}
         <DialogFooter>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={pending}
-            className="rounded-lg border px-4 py-2 text-sm font-medium disabled:opacity-60"
-          >
+          <Button type="button" variant="outline" onClick={onClose} disabled={pending}>
             Batal
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            variant={variant === "default" ? "default" : "destructive"}
             onClick={() => void handleConfirm()}
             disabled={pending}
-            className="rounded-lg bg-destructive px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
           >
-            {pending ? "Menghapus…" : confirmLabel}
-          </button>
+            {pending ? (pendingLabel ?? "Memproses…") : confirmLabel}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+export function ConfirmDeleteDialog({
+  open,
+  title,
+  description,
+  pending,
+  confirmLabel,
+  onClose,
+  onConfirm,
+}: {
+  open: boolean;
+  title: string;
+  description: string;
+  pending: boolean;
+  confirmLabel: string;
+  onClose: () => void;
+  onConfirm: () => Promise<void>;
+}) {
+  return (
+    <ConfirmDialog
+      open={open}
+      title={title}
+      description={description}
+      pending={pending}
+      confirmLabel={confirmLabel}
+      pendingLabel="Menghapus…"
+      errorTitle="Gagal menghapus"
+      variant="destructive"
+      onClose={onClose}
+      onConfirm={onConfirm}
+    />
   );
 }
