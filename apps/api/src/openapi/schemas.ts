@@ -1295,7 +1295,13 @@ export const schemas: Record<string, SchemaObject> = {
       accuracyMeters: { type: ["number", "null"], minimum: 0 },
       distanceMeters: { type: ["number", "null"], minimum: 0 },
       note: nullableString,
-      imageUrl: nullableString,
+      imageUrl: {
+        ...nullableString,
+        description:
+          "Photo path for uploaded camera images (`/api/v1/images/upload/checkpoints/<uuid>.webp`), " +
+          "an external URL from a JSON check-in, or null when no photo was sent.",
+        example: "/api/v1/images/upload/checkpoints/6f1c2a3e-1b2c-4d5e-8f90-123456789abc.webp",
+      },
       checkedAt: timestamp,
     },
   },
@@ -1325,7 +1331,14 @@ export const schemas: Record<string, SchemaObject> = {
         description: "GPS accuracy in metres. Values above 100 are rejected.",
       },
       note: { type: "string", maxLength: 500 },
-      imageUrl: { type: "string", format: "uri", maxLength: 2048 },
+      imageUrl: {
+        type: "string",
+        format: "uri",
+        maxLength: 2048,
+        description:
+          "Legacy only. Prefer `multipart/form-data` with an `image` file so the photo is compressed " +
+          "and stripped of EXIF/GPS; a URL here is stored verbatim.",
+      },
     },
   },
 
@@ -1342,7 +1355,9 @@ export const schemas: Record<string, SchemaObject> = {
       image: {
         type: "string",
         format: "binary",
-        description: "Camera photo. Resized to 1200 px, converted to WebP, EXIF/GPS stripped.",
+        description:
+          "Camera photo (image/*). Resized to 1200 px, converted to WebP, EXIF/GPS stripped, " +
+          "stored under `UPLOAD_DIR`. Larger than `IMAGE_MAX_BYTES` (default 5 MB) → 413.",
       },
     },
   },
