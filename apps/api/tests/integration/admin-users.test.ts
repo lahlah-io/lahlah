@@ -27,18 +27,20 @@ test("user biasa tidak boleh mengakses endpoint admin", async () => {
 test("admin dapat membuat user, mengubah role, dan menonaktifkan user", async () => {
   const admin = await createTestSession({ role: "admin" });
   const email = `admin-created-${randomUUID()}@example.test`;
+  const username = `baru_${randomUUID().replace(/-/g, "").slice(0, 12).toLowerCase()}`;
   let createdId: string | undefined;
 
   try {
     const createdResponse = await app.request("/api/v1/users", {
       method: "POST",
       headers: admin.headers,
-      body: JSON.stringify({ name: "User Baru", email }),
+      body: JSON.stringify({ name: "User Baru", username, email }),
     });
     assert.equal(createdResponse.status, 201);
     const created = await createdResponse.json().then((body) => body.data);
     createdId = created.id;
     assert.equal(created.email, email);
+    assert.equal(created.username, username);
     assert.equal(created.role, "user");
     assert.equal(created.isActive, true);
     assert.equal(created.subscriptions[0]?.plan.name, "free", "user baru harus otomatis punya plan free");
@@ -93,13 +95,15 @@ test("admin dapat membuat user, mengubah role, dan menonaktifkan user", async ()
 test("email duplikat saat membuat user ditolak 409", async () => {
   const admin = await createTestSession({ role: "admin" });
   const email = `dup-${randomUUID()}@example.test`;
+  const firstUsername = `dup_${randomUUID().replace(/-/g, "").slice(0, 12).toLowerCase()}`;
+  const secondUsername = `dup_${randomUUID().replace(/-/g, "").slice(0, 12).toLowerCase()}`;
   let createdId: string | undefined;
 
   try {
     const first = await app.request("/api/v1/users", {
       method: "POST",
       headers: admin.headers,
-      body: JSON.stringify({ name: "Pertama", email }),
+      body: JSON.stringify({ name: "Pertama", username: firstUsername, email }),
     });
     assert.equal(first.status, 201);
     createdId = await first.json().then((body) => body.data.id);
@@ -107,12 +111,62 @@ test("email duplikat saat membuat user ditolak 409", async () => {
     const second = await app.request("/api/v1/users", {
       method: "POST",
       headers: { ...admin.headers, ...json },
-      body: JSON.stringify({ name: "Kedua", email }),
+      body: JSON.stringify({ name: "Kedua", username: secondUsername, email }),
     });
     assert.equal(second.status, 409);
     assert.equal(await second.json().then((body) => body.error.code), "EMAIL_ALREADY_EXISTS");
   } finally {
     if (createdId) await deleteTestUser(createdId);
+    await deleteTestUser(admin.user.id);
+  }
+});
+
+test("username duplikat saat membuat atau mengubah user ditolak 409", async () => {
+  const admin = await createTestSession({ role: "admin" });
+  const username = `kembar_${randomUUID().replace(/-/g, "").slice(0, 12).toLowerCase()}`;
+  const otherUsername = `lain_${randomUUID().replace(/-/g, "").slice(0, 12).toLowerCase()}`;
+  let firstId: string | undefined;
+  let secondId: string | undefined;
+
+  try {
+    const first = await app.request("/api/v1/users", {
+      method: "POST",
+      headers: admin.headers,
+      body: JSON.stringify({ name: "Pertama", username, email: `a-${randomUUID()}@example.test` }),
+    });
+    assert.equal(first.status, 201);
+    firstId = await first.json().then((body) => body.data.id);
+
+    const duplicate = await app.request("/api/v1/users", {
+      method: "POST",
+      headers: { ...admin.headers, ...json },
+      body: JSON.stringify({ name: "Kedua", username, email: `b-${randomUUID()}@example.test` }),
+    });
+    assert.equal(duplicate.status, 409);
+    assert.equal(await duplicate.json().then((body) => body.error.code), "USERNAME_ALREADY_EXISTS");
+
+    const second = await app.request("/api/v1/users", {
+      method: "POST",
+      headers: admin.headers,
+      body: JSON.stringify({
+        name: "Ketiga",
+        username: otherUsername,
+        email: `c-${randomUUID()}@example.test`,
+      }),
+    });
+    assert.equal(second.status, 201);
+    secondId = await second.json().then((body) => body.data.id);
+
+    const conflict = await app.request(`/api/v1/users/${secondId}`, {
+      method: "PATCH",
+      headers: { ...admin.headers, ...json },
+      body: JSON.stringify({ username }),
+    });
+    assert.equal(conflict.status, 409);
+    assert.equal(await conflict.json().then((body) => body.error.code), "USERNAME_ALREADY_EXISTS");
+  } finally {
+    if (firstId) await deleteTestUser(firstId);
+    if (secondId) await deleteTestUser(secondId);
     await deleteTestUser(admin.user.id);
   }
 });

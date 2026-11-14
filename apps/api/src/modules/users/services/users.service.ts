@@ -17,6 +17,20 @@ export async function getUser(id: string) {
 }
 
 export async function createUser(input: z.infer<typeof createUserSchema>, actor: Actor) {
+  // Pre-check memberi kode konflik yang akurat: `P2002` di dalam transaksi
+  // tidak selalu membawa `meta.target`, sehingga service tidak bisa
+  // membedakan email vs username duplikat dari error itu saja.
+  const [byUsername, byEmail] = await Promise.all([
+    usersRepository.findUserByUsername(input.username),
+    input.email ? usersRepository.findUserByEmail(input.email) : Promise.resolve(null),
+  ]);
+  if (byUsername) {
+    throw new HttpError(409, "USERNAME_ALREADY_EXISTS", "A user with this username already exists");
+  }
+  if (byEmail) {
+    throw new HttpError(409, "EMAIL_ALREADY_EXISTS", "A user with this email already exists");
+  }
+
   try {
     const user = await usersRepository.insertUserWithFreeSubscription(input);
     await recordActivity({
@@ -29,7 +43,17 @@ export async function createUser(input: z.infer<typeof createUserSchema>, actor:
     return user;
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      throw new HttpError(409, "EMAIL_ALREADY_EXISTS", "A user with this email already exists");
+      // Balapan tulis: constraint DB tetap penjaga akhir.
+      const meta = (error.meta as { target?: string[] } | undefined)?.target ?? [];
+      const constraintText = `${error.message} ${JSON.stringify(error.meta ?? null)}`;
+      const isUsername = meta.includes("username") || constraintText.includes("users_username_key");
+      throw new HttpError(
+        409,
+        isUsername ? "USERNAME_ALREADY_EXISTS" : "EMAIL_ALREADY_EXISTS",
+        isUsername
+          ? "A user with this username already exists"
+          : "A user with this email already exists",
+      );
     }
     throw error;
   }
@@ -40,6 +64,22 @@ export async function updateUser(
   input: z.infer<typeof updateUserSchema>,
   actor: Actor,
 ) {
+  // Pre-check agar kode 409 akurat: `P2002` pada `prisma.user.update()`
+  // kadang tanpa `meta.target`, sehingga constraint tidak bisa dibedakan
+  // dari error saja.
+  if (input.username !== undefined) {
+    const byUsername = await usersRepository.findUserByUsername(input.username);
+    if (byUsername && byUsername.id !== id) {
+      throw new HttpError(409, "USERNAME_ALREADY_EXISTS", "A user with this username already exists");
+    }
+  }
+  if (input.email !== undefined) {
+    const byEmail = await usersRepository.findUserByEmail(input.email);
+    if (byEmail && byEmail.id !== id) {
+      throw new HttpError(409, "EMAIL_ALREADY_EXISTS", "A user with this email already exists");
+    }
+  }
+
   try {
     const user = await usersRepository.patchUser(id, input);
     await recordActivity({
@@ -103,6 +143,16 @@ function mapUserWriteError(error: unknown): unknown {
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
     if (error.code === "P2025") return new HttpError(404, "USER_NOT_FOUND", "User not found");
     if (error.code === "P2002") {
+      const meta = (error.meta as { target?: string[] } | undefined)?.target ?? [];
+      const constraintText = `${error.message} ${JSON.stringify(error.meta ?? null)}`;
+      const isUsername =
+        meta.includes("username") || constraintText.includes("users_username_key");
+      if (isUsername) {
+        return new HttpError(409, "USERNAME_ALREADY_EXISTS", "A user with this username already exists");
+      }
+      // `prisma.$transaction` tidak selalu membawa `meta.target` untuk P2002,
+      // jadi kasus email tanpa target tetap memakai kode email.
+      // ponytail: ambil target pasti tanpa query ulang; tambah bila Prisma mengisi meta di transaksi.
       return new HttpError(409, "EMAIL_ALREADY_EXISTS", "A user with this email already exists");
     }
   }

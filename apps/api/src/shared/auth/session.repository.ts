@@ -5,6 +5,7 @@ export const authUserSelect = {
   id: true,
   pid: true,
   name: true,
+  username: true,
   email: true,
   role: true,
   isActive: true,

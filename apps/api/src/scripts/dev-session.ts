@@ -52,14 +52,16 @@ async function main(): Promise<void> {
   }
 
   const suffix = randomUUID();
+  const slug = suffix.replace(/-/g, "").slice(0, 12).toLowerCase();
   const user = await prisma.user.create({
     data: {
       name: `Dev Session ${suffix.slice(0, 8)}`,
+      username: `dev_${slug}`,
       email: `dev-${suffix}@example.test`,
       role: hasFlag("--admin") ? "admin" : "user",
       isActive: !hasFlag("--inactive"),
     },
-    select: { id: true, name: true, email: true, role: true, isActive: true },
+    select: { id: true, name: true, username: true, email: true, role: true, isActive: true },
   });
 
   await assignFreeSubscription(user.id);

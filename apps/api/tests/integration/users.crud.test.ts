@@ -7,18 +7,20 @@ import { createTestSession, deleteTestUser } from "./helpers/session.js";
 test("CRUD users benar-benar menyimpan perubahan ke PostgreSQL", async () => {
   const admin = await createTestSession({ role: "admin" });
   const email = `crud-${randomUUID()}@example.test`;
+  const username = `crud_${randomUUID().replace(/-/g, "").slice(0, 12).toLowerCase()}`;
   let userId: string | undefined;
 
   try {
     const createdResponse = await app.request("/api/v1/users", {
       method: "POST",
       headers: admin.headers,
-      body: JSON.stringify({ name: "CRUD Test", email }),
+      body: JSON.stringify({ name: "CRUD Test", username, email }),
     });
     assert.equal(createdResponse.status, 201);
     const created = await createdResponse.json().then((body) => body.data);
     userId = created.id;
     assert.equal(created.email, email);
+    assert.equal(created.username, username);
     assert.equal(created.isActive, true);
 
     const detailResponse = await app.request(`/api/v1/users/${userId}`, { headers: admin.headers });
@@ -33,6 +35,14 @@ test("CRUD users benar-benar menyimpan perubahan ke PostgreSQL", async () => {
       ),
     );
 
+    const usernameFilterResponse = await app.request(`/api/v1/users?username=${username}`, {
+      headers: admin.headers,
+    });
+    assert.equal(usernameFilterResponse.status, 200);
+    const filtered = await usernameFilterResponse.json().then((body) => body.data);
+    assert.equal(filtered.length, 1);
+    assert.equal(filtered[0].id, userId);
+
     const updateResponse = await app.request(`/api/v1/users/${userId}`, {
       method: "PATCH",
       headers: admin.headers,
@@ -40,6 +50,15 @@ test("CRUD users benar-benar menyimpan perubahan ke PostgreSQL", async () => {
     });
     assert.equal(updateResponse.status, 200);
     assert.equal(await updateResponse.json().then((body) => body.data.name), "CRUD Updated");
+
+    const nextUsername = `${username}_baru`;
+    const usernameUpdateResponse = await app.request(`/api/v1/users/${userId}`, {
+      method: "PATCH",
+      headers: admin.headers,
+      body: JSON.stringify({ username: nextUsername }),
+    });
+    assert.equal(usernameUpdateResponse.status, 200);
+    assert.equal(await usernameUpdateResponse.json().then((body) => body.data.username), nextUsername);
 
     const deleteResponse = await app.request(`/api/v1/users/${userId}`, {
       method: "DELETE",

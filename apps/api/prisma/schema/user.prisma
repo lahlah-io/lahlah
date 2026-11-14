@@ -7,6 +7,7 @@ model User {
   id                     String                  @id @default(uuid()) @db.Uuid
   pid                    String                  @unique @default(uuid())
   name                   String                  @db.VarChar
+  username               String                  @unique @db.VarChar
   email                  String?                 @unique @db.VarChar
   role                   Role                    @default(user)
   isActive               Boolean                 @default(true) @map("is_active")

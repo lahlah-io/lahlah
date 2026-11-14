@@ -13,6 +13,7 @@ export const userSelect = {
   id: true,
   pid: true,
   name: true,
+  username: true,
   email: true,
   role: true,
   isActive: true,
@@ -36,10 +37,12 @@ export async function findUsers(input: z.infer<typeof listUsersQuerySchema>) {
   const where: Prisma.UserWhereInput = {
     ...(input.isActive === undefined ? {} : { isActive: input.isActive }),
     ...(input.role === undefined ? {} : { role: input.role }),
+    ...(input.username === undefined ? {} : { username: input.username }),
     ...(input.q
       ? {
           OR: [
             { name: { contains: input.q, mode: "insensitive" } },
+            { username: { contains: input.q, mode: "insensitive" } },
             { email: { contains: input.q, mode: "insensitive" } },
           ],
         }
@@ -61,6 +64,12 @@ export async function findUsers(input: z.infer<typeof listUsersQuerySchema>) {
 }
 
 export const findUserById = (id: string) => prisma.user.findUnique({ where: { id }, select: userSelect });
+
+export const findUserByUsername = (username: string) =>
+  prisma.user.findUnique({ where: { username }, select: userSelect });
+
+export const findUserByEmail = (email: string) =>
+  prisma.user.findUnique({ where: { email }, select: userSelect });
 
 /**
  * Creating a user and granting the free plan happen in one transaction so a

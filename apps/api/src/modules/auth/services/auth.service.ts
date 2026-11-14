@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Prisma } from "../../../generated/prisma/client.js";
 import type { Role } from "../../../generated/prisma/enums.js";
 import {
@@ -31,6 +32,44 @@ function fallbackName(email: string | null, pid: string): string {
   return (localPart || `pengguna-${pid.slice(0, 8)}`).slice(0, 255);
 }
 
+/**
+ * PeridotID tidak mengenalkan username, jadi backend menurunkannya dari
+ * email atau nama tampilan. Basis dislugifikasi ke `[a-z0-9_]` lalu diberi
+ * sufiks acak bila sudah dipakai; constraint unik DB tetap penjaga akhir.
+ */
+function usernameBase(email: string | null, profileName: string | null, pid: string): string {
+  const candidates = [
+    email?.split("@")[0] ?? "",
+    profileName ?? "",
+    `pengguna_${pid.slice(0, 8)}`,
+  ];
+  for (const raw of candidates) {
+    const slug = raw
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 24);
+    const padded = slug.length >= 3 ? slug : `user_${slug}`;
+    if (/^[a-z0-9_]{3,30}$/.test(padded)) return padded;
+  }
+  return `user_${pid.slice(0, 8).toLowerCase()}`;
+}
+
+async function uniqueUsername(
+  email: string | null,
+  profileName: string | null,
+  pid: string,
+): Promise<string> {
+  const base = usernameBase(email, profileName, pid);
+  if (!(await authRepository.findUserByUsername(base))) return base;
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const candidate = `${base}_${randomUUID().slice(0, 4)}`.slice(0, 30);
+    if (!(await authRepository.findUserByUsername(candidate))) return candidate;
+  }
+  return `user_${randomUUID().replace(/-/g, "").slice(0, 24)}`;
+}
+
 async function upsertUserFromIdentity(identity: PeridotIdentity): Promise<AuthUserRecord> {
   const email = primaryEmail(identity);
   const profileName = displayName(identity);
@@ -60,11 +99,25 @@ async function upsertUserFromIdentity(identity: PeridotIdentity): Promise<AuthUs
     return await authRepository.insertUser({
       pid: identity.pid,
       name: profileName ?? fallbackName(email, identity.pid),
+      username: await uniqueUsername(email, profileName, identity.pid),
       email,
       role: resolveRoleForEmail(email, "user"),
     });
   } catch (error) {
     if (isUniqueViolation(error)) {
+      const target = (error as Prisma.PrismaClientKnownRequestError).meta as
+        | { target?: string[] }
+        | undefined;
+      // Balapan username: coba sekali lagi dengan sufiks acak baru.
+      if (target?.target?.includes("username")) {
+        return authRepository.insertUser({
+          pid: identity.pid,
+          name: profileName ?? fallbackName(email, identity.pid),
+          username: `user_${randomUUID().replace(/-/g, "").slice(0, 24)}`,
+          email,
+          role: resolveRoleForEmail(email, "user"),
+        });
+      }
       const linked = await authRepository.findUserByPid(identity.pid);
       if (linked) return linked;
       if (email) {

@@ -73,7 +73,7 @@ test("login Peridot menautkan akun yang dibuat admin lewat email", async () => {
   const email = `link-${suffix}@example.test`;
   const pid = `pid-link-${suffix}`;
   const existing = await prisma.user.create({
-    data: { name: "Dibuat Admin", email },
+    data: { name: "Dibuat Admin", username: `link_${suffix.replace(/-/g, "").slice(0, 12).toLowerCase()}`, email },
     select: { id: true },
   });
 
@@ -138,6 +138,8 @@ test("exchange pid_code membuat user, sesi, langganan free, dan log", async () =
     const body = await response.json();
     userId = body.data.user.id;
     assert.equal(body.data.user.email, email);
+    const expectedUsername = `peridot_${suffix.replace(/-/g, "_")}`.slice(0, 24);
+    assert.equal(body.data.user.username, expectedUsername);
     assert.equal(body.data.user.role, "user");
     assert.equal(body.token, undefined, "token tidak boleh bocor tanpa X-Session-Mode: bearer");
     assert.match(response.headers.get("set-cookie") ?? "", /lahlah_session=/);

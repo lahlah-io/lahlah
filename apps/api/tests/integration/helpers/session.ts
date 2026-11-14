@@ -6,21 +6,23 @@ import { hashToken, randomToken } from "../../../src/shared/auth/tokens.js";
 import { ensureFreeSubscription } from "../../../src/shared/billing/subscription.service.js";
 
 export type TestSession = {
-  user: { id: string; name: string; email: string | null; role: Role; isActive: boolean };
+  user: { id: string; name: string; username: string; email: string | null; role: Role; isActive: boolean };
   token: string;
   headers: { authorization: string; "content-type": string };
 };
 
 export async function createTestSession(options: { role?: Role; isActive?: boolean } = {}): Promise<TestSession> {
   const suffix = randomUUID();
+  const slug = suffix.replace(/-/g, "").slice(0, 12).toLowerCase();
   const user = await prisma.user.create({
     data: {
       name: `Test ${suffix.slice(0, 8)}`,
+      username: `test_${slug}`,
       email: `test-${suffix}@example.test`,
       role: options.role ?? "user",
       isActive: options.isActive ?? true,
     },
-    select: { id: true, name: true, email: true, role: true, isActive: true },
+    select: { id: true, name: true, username: true, email: true, role: true, isActive: true },
   });
 
   const token = randomToken();

@@ -6,6 +6,7 @@ export const authUserSelect = {
   id: true,
   pid: true,
   name: true,
+  username: true,
   email: true,
   role: true,
   isActive: true,
@@ -21,9 +22,14 @@ export function findUserByEmail(email: string): Promise<AuthUserRecord | null> {
   return prisma.user.findUnique({ where: { email }, select: authUserSelect });
 }
 
+export function findUserByUsername(username: string): Promise<AuthUserRecord | null> {
+  return prisma.user.findUnique({ where: { username }, select: authUserSelect });
+}
+
 export function insertUser(data: {
   pid: string;
   name: string;
+  username: string;
   email: string | null;
   role: Role;
 }): Promise<AuthUserRecord> {

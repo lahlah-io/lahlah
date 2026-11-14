@@ -67,7 +67,10 @@ File di `prisma/schema/` mencakup seluruh 14 tabel ERD: users, models, subscript
 - Nama field Prisma memakai camelCase; nama kolom dan tabel database dipetakan dengan `@map`/`@@map`.
 - ID menggunakan PostgreSQL UUID; nilai uang memakai `Decimal`; JSONB memakai Prisma `Json`; waktu memakai `timestamptz`.
 - Pertahankan unique constraint dan foreign key ERD. Nyatakan perilaku penghapusan relasi secara eksplisit dan telaah dampak data sebelum mengubahnya.
-- `User.pid` unik dan menjadi kunci identitas PeridotID. Tidak ada kolom password; autentikasi sepenuhnya lewat PeridotID.
+- `User.pid` unik dan menjadi kunci identitas PeridotID. `User.username` unik, wajib diisi,
+  memakai huruf kecil/angka/underscore (3–30 karakter) dan dinormalisasi di Zod. Login PeridotID
+  menurunkan username dari email/nama tampilan bila belum ada; admin mengelolanya lewat CRUD users.
+  Tidak ada kolom password; autentikasi sepenuhnya lewat PeridotID.
 - `User.email` opsional karena identitas PeridotID bisa tidak punya email (passkey-only), tetapi tetap unik bila terisi. User yang dibuat admin boleh punya email lebih dulu; saat login pertama dengan email yang sama, `pid` PeridotID ditautkan ke baris tersebut.
 - Tabel `sessions` menyimpan hash token (bukan token asli), masa berlaku, dan waktu pencabutan.
 - `DestinationSource` saat ini mencakup `geoapify`, `admin`, dan `user`; unique place ID dibatasi per sumber.
@@ -86,8 +89,8 @@ File di `prisma/schema/` mencakup seluruh 14 tabel ERD: users, models, subscript
 ## Fitur users
 
 - `api/users.ts`: `GET /`, `GET /:id`, `POST /`, `PATCH /:id`, `PATCH /:id/role`, `PATCH /:id/status`, dan `DELETE /:id` (soft delete). Semua route memakai `requireAdmin`.
-- `schemas/user.schema.ts`: validasi Zod untuk body, query (role, isActive, pencarian `q`), dan UUID path; pagination umum berada di `src/shared/schemas/pagination.schema.ts`.
-- `services/users.service.ts`: membuat user beserta langganan free dalam satu transaksi, memetakan email duplikat/data tidak ditemukan ke error HTTP, dan mencatat `activity_logs`.
+- `schemas/user.schema.ts`: validasi Zod untuk body, query (role, username exact-match, isActive, pencarian `q`), dan UUID path; pagination umum berada di `src/shared/schemas/pagination.schema.ts`.
+- `services/users.service.ts`: membuat user beserta langganan free dalam satu transaksi, memetakan email/username duplikat/data tidak ditemukan ke error HTTP, dan mencatat `activity_logs`.
 - `repositories/users.repository.ts`: semua query Prisma fitur users, termasuk transaksi pembuatan user + langganan free.
 - `tests/integration/users.crud.test.ts` dan `admin-users.test.ts` menguji CRUD nyata melalui PostgreSQL.
 
