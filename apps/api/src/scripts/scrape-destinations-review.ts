@@ -1,4 +1,5 @@
 import { mkdir, readdir, readFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildSeedFile, mergeCanonicalByName, writeReviewFiles } from "./destinations/export.js";
@@ -132,8 +133,8 @@ async function main() {
   const outJson = path.join(apiRoot, "prisma", "seed-data", "destinations.padang.review.json");
   const outHtml = path.join(apiRoot, "prisma", "seed-data", "destinations.padang.review.html");
   const gosomDir =
-    process.env.GOSOM_OUT_DIR ??
-    path.join(process.env.TEMP ?? "C:\\Users\\Gybran\\AppData\\Local\\Temp\\opencode", "gosom-padang");
+    process.argv.find((arg) => arg.startsWith("--gosom-dir="))?.slice("--gosom-dir=".length) ??
+    path.join(os.tmpdir(), "gosom-padang");
 
   await mkdir(path.dirname(outJson), { recursive: true });
 
