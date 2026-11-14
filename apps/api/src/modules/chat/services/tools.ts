@@ -4,11 +4,6 @@ import { HttpError } from "../../../shared/http/errors.js";
 
 const SEARCH_LIMIT = 10;
 const KNOWN_CATEGORY_SLUGS = new Set([
-  "seed-pantai",
-  "seed-budaya",
-  "seed-sejarah",
-  "seed-alam",
-  "seed-kuliner",
   "pantai",
   "budaya",
   "sejarah",

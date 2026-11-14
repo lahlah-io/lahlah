@@ -24,25 +24,6 @@ type SeedDestination = {
 };
 type SeedData = { categories: SeedCategory[]; destinations: SeedDestination[] };
 
-const DEV_CATEGORIES: SeedCategory[] = [
-  { slug: "seed-pantai", name: "Pantai (Seed)" },
-  { slug: "seed-budaya", name: "Budaya (Seed)" },
-  { slug: "seed-sejarah", name: "Sejarah (Seed)" },
-  { slug: "seed-alam", name: "Alam (Seed)" },
-  { slug: "seed-kuliner", name: "Kuliner (Seed)" },
-];
-
-const DEV_DESCRIPTION = "Contoh data development di Padang, bukan data produksi terverifikasi.";
-const DEV_DESTINATIONS = [
-  { sourcePlaceId: "seed-padang-jam-gadang-placeholder", name: "Jam Gadang (Seed Example)", latitude: -0.3039, longitude: 100.3673, estimatedDurationMinutes: 60, categorySlugs: ["seed-sejarah", "seed-budaya"] },
-  { sourcePlaceId: "seed-padang-pantai-padang", name: "Pantai Padang (Seed Example)", latitude: -0.985, longitude: 100.38, estimatedDurationMinutes: 120, categorySlugs: ["seed-alam"] },
-  { sourcePlaceId: "seed-padang-pasar-raya", name: "Pasar Raya Padang (Seed Example)", latitude: -0.9476, longitude: 100.365, estimatedDurationMinutes: 90, categorySlugs: ["seed-budaya", "seed-kuliner"] },
-  { sourcePlaceId: "seed-padang-pantai-air-manis", name: "Pantai Air Manis (Seed)", latitude: -0.9517, longitude: 100.3389, estimatedDurationMinutes: 120, categorySlugs: ["seed-pantai", "seed-alam"] },
-  { sourcePlaceId: "seed-padang-kota-tua", name: "Kota Tua Padang (Seed)", latitude: -0.9486, longitude: 100.3583, estimatedDurationMinutes: 90, categorySlugs: ["seed-sejarah", "seed-budaya"] },
-  { sourcePlaceId: "seed-padang-museum-adityawarman", name: "Museum Adityawarman (Seed)", latitude: -0.9496, longitude: 100.3578, estimatedDurationMinutes: 60, categorySlugs: ["seed-budaya", "seed-sejarah"] },
-  { sourcePlaceId: "seed-padang-pantai-cimpago", name: "Pantai Cimpago (Seed)", latitude: -0.9339, longitude: 100.3436, estimatedDurationMinutes: 90, categorySlugs: ["seed-pantai", "seed-alam"] },
-];
-
 function dec(value: string | number | null): Prisma.Decimal | null {
   if (value == null) return null;
   if (typeof value === "number") return Number.isFinite(value) ? new Prisma.Decimal(value) : null;
@@ -71,32 +52,6 @@ async function syncLinks(destinationId: string, categorySlugs: string[], map: Ma
       data: ids.map((categoryId) => ({ destinationId, categoryId })),
       skipDuplicates: true,
     });
-  }
-}
-
-async function seedDevExamples(categoryMap: Map<string, string>) {
-  for (const c of DEV_CATEGORIES) await upsertCategory(c, categoryMap);
-  for (const d of DEV_DESTINATIONS) {
-    const data = {
-      name: d.name,
-      description: DEV_DESCRIPTION,
-      latitude: new Prisma.Decimal(d.latitude),
-      longitude: new Prisma.Decimal(d.longitude),
-      address: null,
-      city: "Padang",
-      source: "admin" as const,
-      sourcePlaceId: d.sourcePlaceId,
-      isActive: true,
-      imageUrl: null,
-      details: { data_kind: "development_seed", estimated_duration_minutes: d.estimatedDurationMinutes },
-    };
-    const row = await prisma.destination.upsert({
-      where: { source_sourcePlaceId: { source: "admin", sourcePlaceId: d.sourcePlaceId } },
-      create: { ...data, canonicalKey: null },
-      update: data,
-      select: { id: true },
-    });
-    await syncLinks(row.id, d.categorySlugs, categoryMap);
   }
 }
 
@@ -153,9 +108,33 @@ async function seedScraped(categoryMap: Map<string, string>) {
   console.log(`Seed scraper: ${data.categories.length} kategori, ${saved} destinasi.`);
 }
 
+async function cleanupLegacySeed() {
+  const legacyDestinations = await prisma.destination.findMany({
+    where: { source: "admin", sourcePlaceId: { startsWith: "seed-padang-" } },
+    select: { id: true },
+  });
+  if (legacyDestinations.length > 0) {
+    const ids = legacyDestinations.map((d) => d.id);
+    // ItineraryDestination memakai onDelete: Restrict; hapus turunannya dulu.
+    await prisma.itineraryDestination.deleteMany({ where: { destinationId: { in: ids } } });
+    await prisma.destinationCategory.deleteMany({ where: { destinationId: { in: ids } } });
+    await prisma.destination.deleteMany({ where: { id: { in: ids } } });
+  }
+
+  const legacyCategories = await prisma.category.findMany({
+    where: { slug: { startsWith: "seed-" } },
+    select: { id: true },
+  });
+  if (legacyCategories.length > 0) {
+    const ids = legacyCategories.map((c) => c.id);
+    await prisma.destinationCategory.deleteMany({ where: { categoryId: { in: ids } } });
+    await prisma.category.deleteMany({ where: { id: { in: ids } } });
+  }
+}
+
 async function main() {
   const categoryMap = new Map<string, string>();
-  await seedDevExamples(categoryMap);
+  await cleanupLegacySeed();
   await seedScraped(categoryMap);
 }
 
