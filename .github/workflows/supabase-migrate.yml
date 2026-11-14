@@ -28,6 +28,14 @@ jobs:
           version: 11.25.0
           run_install: false
       - run: pnpm install --frozen-lockfile
+      - name: Check secret
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "Secret SUPABASE_DATABASE_URL belum diatur (Settings -> Secrets and variables -> Actions). Pakai Session pooler URI port 5432."
+            exit 1
+          fi
       - name: Apply migrations
         env:
           DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
