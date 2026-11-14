@@ -88,7 +88,7 @@
         position: absolute;
         right: 0;
         top: calc(100% + 6px);
-        z-index: 20;
+        z-index: 40;
         width: min(92vw, 460px);
         max-height: 75vh;
         overflow: auto;
@@ -112,10 +112,12 @@
         padding: 8px 12px;
         background: var(--panel);
         border-bottom: 1px solid var(--border);
-        overflow: hidden;
+        flex-wrap: wrap;
+        position: relative;
+        z-index: 30;
       }
-      .new-chat { white-space: nowrap; }
-      .tabs { display: flex; gap: 6px; overflow-x: auto; min-width: 0; padding: 2px; }
+      .new-chat { white-space: nowrap; flex: 0 0 auto; }
+      .tabs { display: flex; gap: 6px; overflow-x: auto; min-width: 0; padding: 2px; flex: 1 1 240px; }
       .tab {
         flex: 0 0 auto;
         max-width: 220px;
@@ -130,7 +132,8 @@
         border-radius: 999px;
       }
       .tab.active { background: var(--primary); color: var(--primary-text); border-color: var(--primary); }
-      .session-action { flex: 0 0 auto; font-size: 0.82rem; }
+      .session-actions { display: flex; gap: 6px; flex: 0 0 auto; }
+      .session-action { font-size: 0.82rem; }
       .msg-row { display: flex; flex-direction: column; gap: 4px; max-width: 85%; }
       .msg-row.user { align-self: flex-end; align-items: flex-end; }
       .msg-row.assistant { align-self: flex-start; align-items: flex-start; }
@@ -279,6 +282,8 @@
         .chat { min-height: 0; }
         .map { height: 260px; }
         .sessions { padding: 8px; }
+        .session-actions { width: 100%; }
+        .session-actions button { flex: 1; }
         .topbar { padding: 8px; }
       }
     </style>
@@ -434,8 +439,10 @@
       <div class="sessions">
         <button id="newChatBtn" type="button" class="new-chat">+ New Chat</button>
         <div id="tabs" class="tabs" role="tablist" aria-label="Session chat"></div>
-        <button id="renameBtn" type="button" class="secondary session-action" title="Ubah judul session aktif">Ubah nama</button>
-        <button id="deleteBtn" type="button" class="secondary session-action" title="Hapus session aktif">Hapus</button>
+        <div class="session-actions">
+          <button id="renameBtn" type="button" class="secondary session-action" title="Ubah judul session aktif">Ubah nama</button>
+          <button id="deleteBtn" type="button" class="secondary session-action" title="Hapus session aktif">Hapus</button>
+        </div>
       </div>
 
       <main class="layout">
