@@ -6,6 +6,7 @@ import { CategoriesPage } from "./categories";
 import { DestinationsPage } from "./destinations";
 import { HomePage } from "./home";
 import { LoginPage } from "./login";
+import { UsersPage } from "./users";
 
 export const router = createBrowserRouter([
   {
@@ -22,6 +23,7 @@ export const router = createBrowserRouter([
               { index: true, Component: HomePage },
               { path: "destinations", Component: DestinationsPage },
               { path: "categories", Component: CategoriesPage },
+              { path: "users", Component: UsersPage },
             ],
           },
         ],

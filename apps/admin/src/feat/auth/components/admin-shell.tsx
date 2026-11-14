@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Boxes, LayoutDashboard, LogOut, MapPin, Menu, Tags, X } from "lucide-react";
+import { Boxes, LayoutDashboard, LogOut, MapPin, Menu, Tags, Users, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { NavLink, Outlet } from "react-router";
 import { useAuth } from "../hooks/use-auth";
@@ -17,6 +17,7 @@ const NAV: NavItem[] = [
   { to: "/", end: true, label: "Dasbor", Icon: LayoutDashboard },
   { to: "/destinations", label: "Destinasi", Icon: MapPin },
   { to: "/categories", label: "Kategori", Icon: Tags },
+  { to: "/users", label: "Pengguna", Icon: Users },
 ];
 
 function navClass(active: boolean): string {
