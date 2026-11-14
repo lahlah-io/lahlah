@@ -224,7 +224,7 @@ test("itinerary request performs tool call and persists an instant version", asy
     toolCallsSeen++;
     const b = body as { tools?: unknown[] };
     assert.ok(Array.isArray(b.tools) && b.tools.length > 0);
-    return toolCallResponse("search_destinations", { keywords: "pantai", categories: ["seed-pantai"] });
+    return toolCallResponse("search_destinations", { keywords: "pantai", categories: ["pantai"] });
   });
   const app = buildApp(provider.url);
   const user = await createTestUser();
