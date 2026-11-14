@@ -1,4 +1,5 @@
 import { HttpError } from "../../../shared/http/errors.js";
+import { env } from "../../../env.js";
 import type {
   ItineraryVersionStop,
   ItineraryVersionView,
@@ -7,6 +8,7 @@ import type {
 import * as tripRepository from "../repositories/itinerary.repository.js";
 import type { TripBatch, TripDestinationRow, TripRecord } from "../repositories/itinerary.repository.js";
 import * as engagementRepository from "../repositories/engagement.repository.js";
+import * as feedRepository from "../repositories/feed.repository.js";
 import * as trendingRepository from "../repositories/trending.repository.js";
 import { checkUserTripAccess } from "../repositories/trip.repository.js";
 
@@ -24,6 +26,41 @@ function productionGate() {
 async function requireActiveUser(deps: ItineraryDeps, userId: string) {
   const user = await deps.findUserById(userId);
   if (!user || user.isActive !== true) throw new HttpError(401, "AUTH_REQUIRED", "Active user required");
+}
+
+const FEED_COVER_WIDTH = 800;
+
+/**
+ * Cards point at the proxy when the photo host is allowlisted, so the feed does
+ * not need a second resize step on the client. Other hosts are passed through raw.
+ */
+function feedCoverUrl(raw: string | null): string | null {
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "https:" || !env.IMAGE_PROXY_HOSTS.includes(url.hostname.toLowerCase())) {
+      return raw;
+    }
+    return `/api/v1/images?src=${encodeURIComponent(raw)}&w=${FEED_COVER_WIDTH}`;
+  } catch {
+    return null;
+  }
+}
+
+/** Stops of the newest version (batch = identical `createdAt`), first photo wins. */
+function feedStops(row: feedRepository.FeedRow) {
+  const latest = row.destinations.reduce<Date | null>(
+    (max, stop) => (!max || stop.createdAt > max ? stop.createdAt : max),
+    null,
+  );
+  if (!latest) return [];
+  const seen = new Set<string>();
+  return row.destinations.filter((stop) => {
+    if (stop.createdAt.getTime() !== latest.getTime()) return false;
+    if (seen.has(stop.destinationId)) return false;
+    seen.add(stop.destinationId);
+    return true;
+  });
 }
 
 function visitAtDate(travelDate: string, hhmm: string): Date | null {
@@ -380,6 +417,38 @@ export function createItineraryService(deps: ItineraryDeps) {
     async listTrending(input: { limit?: number } = {}) {
       const limit = Math.min(Math.max(input.limit ?? 20, 1), 50);
       return { data: await trendingRepository.listTrending(limit) };
+    },
+
+    /** Home feed: published trips, newest activity first, one card per trip. */
+    async listFeed(input: { userId: string; page?: number; limit?: number }) {
+      const page = Math.max(input.page ?? 1, 1);
+      const limit = Math.min(Math.max(input.limit ?? 12, 1), 50);
+      const { rows, total } = await feedRepository.listFeed({ page, limit });
+      const liked = await feedRepository.likedTripIds(
+        input.userId,
+        rows.map((row) => row.id),
+      );
+
+      return {
+        data: rows.map((row) => {
+          const stops = feedStops(row);
+          return {
+            id: row.id,
+            title: row.title,
+            author: row.members[0]?.user ?? null,
+            stopCount: stops.length,
+            destinationNames: stops.map((stop) => stop.destination.name),
+            coverImageUrl: feedCoverUrl(
+              stops.find((stop) => stop.destination.imageUrl)?.destination.imageUrl ?? null,
+            ),
+            likeCount: row._count.likes,
+            viewCount: row._count.views,
+            likedByMe: liked.has(row.id),
+            updatedAt: row.updatedAt,
+          };
+        }),
+        meta: { page, limit, total, hasMore: page * limit < total },
+      };
     },
   };
 }

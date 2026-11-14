@@ -1222,6 +1222,60 @@ export const schemas: Record<string, SchemaObject> = {
     },
   },
 
+  FeedItinerary: {
+    type: "object",
+    description: "One home-feed card. Stop fields describe the newest itinerary version.",
+    required: [
+      "id", "title", "author", "stopCount", "destinationNames", "coverImageUrl",
+      "likeCount", "viewCount", "likedByMe", "updatedAt",
+    ],
+    properties: {
+      id: uuid,
+      title: { type: "string" },
+      author: {
+        type: ["object", "null"],
+        description: "Earliest member (owner) of the trip, or `null` for legacy rows.",
+        required: ["name", "username"],
+        properties: {
+          name: { type: "string" },
+          username: { type: ["string", "null"] },
+        },
+      },
+      stopCount: { type: "integer", minimum: 0 },
+      destinationNames: { type: "array", items: { type: "string" } },
+      coverImageUrl: {
+        ...nullableString,
+        description:
+          "Proxy URL (`/api/v1/images?src=...&w=800`) when the photo host is allowlisted, the raw URL " +
+          "otherwise, or `null` when no stop in the newest version has a photo.",
+      },
+      likeCount: integer,
+      viewCount: integer,
+      likedByMe: { type: "boolean" },
+      updatedAt: timestamp,
+    },
+  },
+
+  FeedMeta: {
+    type: "object",
+    required: ["page", "limit", "total", "hasMore"],
+    properties: {
+      page: { type: "integer", minimum: 1 },
+      limit: { type: "integer", minimum: 1, maximum: 50 },
+      total: { type: "integer", minimum: 0, description: "Published trips overall." },
+      hasMore: { type: "boolean", description: "`false` on the last page." },
+    },
+  },
+
+  FeedPage: {
+    type: "object",
+    required: ["data", "meta"],
+    properties: {
+      data: { type: "array", items: { $ref: "#/components/schemas/FeedItinerary" } },
+      meta: { $ref: "#/components/schemas/FeedMeta" },
+    },
+  },
+
   TrendingItinerary: {
     type: "object",
     description:

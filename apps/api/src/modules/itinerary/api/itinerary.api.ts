@@ -3,6 +3,7 @@ import { zValidator } from "../../../shared/http/validator.js";
 import { requireAuth, type AuthVariables } from "../../../shared/auth/middleware.js";
 import type { ItineraryService } from "../services/itinerary.service.js";
 import {
+  feedQuerySchema,
   itineraryIdParamSchema,
   itineraryOwnerQuerySchema,
   itinerarySessionParamSchema,
@@ -19,6 +20,20 @@ export function createItineraryApi(service: ItineraryService) {
     "/trending",
     zValidator("query", trendingQuerySchema),
     async (c) => c.json(await service.listTrending({ limit: c.req.valid("query").limit })),
+  );
+
+  // Registered before `/:id` like `/trending`.
+  api.get(
+    "/feed",
+    requireAuth,
+    zValidator("query", feedQuerySchema),
+    async (c) =>
+      c.json(
+        await service.listFeed({
+          ...c.req.valid("query"),
+          userId: c.get("auth").user.id,
+        }),
+      ),
   );
 
   api.get(

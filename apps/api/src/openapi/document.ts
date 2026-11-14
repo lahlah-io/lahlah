@@ -1372,6 +1372,44 @@ export const openApiDocument: OpenApiDocument = {
       },
     },
 
+    "/api/v1/itineraries/feed": {
+      get: {
+        tags: ["Itineraries"],
+        summary: "List published itineraries for the home feed",
+        operationId: "getTripFeed",
+        description:
+          "Requires a session. Returns trips with `isPublic: true` ordered by `updatedAt` desc (publishing " +
+          "bumps it, so fresh trips rise). `stopCount`, `destinationNames`, and `coverImageUrl` come from " +
+          "the newest itinerary version; `coverImageUrl` is wrapped in the image proxy when the photo host " +
+          "is allowlisted, otherwise the raw URL, or `null` when no stop has a photo.\n\n" +
+          "Paging: increment `page` while `meta.hasMore` is true. `page`/`limit` can repeat an item if a trip " +
+          "is published between two requests; switch to a cursor if that ever matters.",
+        security: sessionSecurity,
+        parameters: [
+          {
+            name: "page",
+            in: "query",
+            required: false,
+            description: "1-based page number.",
+            schema: { type: "integer", minimum: 1, default: 1 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            required: false,
+            description: "Cards per page (1-50, default 12).",
+            schema: { type: "integer", minimum: 1, maximum: 50, default: 12 },
+          },
+        ],
+        responses: {
+          "200": { description: "Feed page.", content: json(ref("FeedPage")) },
+          "400": validation,
+          "401": unauthorized,
+          "500": internal,
+        },
+      },
+    },
+
     "/api/v1/itineraries/trending": {
       get: {
         tags: ["Itineraries"],
