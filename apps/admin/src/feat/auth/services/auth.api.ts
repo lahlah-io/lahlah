@@ -11,15 +11,20 @@ export type ExchangeResult = {
 /**
  * Tukar `pid_code` sekali pakai dari popup PeridotID menjadi sesi Lahlah.
  * Header `X-Session-Mode: bearer` meminta token sesi di body untuk klien SPA.
+ * `redirectUri` wajib Peridot (OAuth binding): harus sama persis dengan URL
+ * tempat kode diterima — diisi `window.location.origin` pemanggil.
  */
-export async function exchangePidCode(code: string): Promise<ExchangeResult> {
+export async function exchangePidCode(
+  code: string,
+  redirectUri: string,
+): Promise<ExchangeResult> {
   const response = await apiRequest<DataEnvelope<ExchangeResult>>(
     "/api/v1/auth/peridot/exchange",
     {
       method: "POST",
       token: null,
       headers: { "X-Session-Mode": "bearer" },
-      body: { code },
+      body: { code, redirectUri },
     },
   );
   return response.data;

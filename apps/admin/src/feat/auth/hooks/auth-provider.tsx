@@ -103,10 +103,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const loginWithPeridot = useCallback(async (): Promise<AdminUser> => {
-    const { pidCode } = await getPeridotClient().auth.loginPopup();
+    const { pidCode } = await (await getPeridotClient()).auth.loginPopup();
     if (!pidCode) throw new Error("Login dibatalkan.");
 
-    const exchanged = await authApi.exchangePidCode(pidCode);
+    const exchanged = await authApi.exchangePidCode(pidCode, window.location.origin);
     if (!exchanged.token) throw new Error("Sesi tidak diterbitkan API.");
 
     setApiSessionToken(exchanged.token);
@@ -131,7 +131,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Token bisa saja sudah kedaluwarsa; sesi lokal tetap harus dibersihkan.
     }
     try {
-      await getPeridotClient().auth.logout();
+      await (await getPeridotClient()).auth.logout();
     } catch {
       // Sesi PeridotID opsional; sesi Lahlah sudah dicabut di atas.
     }
