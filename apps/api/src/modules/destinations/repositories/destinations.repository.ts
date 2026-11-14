@@ -12,6 +12,7 @@ export const destinationSelect = {
   latitude: true,
   longitude: true,
   address: true,
+  city: true,
   source: true,
   sourcePlaceId: true,
   createdBy: true,
@@ -54,10 +55,12 @@ export function toDestinationResponse(record: DestinationRecord): DestinationRes
 }
 
 export async function findDestinations(input: z.infer<typeof listDestinationsQuerySchema>) {
+  const categoryId = input.categoryId ?? input.category;
   const where: Prisma.DestinationWhereInput = {
     ...(input.isActive === undefined ? {} : { isActive: input.isActive }),
     ...(input.source === undefined ? {} : { source: input.source }),
-    ...(input.categoryId ? { categories: { some: { categoryId: input.categoryId } } } : {}),
+    ...(input.city ? { city: input.city } : {}),
+    ...(categoryId ? { categories: { some: { categoryId } } } : {}),
     ...(input.q
       ? {
           OR: [
@@ -84,6 +87,9 @@ export async function findDestinations(input: z.infer<typeof listDestinationsQue
 
 export const findDestinationById = (id: string) =>
   prisma.destination.findUnique({ where: { id }, select: destinationSelect });
+
+export const findActiveForKnowledgeBase = () =>
+  prisma.destination.findMany({ where: { city: "Padang", isActive: true }, select: destinationSelect });
 
 export function insertDestination(
   data: Prisma.DestinationUncheckedCreateInput,

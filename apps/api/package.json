@@ -3,30 +3,39 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "files": ["dist", "prisma", "src/generated"],
+  "files": [
+    "dist",
+    "prisma",
+    "src/generated"
+  ],
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "dev:session": "tsx src/scripts/dev-session.ts",
     "build": "prisma generate && tsc",
     "start": "node --env-file-if-exists=.env dist/index.js",
     "start:container": "node dist/index.js",
-    "lint": "eslint . --max-warnings 0",
+    "lint": "node ../../scripts/check-backend-structure.mjs && eslint . --max-warnings 0",
     "check-types": "tsc --noEmit",
     "test": "pnpm test:unit && pnpm test:integration",
-    "test:unit": "tsx --test tests/unit/**/*.test.ts",
-    "test:integration": "tsx --test tests/integration/**/*.test.ts",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "eval:llm": "tsx tests/evaluation/evaluation-runner.ts",
     "db:generate": "prisma generate",
     "postinstall": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:migrate:create": "prisma migrate dev --create-only",
     "db:deploy": "prisma migrate deploy",
     "db:migrate:status": "prisma migrate status",
+    "db:studio": "prisma studio",
+    "db:seed": "prisma db seed",
     "db:expire-subscriptions": "tsx src/scripts/expire-subscriptions.ts",
-    "db:studio": "prisma studio"
+    "scrape:destinations": "tsx src/scripts/scrape-destinations.ts",
+    "scrape:destinations:review": "tsx src/scripts/scrape-destinations-review.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.0",
     "@hono/zod-validator": "^0.9.1",
+    "@huggingface/transformers": "^4.3.2",
     "@prisma/adapter-pg": "^7.10.1",
     "@prisma/client": "^7.10.1",
     "dotenv": "^16.6.1",
@@ -40,6 +49,7 @@
     "eslint": "10.9.1",
     "prisma": "^7.10.1",
     "tsx": "^4.20.5",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "vitest": "^5.1.0"
   }
 }

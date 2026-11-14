@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
 import { app } from "../../src/app.js";
@@ -42,7 +42,7 @@ test("plan saya dan kuota menghitung pemakaian nyata", async () => {
       })),
     });
 
-    await prisma.itinerary.createMany({
+    await prisma.trip.createMany({
       data: [1, 2].map((index) => ({
         userId: session.user.id,
         title: `Itinerary ${index}`,

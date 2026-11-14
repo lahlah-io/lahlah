@@ -8,7 +8,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --port 5173",
     "lint": "node ../../scripts/check-frontend-structure.mjs && eslint . --max-warnings 0",
-    "check-types": "tsc --noEmit"
+    "check-types": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.3.0",
@@ -34,7 +35,10 @@
     "@types/react-dom": "19.2.5",
     "@vitejs/plugin-react": "^5.2.0",
     "eslint": "10.9.1",
+    "maplibre-gl": "6.17.0",
+    "playwright": "^1.65.0",
     "typescript": "7.0.2",
-    "vite": "^7.3.1"
+    "vite": "^7.3.1",
+    "vitest": "^5.1.0"
   }
 }

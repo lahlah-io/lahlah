@@ -14,6 +14,9 @@ export type Actor = { id: string };
 
 export const listDestinations = destinationsRepository.findDestinations;
 
+export const listKnowledgeBaseDestinations = () =>
+  destinationsRepository.findActiveForKnowledgeBase().then((rows) => rows.map(toDestinationResponse));
+
 export async function getDestination(id: string) {
   const destination = await destinationsRepository.findDestinationById(id);
   if (!destination) throw new HttpError(404, "DESTINATION_NOT_FOUND", "Destination not found");

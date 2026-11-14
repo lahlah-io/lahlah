@@ -5,6 +5,7 @@
   "private": true,
   "exports": {
     "./base": "./base.js",
+    "./backend": "./backend.js",
     "./frontend": "./frontend.js",
     "./react-internal": "./react-internal.js"
   },

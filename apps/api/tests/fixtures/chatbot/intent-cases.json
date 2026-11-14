@@ -1,0 +1,81 @@
+{
+  "datasetVersion": "chatbot-matrix-1.0",
+  "promptVersion": "intent-v2",
+  "referenceDate": "2026-11-09",
+  "timezone": "Asia/Jakarta",
+  "cases": [
+    {
+      "id": "INT-001",
+      "input": "Saya mau liburan ke Padang",
+      "expectedIntent": "generate_itinerary",
+      "mode": "model",
+      "priority": "high"
+    },
+    {
+      "id": "INT-002",
+      "input": "Buatkan itinerary Padang besok",
+      "expectedIntent": "generate_itinerary",
+      "mode": "rule",
+      "priority": "high"
+    },
+    {
+      "id": "INT-003",
+      "input": "Rekomendasikan tempat wisata di Padang",
+      "expectedIntent": "generate_itinerary",
+      "mode": "model",
+      "priority": "high"
+    },
+    {
+      "id": "INT-004",
+      "input": "Ganti destinasi kedua dengan tempat lain",
+      "expectedIntent": "replace_destination",
+      "mode": "rule",
+      "priority": "high"
+    },
+    {
+      "id": "INT-005",
+      "input": "Buat ulang itinerary saya",
+      "expectedIntent": "regenerate_itinerary",
+      "mode": "rule",
+      "priority": "high"
+    },
+    {
+      "id": "INT-006",
+      "input": "Saya setuju dengan itinerary ini",
+      "expectedIntent": "confirm_itinerary",
+      "mode": "todo",
+      "note": "Intent confirm_itinerary dihapus; konfirmasi kini via pilih/simpan versi (POST /itineraries/:id/versions/:version/select), bukan pesan chat.",
+      "priority": "high"
+    },
+    {
+      "id": "INT-007",
+      "input": "Apa itu Pantai Padang?",
+      "expectedIntent": "general_chat",
+      "mode": "model",
+      "priority": "medium"
+    },
+    {
+      "id": "INT-008",
+      "input": "Berapa lama perjalanan ke tempat berikutnya?",
+      "expectedIntent": "itinerary_question",
+      "mode": "todo",
+      "note": "Label intent itinerary_question belum diimplementasikan; pertanyaan konteks jatuh ke general_chat/missing_information.",
+      "priority": "medium"
+    },
+    {
+      "id": "INT-009",
+      "input": "Hapus destinasi terakhir",
+      "expectedIntent": "remove_destination",
+      "mode": "rule",
+      "priority": "high"
+    },
+    {
+      "id": "INT-010",
+      "input": "Saya ingin liburan ke Bukittinggi",
+      "expectedIntent": "out_of_scope",
+      "mode": "todo",
+      "note": "Label out_of_scope belum ada; backend tetap scoped Padang, tetapi bukan lewat label intent.",
+      "priority": "high"
+    }
+  ]
+}

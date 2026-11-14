@@ -1,5 +1,5 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+﻿import assert from "node:assert/strict";
+import { test } from "vitest";
 import { paginationQuerySchema } from "../../../src/shared/schemas/pagination.schema.js";
 
 test("pagination schema applies defaults and bounds page size", () => {

@@ -1,6 +1,6 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import test from "node:test";
+import { test } from "vitest";
 import { app } from "../../src/app.js";
 import { createTestSession, deleteTestUser } from "./helpers/session.js";
 

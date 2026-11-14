@@ -27,7 +27,7 @@ async function cleanupUser(userId: string): Promise<void> {
     await tx.userSubscription.deleteMany({ where: { userId } });
     await tx.chatMessage.deleteMany({ where: { session: { userId } } });
     await tx.chatSession.deleteMany({ where: { userId } });
-    await tx.itinerary.deleteMany({ where: { userId } });
+    await tx.trip.deleteMany({ where: { members: { some: { userId } } } });
     await tx.user.deleteMany({ where: { id: userId } });
   });
 }

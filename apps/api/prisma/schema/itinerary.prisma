@@ -1,52 +1,128 @@
-enum ItineraryStatus {
-  draft
-  final
+enum TripRole {
+  owner
+  editor
+  viewer
 }
 
-model Itinerary {
-  id           String                 @id @default(uuid()) @db.Uuid
-  userId       String                 @map("user_id") @db.Uuid
-  sessionId    String?                @unique @map("session_id") @db.Uuid
-  title        String                 @db.VarChar
-  content      String                 @db.Text
-  status       ItineraryStatus        @default(draft)
-  isPublic     Boolean                @default(false) @map("is_public")
-  shareSlug    String?                @unique @map("share_slug") @db.VarChar
-  metadata     Json                   @default("{}")
-  createdAt    DateTime               @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt    DateTime               @updatedAt @map("updated_at") @db.Timestamptz
-  user         User                   @relation(fields: [userId], references: [id], onDelete: Restrict)
-  session      ChatSession?           @relation(fields: [sessionId], references: [id], onDelete: SetNull)
-  destinations ItineraryDestination[]
+model Trip {
+  id             String       @id @default(uuid()) @db.Uuid
+  sessionId      String?      @unique @map("session_id") @db.Uuid
+  title          String       @db.VarChar
+  startDate      DateTime?    @map("start_date") @db.Date
+  isPublic       Boolean      @default(false) @map("is_public")
+  shareSlug      String?      @unique @map("share_slug") @db.VarChar
+  currentVersion Int          @default(1) @map("current_version")
+  metadata       Json         @default("{}")
+  deletedAt      DateTime?    @map("deleted_at") @db.Timestamptz
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz
 
-  @@map("itinerary")
+  session      ChatSession?      @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  members      UserTrip[]
+  versions     TripVersion[]
+  destinations TripDestination[]
+
+  @@map("trips")
 }
 
-model ItineraryDestination {
-  id            String                  @id @default(uuid()) @db.Uuid
-  itineraryId   String                  @map("itinerary_id") @db.Uuid
-  destinationId String                  @map("destination_id") @db.Uuid
-  visitAt       DateTime?               @map("visit_at") @db.Timestamptz
-  estimatedCost Float?                  @map("estimated_cost")
-  notes         String?                 @db.Text
-  createdAt     DateTime                @default(now()) @map("created_at") @db.Timestamptz
-  itinerary     Itinerary               @relation(fields: [itineraryId], references: [id], onDelete: Cascade)
-  destination   Destination             @relation(fields: [destinationId], references: [id], onDelete: Restrict)
+model UserTrip {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tripId    String    @map("trip_id") @db.Uuid
+  role      TripRole  @default(owner)
+  status    String?   @db.VarChar
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  trip Trip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, tripId])
+  @@index([userId])
+  @@index([tripId])
+  @@map("user_trips")
+}
+
+model TripDestination {
+  id            String                   @id @default(uuid()) @db.Uuid
+  tripId        String                   @map("trip_id") @db.Uuid
+  destinationId String                   @map("destination_id") @db.Uuid
+  position      Int?
+  isActive      Boolean                  @default(true) @map("is_active")
+  visitAt       DateTime?                @map("visit_at") @db.Timestamptz
+  estimatedCost Float?                   @map("estimated_cost")
+  notes         String?                  @db.Text
+  createdAt     DateTime                 @default(now()) @map("created_at") @db.Timestamptz
+  trip          Trip                     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  destination   Destination              @relation(fields: [destinationId], references: [id], onDelete: Restrict)
   checkpoints   DestinationCheckpoint[]
 
-  @@index([itineraryId, visitAt])
-  @@map("itinerary_destinations")
+  @@unique([tripId, destinationId])
+  @@index([tripId, visitAt])
+  @@index([tripId, isActive])
+  @@map("trip_destinations")
 }
 
 model DestinationCheckpoint {
-  id                     String               @id @default(uuid()) @db.Uuid
-  itineraryDestinationId String               @map("itinerary_destination_id") @db.Uuid
-  userId                 String               @map("user_id") @db.Uuid
-  imageUrl               String               @map("image_url") @db.VarChar
-  metadata               Json                 @default("{}")
-  createdAt              DateTime             @default(now()) @map("created_at") @db.Timestamptz
-  itineraryDestination   ItineraryDestination @relation(fields: [itineraryDestinationId], references: [id], onDelete: Cascade)
-  user                   User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+  id                String          @id @default(uuid()) @db.Uuid
+  tripDestinationId String          @map("trip_destination_id") @db.Uuid
+  userId            String          @map("user_id") @db.Uuid
+  imageUrl          String          @map("image_url") @db.VarChar
+  metadata          Json            @default("{}")
+  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  tripDestination   TripDestination @relation(fields: [tripDestinationId], references: [id], onDelete: Cascade)
+  user              User            @relation(fields: [userId], references: [id], onDelete: Restrict)
 
   @@map("destination_checkpoints")
+}
+
+model TripVersion {
+  id                String     @id @default(uuid()) @db.Uuid
+  tripId            String     @map("trip_id") @db.Uuid
+  version           Int
+  basedOnVersion    Int?       @map("based_on_version")
+  changeInstruction String?    @map("change_instruction") @db.Text
+  changeType        String     @map("change_type") @db.VarChar
+  totalDistanceM    Int?       @map("total_distance_m")
+  totalDurationMin  Int?       @map("total_duration_min")
+  totalEstimatedMin Int?       @map("total_estimated_min")
+  status            String     @db.VarChar
+  isSaved           Boolean    @default(false) @map("is_saved")
+  isSelected        Boolean    @default(false) @map("is_selected")
+  sourceMessageId   String?    @map("source_message_id") @db.Uuid
+  routeJson         Json?      @map("route_json")
+  expiresAt         DateTime?  @map("expires_at") @db.Timestamptz
+  createdAt         DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  stops             TripStop[]
+  trip              Trip       @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  sourceMessage     ChatMessage? @relation(fields: [sourceMessageId], references: [id], onDelete: SetNull)
+
+  @@unique([tripId, version])
+  @@index([tripId, version])
+  @@index([tripId, isSelected])
+  @@index([tripId, isSaved])
+  @@map("trip_versions")
+}
+
+model TripStop {
+  id                String      @id @default(uuid()) @db.Uuid
+  tripVersionId     String      @map("trip_version_id") @db.Uuid
+  destinationId     String?     @map("destination_id") @db.Uuid
+  position          Int
+  name              String      @db.VarChar
+  latitude          Decimal     @db.Decimal(10, 7)
+  longitude         Decimal     @db.Decimal(10, 7)
+  arrivalTime       String?     @map("arrival_time") @db.VarChar
+  departureTime     String?     @map("departure_time") @db.VarChar
+  visitDurationMin  Int?        @map("visit_duration_min")
+  travelDurationMin Int?        @map("travel_duration_min")
+  notes             String?     @db.Text
+  category          String?     @db.VarChar
+  snapshotJson      Json?       @map("snapshot_json")
+  version           TripVersion @relation(fields: [tripVersionId], references: [id], onDelete: Cascade)
+  destination       Destination? @relation(fields: [destinationId], references: [id])
+
+  @@unique([tripVersionId, position])
+  @@index([tripVersionId, position])
+  @@map("trip_version_stops")
 }

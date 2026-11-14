@@ -1,0 +1,71 @@
+{
+  "datasetVersion": "chatbot-matrix-1.0",
+  "promptVersion": "prompt-v1",
+  "model": "not-run-mvp",
+  "referenceDate": "2026-11-09",
+  "timezone": "Asia/Jakarta",
+  "postMvp": [
+    "Promptfoo untuk membandingkan prompt otomatis.",
+    "Langfuse untuk trace dan monitoring produksi.",
+    "LLM-as-judge dengan dataset lebih besar."
+  ],
+  "cases": [
+    {
+      "id": "PRM-001",
+      "promptType": "system",
+      "scenario": "User meminta itinerary Padang",
+      "expected": "Mematuhi scope Padang",
+      "mode": "structural"
+    },
+    {
+      "id": "PRM-002",
+      "promptType": "system",
+      "scenario": "User meminta itinerary Bali",
+      "expected": "Menolak di luar scope",
+      "mode": "structural"
+    },
+    {
+      "id": "PRM-003",
+      "promptType": "intent",
+      "scenario": "User bertanya tentang tempat wisata",
+      "expected": "Intent benar",
+      "mode": "structural"
+    },
+    {
+      "id": "PRM-004",
+      "promptType": "extraction",
+      "scenario": "User memberikan jam perjalanan",
+      "expected": "Ekstraksi waktu benar",
+      "mode": "structural"
+    },
+    {
+      "id": "PRM-005",
+      "promptType": "extraction",
+      "scenario": "User tidak memberikan tanggal",
+      "expected": "Menandai parameter kosong",
+      "mode": "structural"
+    },
+    {
+      "id": "PRM-006",
+      "promptType": "itinerary",
+      "scenario": "User meminta kategori tertentu",
+      "expected": "Mengikuti kategori",
+      "mode": "structural"
+    },
+    {
+      "id": "PRM-007",
+      "promptType": "response",
+      "scenario": "Data harga tidak tersedia",
+      "expected": "Tidak mengarang harga",
+      "mode": "structural"
+    },
+    {
+      "id": "PRM-008",
+      "promptType": "response",
+      "scenario": "User menggunakan bahasa Inggris",
+      "expected": "Menjawab dengan bahasa yang sesuai",
+      "mode": "todo",
+      "note": "Bahasa balasan belum dinamis; template memakai Bahasa Indonesia."
+    }
+  ]
+}

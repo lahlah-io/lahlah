@@ -16,7 +16,7 @@ model User {
   sessions               Session[]
   subscriptions          UserSubscription[]
   chatSessions           ChatSession[]
-  itineraries            Itinerary[]
+  userTrips              UserTrip[]
   createdDestinations    Destination[]           @relation("DestinationCreator")
   destinationCheckpoints DestinationCheckpoint[]
   activityLogs           ActivityLog[]

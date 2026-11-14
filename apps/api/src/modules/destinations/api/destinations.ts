@@ -17,8 +17,7 @@ import {
 
 const destinationsApi = new Hono<{ Variables: AuthVariables }>();
 
-destinationsApi.use("*", requireAdmin);
-
+// GET publik: chat/RAG butuh katalog tanpa sesi admin. Tulis tetap requireAdmin.
 destinationsApi.get("/", zValidator("query", listDestinationsQuerySchema), async (c) =>
   c.json(await listDestinations(c.req.valid("query"))),
 );
@@ -27,12 +26,13 @@ destinationsApi.get("/:id", zValidator("param", destinationIdSchema), async (c) 
   c.json({ data: await getDestination(c.req.valid("param").id) }),
 );
 
-destinationsApi.post("/", zValidator("json", createDestinationSchema), async (c) =>
+destinationsApi.post("/", requireAdmin, zValidator("json", createDestinationSchema), async (c) =>
   c.json({ data: await createDestination(c.req.valid("json"), c.get("auth").user) }, 201),
 );
 
 destinationsApi.patch(
   "/:id",
+  requireAdmin,
   zValidator("param", destinationIdSchema),
   zValidator("json", updateDestinationSchema),
   async (c) =>
@@ -45,7 +45,7 @@ destinationsApi.patch(
     }),
 );
 
-destinationsApi.delete("/:id", zValidator("param", destinationIdSchema), async (c) =>
+destinationsApi.delete("/:id", requireAdmin, zValidator("param", destinationIdSchema), async (c) =>
   c.json({ data: await deleteDestination(c.req.valid("param").id, c.get("auth").user) }),
 );
 

@@ -129,5 +129,5 @@ export function countChatSessions(userId: string): Promise<number> {
 }
 
 export function countItineraries(userId: string): Promise<number> {
-  return prisma.itinerary.count({ where: { userId } });
+  return prisma.trip.count({ where: { deletedAt: null, members: { some: { userId } } } });
 }

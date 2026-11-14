@@ -41,7 +41,7 @@ apps/api/
         └── schemas/             # Skema lintas fitur, misalnya pagination
 ```
 
-Modul yang ada: `auth`, `users`, `models`, `subscription-plans`, `subscriptions`, dan `destinations` (berisi destinations sekaligus categories). Fitur `chat` dan `itinerary` belum dibuat.
+Modul yang ada: `auth`, `users`, `models`, `subscription-plans`, `subscriptions`, `destinations` (destinations sekaligus categories), `chat`, `itinerary` (termasuk `Trip`/`UserTrip`), dan `routing`.
 
 Session, billing, dan audit ditaruh di `shared/` karena dipakai beberapa modul sekaligus dan modul tidak boleh saling mengimpor. `shared/` boleh mengakses Prisma melalui repository-nya sendiri, tetapi tidak boleh mengimpor `modules/`.
 
@@ -51,6 +51,7 @@ Jangan membuat direktori kosong atau menyiapkan lapisan untuk fitur yang belum a
 
 - Endpoint fitur berada di bawah `/api/v1` dan dipasang melalui `src/routes.ts`.
 - `GET /health/live` memeriksa proses; `GET /health/ready` juga menguji koneksi PostgreSQL dan memberi status 503 bila DB tidak tersedia.
+- Dokumentasi OpenAPI runtime disusun di `src/openapi/` (`document.ts`/`schemas.ts`, disajikan di `GET /openapi.json` dan `GET /docs`). Validator kontrak respons (`responseShapes`/`responseSchemas`) tetap di `src/openapi.ts` untuk `tests/integration/openapi.contract.test.ts`. Tes `tests/unit/openapi.test.ts` menjaga setiap rute `/api/v1` terdaftar di dokumen; `tests/unit/features/openapi/document.test.ts` menjaga `$ref`/`operationId`/guard admin. Saat bentuk respons berubah, perbarui kedua sumber tersebut.
 - Middleware global memasang request ID, log JSON (matikan dengan `LOG_LEVEL=silent`), security headers, CORS, dan batas body API 1 MiB.
 - Error memakai bentuk `{ "error": { "code": "...", "message": "..." } }`. Jangan bocorkan detail database atau exception internal.
 - Konfigurasi runtime dibaca dan divalidasi sekali melalui `src/env.ts`. Simpan rahasia di `apps/api/.env` lokal; hanya contoh tanpa rahasia boleh masuk `.env.example`.
@@ -73,7 +74,7 @@ File di `prisma/schema/` mencakup seluruh 14 tabel ERD: users, models, subscript
   Tidak ada kolom password; autentikasi sepenuhnya lewat PeridotID.
 - `User.email` opsional karena identitas PeridotID bisa tidak punya email (passkey-only), tetapi tetap unik bila terisi. User yang dibuat admin boleh punya email lebih dulu; saat login pertama dengan email yang sama, `pid` PeridotID ditautkan ke baris tersebut.
 - Tabel `sessions` menyimpan hash token (bukan token asli), masa berlaku, dan waktu pencabutan.
-- `DestinationSource` saat ini mencakup `geoapify`, `admin`, dan `user`; unique place ID dibatasi per sumber.
+- `DestinationSource` mencakup `geoapify`, `firecrawl`, `overpass`, `wikidata`, `manual`, `admin`, dan `user`. Unique place ID dibatasi per sumber. `canonical_key` (nama ternormalisasi, unik) mencegah baris ganda saat sumber pemenang berubah.
 - Jangan gunakan `prisma db push` pada lingkungan bersama/terpasang. Gunakan migrasi yang ditinjau dan `migrate deploy` untuk penerapan.
 
 ## Autentikasi dan sesi
@@ -98,7 +99,7 @@ List dibatasi hingga 1–100 data per halaman. Respons hanya memilih field yang 
 
 ## Fitur destinations dan categories
 
-Satu modul `destinations` mengekspor dua router: `categoriesApi` dan `destinationsApi`. Keduanya dipasang di `/api/v1/categories` dan `/api/v1/destinations` dan seluruh route memakai `requireAdmin` (termasuk `GET`).
+Satu modul `destinations` mengekspor dua router: `categoriesApi` dan `destinationsApi`. Keduanya dipasang di `/api/v1/categories` dan `/api/v1/destinations`. `GET /destinations` publik untuk chat/RAG; tulis (`POST`/`PATCH`/`DELETE`) tetap memakai `requireAdmin`.
 
 - `api/categories.ts`: `GET /`, `GET /:id`, `POST /`, `PATCH /:id`, dan `DELETE /:id`.
 - `schemas/category.schema.ts`: nama 1–255 karakter, slug opsional dengan pola `^[a-z0-9]+(?:-[a-z0-9]+)*$`, query pencarian `q`, dan pagination bersama.
@@ -128,6 +129,21 @@ Satu modul `destinations` mengekspor dua router: `categoriesApi` dan `destinatio
 - Tes integrasi membuat user dan sesi langsung lewat Prisma (`tests/integration/helpers/session.ts`) sehingga tidak memanggil PeridotID. Alur exchange diuji dengan `fetch` yang di-stub.
 - Data uji memakai email/UUID unik dan dibersihkan di blok `finally` tanpa menghapus data pengguna lain.
 
+## Skrip data destinasi
+
+`src/scripts/scrape-destinations.ts` mengisi tabel `destinations` dari Geoapify, Firecrawl, Overpass, Wikidata, daftar manual, GoSom, dan Apify.
+
+- Jalankan `pnpm --filter api scrape:destinations`. Tambahkan `--dry-run` untuk melihat hasil tanpa menulis, atau `--source=<nama>` untuk satu sumber.
+- Sumber tanpa API key dilewati, bukan dianggap gagal.
+- Asal data disimpan di `destinations.source` dan `details.mergedSources`.
+- Skrip tidak dijalankan otomatis dan tidak diekspos sebagai endpoint.
+
+## Chat, itinerary, dan routing
+
+- `chat`: sesi/pesan percakapan + RAG destinasi Padang + tool calls (`search_destinations`, `get_destination_details`) + versi pesan regenerate/activate. Cari destinasi tidak memakai baris `source=admin` tanpa kategori (output scraper belum kurasi).
+- `itinerary`: versi immutable + select/save/restore/publish, sinkron destinasi final, `Trip`/`UserTrip` untuk kolaborasi (`owner`/`editor`/`viewer`).
+- `routes`: kalkulasi rute OSRM (`car`/`motorcycle`/`foot`); fallback garis lurus `source: fallback` saat provider gagal/timeout.
+
 ## Belum termasuk
 
-Klien model OpenAI-compatible dan API key provider, Cloudflare R2, integrasi pembayaran, endpoint chat/itinerary, serta deployment production belum dibuat. Tambahkan masing-masing ketika perilaku dan kredensialnya memang dibutuhkan.
+Klien API key/provider model tambahan, Cloudflare R2, integrasi pembayaran, serta deployment production belum dibuat. Tambahkan masing-masing ketika perilaku dan kredensialnya memang dibutuhkan.

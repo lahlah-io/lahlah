@@ -23,6 +23,7 @@ coverage/
 npm-debug.log*
 pnpm-debug.log*
 yarn-debug.log*
+apps/api/log/
 
 # Editor and OS files
 .DS_Store
@@ -37,3 +38,9 @@ yarn-debug.log*
 # Husky hooks and commitlint config stay local-only
 .husky/
 commitlint.config.cjs
+
+docs/superpowers
+
+.playwright-mcp
+
+chat-e2e-*.png

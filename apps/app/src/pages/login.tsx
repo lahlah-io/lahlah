@@ -12,7 +12,7 @@ import {
 export function LoginPage() {
   const { status } = useAuth();
 
-  if (status === "authenticated") return <Navigate to="/" replace />;
+  if (status === "authenticated") return <Navigate to="/chat" replace />;
 
   return (
     <main className="flex min-h-svh items-center justify-center p-6">

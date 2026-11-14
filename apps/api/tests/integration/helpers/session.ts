@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+﻿import { randomUUID } from "node:crypto";
 import { prisma } from "../../../src/db/client.js";
 import { env } from "../../../src/env.js";
 import type { Role } from "../../../src/generated/prisma/enums.js";
@@ -52,7 +52,7 @@ export async function deleteTestUser(userId: string): Promise<void> {
     await tx.userSubscription.deleteMany({ where: { userId } });
     await tx.chatMessage.deleteMany({ where: { session: { userId } } });
     await tx.chatSession.deleteMany({ where: { userId } });
-    await tx.itinerary.deleteMany({ where: { userId } });
+    await tx.trip.deleteMany({ where: { members: { some: { userId } } } });
     await tx.user.deleteMany({ where: { id: userId } });
   });
 }

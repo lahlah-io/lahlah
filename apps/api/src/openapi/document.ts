@@ -61,6 +61,14 @@ const idPath = (description: string): OpenApiParameter => ({
   schema: { type: "string", format: "uuid" },
 });
 
+const versionPath = (description: string): OpenApiParameter => ({
+  name: "version",
+  in: "path",
+  required: true,
+  description,
+  schema: { type: "integer", minimum: 1 },
+});
+
 const pageQuery: OpenApiParameter = {
   name: "page",
   in: "query",
@@ -124,7 +132,10 @@ export const openApiDocument: OpenApiDocument = {
     { name: "Subscription Plans", description: "Plan catalog and admin CRUD (name is unique; free plan protected)." },
     { name: "Subscriptions", description: "The caller's plan, models, history, and quota (read-only)." },
     { name: "Categories", description: "Admin destination categories (create a category before destinations use it)." },
-    { name: "Destinations", description: "Admin destination catalog (delete is soft; create accepts `categoryIds[]`)." },
+    { name: "Destinations", description: "Destination catalog. Reads are public; writes are admin (delete is soft; create accepts `categoryIds[]`)." },
+    { name: "Chat", description: "Conversational trip planning with RAG destinations and tool calls." },
+    { name: "Itineraries", description: "Trip itineraries with versions, stops, and publish/restore." },
+    { name: "Routes", description: "OSRM driving routes between waypoints." },
     { name: "Health", description: "Liveness and readiness probes." },
   ],
   components: {
@@ -885,7 +896,7 @@ export const openApiDocument: OpenApiDocument = {
         tags: ["Destinations"],
         summary: "List destinations",
         operationId: "listDestinations",
-        security: sessionSecurity,
+        description: "Public read for chat/RAG. Admin filters (`source`, `isActive`) still apply when given.",
         parameters: [
           pageQuery,
           limitQuery,
@@ -894,21 +905,34 @@ export const openApiDocument: OpenApiDocument = {
           {
             name: "source",
             in: "query",
-            schema: { type: "string", enum: ["geoapify", "admin", "user"] },
+            schema: {
+              type: "string",
+              enum: ["geoapify", "firecrawl", "overpass", "wikidata", "manual", "admin", "user"],
+            },
             description: "Filter by origin.",
+          },
+          {
+            name: "city",
+            in: "query",
+            schema: { type: "string", minLength: 1 },
+            description: "Filter by city (for example `Padang`).",
           },
           {
             name: "categoryId",
             in: "query",
             schema: { type: "string", format: "uuid" },
-            description: "Only destinations tagged with this category.",
+            description: "Only destinations tagged with this category (`category` is an alias).",
+          },
+          {
+            name: "category",
+            in: "query",
+            schema: { type: "string", format: "uuid" },
+            description: "Alias of `categoryId`.",
           },
         ],
         responses: {
           "200": { description: "Paginated destinations.", content: json(list("Destination")) },
           "400": validation,
-          "401": unauthorized,
-          "403": forbidden,
           "500": internal,
         },
       },
@@ -936,54 +960,452 @@ export const openApiDocument: OpenApiDocument = {
       },
     },
 
-    "/api/v1/destinations/{id}": {
-      get: {
-        tags: ["Destinations"],
-        summary: "Get a destination",
-        operationId: "getDestination",
-        security: sessionSecurity,
-        parameters: [idPath("Destination id.")],
+    "/api/v1/chat/sessions": {
+      post: {
+        tags: ["Chat"],
+        summary: "Create a chat session",
+        operationId: "createChatSession",
+        description: "Starts a conversational trip-planning session. `userId` is passed explicitly.",
+        requestBody: body("CreateChatSessionRequest"),
         responses: {
-          "200": { description: "Destination detail.", content: json(single("Destination")) },
+          "201": { description: "Session created.", content: json(single("ChatSession")) },
+          "400": validation,
+          "401": errorResponse("User is inactive (`UNAUTHENTICATED`)."),
+          "500": internal,
+        },
+      },
+      get: {
+        tags: ["Chat"],
+        summary: "List my chat sessions",
+        operationId: "listChatSessions",
+        parameters: [
+          pageQuery,
+          limitQuery,
+          {
+            name: "userId",
+            in: "query",
+            required: true,
+            schema: { type: "string", format: "uuid" },
+            description: "Owner of the sessions.",
+          },
+        ],
+        responses: {
+          "200": { description: "Paginated sessions.", content: json(list("ChatSession")) },
           "400": validation,
           "401": unauthorized,
-          "403": forbidden,
-          "404": notFound("DESTINATION_NOT_FOUND"),
+          "500": internal,
+        },
+      },
+    },
+
+    "/api/v1/chat/sessions/{id}": {
+      get: {
+        tags: ["Chat"],
+        summary: "Get a chat session",
+        operationId: "getChatSession",
+        parameters: [
+          idPath("Chat session id."),
+          {
+            name: "userId",
+            in: "query",
+            required: true,
+            schema: { type: "string", format: "uuid" },
+            description: "Owner of the session.",
+          },
+        ],
+        responses: {
+          "200": { description: "Session detail.", content: json(single("ChatSession")) },
+          "400": validation,
+          "401": unauthorized,
+          "404": notFound("SESSION_NOT_FOUND"),
           "500": internal,
         },
       },
       patch: {
-        tags: ["Destinations"],
-        summary: "Update a destination",
-        operationId: "updateDestination",
-        description:
-          "`details` is merged. `categoryIds` replaces the full tag list. Set `isActive=true` to restore.",
-        security: sessionSecurity,
-        parameters: [idPath("Destination id.")],
-        requestBody: body("UpdateDestinationRequest"),
+        tags: ["Chat"],
+        summary: "Update a chat session",
+        operationId: "updateChatSession",
+        description: "At least one of `title`, `summary`, or `status` must be sent.",
+        parameters: [idPath("Chat session id.")],
+        requestBody: body("UpdateChatSessionRequest"),
         responses: {
-          "200": { description: "Updated destination.", content: json(single("Destination")) },
+          "200": { description: "Updated session.", content: json(single("ChatSession")) },
           "400": validation,
           "401": unauthorized,
-          "403": forbidden,
-          "404": notFound("DESTINATION_NOT_FOUND / CATEGORY_NOT_FOUND"),
+          "404": notFound("SESSION_NOT_FOUND"),
           "500": internal,
         },
       },
       delete: {
-        tags: ["Destinations"],
-        summary: "Soft-delete a destination",
-        operationId: "deleteDestination",
-        description:
-          "Sets `isActive=false` because itineraries reference destinations with `onDelete: Restrict`.",
-        security: sessionSecurity,
-        parameters: [idPath("Destination id.")],
+        tags: ["Chat"],
+        summary: "Delete a chat session",
+        operationId: "deleteChatSession",
+        parameters: [
+          idPath("Chat session id."),
+          {
+            name: "userId",
+            in: "query",
+            required: true,
+            schema: { type: "string", format: "uuid" },
+            description: "Owner of the session.",
+          },
+        ],
         responses: {
-          "200": { description: "Deactivated destination.", content: json(single("Destination")) },
+          "200": { description: "Session deleted.", content: json(single("ChatSessionDeleted")) },
+          "400": validation,
+          "401": unauthorized,
+          "404": notFound("SESSION_NOT_FOUND"),
+          "500": internal,
+        },
+      },
+    },
+
+    "/api/v1/chat/sessions/{id}/messages": {
+      get: {
+        tags: ["Chat"],
+        summary: "List session messages",
+        operationId: "listChatMessages",
+        description:
+          "Without `after_position`, responds with `page`/`limit` and `PaginationMeta`. " +
+          "With `after_position`, responds with keyset pagination and versioned message details.",
+        parameters: [
+          idPath("Chat session id."),
+          {
+            name: "userId",
+            in: "query",
+            required: true,
+            schema: { type: "string", format: "uuid" },
+            description: "Owner of the session.",
+          },
+          pageQuery,
+          limitQuery,
+          {
+            name: "after_position",
+            in: "query",
+            schema: { type: "integer", minimum: 0 },
+            description: "Keyset cursor; switches the response to versioned message details.",
+          },
+        ],
+        responses: {
+          "200": { description: "Messages with pagination.", content: json(list("ChatMessage")) },
           "400": validation,
           "401": unauthorized,
           "403": forbidden,
-          "404": notFound("DESTINATION_NOT_FOUND"),
+          "404": notFound("SESSION_NOT_FOUND"),
+          "500": internal,
+        },
+      },
+      post: {
+        tags: ["Chat"],
+        summary: "Send a message",
+        operationId: "sendChatMessage",
+        description: "Returns the assistant reply, detected intent, and an itinerary version when applicable.",
+        parameters: [idPath("Chat session id.")],
+        requestBody: body("SendChatMessageRequest"),
+        responses: {
+          "200": { description: "Assistant reply.", content: json(single("ChatReply")) },
+          "400": validation,
+          "401": unauthorized,
+          "403": forbidden,
+          "404": notFound("SESSION_NOT_FOUND"),
+          "422": errorResponse("No matching destinations (`NO_MATCHING_DESTINATIONS`)."),
+          "502": errorResponse("AI provider failed (`AI_PROVIDER_ERROR`)."),
+          "500": internal,
+        },
+      },
+    },
+
+    "/api/v1/chat/messages/{id}/regenerate": {
+      post: {
+        tags: ["Chat"],
+        summary: "Regenerate an assistant message",
+        operationId: "regenerateChatMessage",
+        description:
+          "Creates a new version of the same assistant message. A failed provider call is recorded " +
+          "without replacing the last successful version.",
+        parameters: [idPath("Assistant message id.")],
+        requestBody: body("RegenerateChatMessageRequest"),
+        responses: {
+          "200": { description: "New version created.", content: json(single("ChatRegenerateResult")) },
+          "400": validation,
+          "401": unauthorized,
+          "403": forbidden,
+          "404": notFound("MESSAGE_NOT_FOUND"),
+          "422": errorResponse("Message is not an assistant message or has no user context."),
+          "502": errorResponse("AI provider failed (`AI_PROVIDER_ERROR`)."),
+          "500": internal,
+        },
+      },
+    },
+
+    "/api/v1/chat/messages/{id}/versions": {
+      get: {
+        tags: ["Chat"],
+        summary: "List message versions",
+        operationId: "listChatMessageVersions",
+        parameters: [
+          idPath("Assistant message id."),
+          {
+            name: "userId",
+            in: "query",
+            required: true,
+            schema: { type: "string", format: "uuid" },
+            description: "Owner of the message.",
+          },
+        ],
+        responses: {
+          "200": { description: "Version history.", content: json(single("ChatMessageVersions")) },
+          "400": validation,
+          "401": unauthorized,
+          "403": forbidden,
+          "404": notFound("MESSAGE_NOT_FOUND"),
+          "500": internal,
+        },
+      },
+    },
+
+    "/api/v1/chat/messages/{id}/versions/{version}/activate": {
+      patch: {
+        tags: ["Chat"],
+        summary: "Activate a message version",
+        operationId: "activateChatMessageVersion",
+        description: "Switches the active content to the chosen version without deleting the others.",
+        parameters: [idPath("Assistant message id."), versionPath("Message version to activate.")],
+        requestBody: body("ActivateChatMessageVersionRequest"),
+        responses: {
+          "200": { description: "Version activated.", content: json(single("ChatVersionActivation")) },
+          "400": validation,
+          "401": unauthorized,
+          "403": forbidden,
+          "404": notFound("MESSAGE_NOT_FOUND / VERSION_NOT_FOUND"),
+          "500": internal,
+        },
+      },
+    },
+
+    "/api/v1/itineraries/by-session/{sessionId}": {
+      get: {
+        tags: ["Itineraries"],
+        summary: "Get itinerary by session",
+        operationId: "getItineraryBySession",
+        description: "Returns the itinerary and active version snapshot for the session.",
+        parameters: [
+          {
+            name: "sessionId",
+            in: "path",
+            required: true,
+            description: "Chat session id.",
+            schema: { type: "string", format: "uuid" },
+          },
+          {
+            name: "userId",
+            in: "query",
+            required: true,
+            schema: { type: "string", format: "uuid" },
+            description: "Owner of the itinerary.",
+          },
+        ],
+        responses: {
+          "200": { description: "Itinerary detail.", content: json(single("Itinerary")) },
+          "400": validation,
+          "401": unauthorized,
+          "404": notFound("ITINERARY_NOT_FOUND"),
+          "500": internal,
+        },
+      },
+    },
+
+    "/api/v1/itineraries/{id}/versions": {
+      get: {
+        tags: ["Itineraries"],
+        summary: "List itinerary versions",
+        operationId: "listItineraryVersions",
+        parameters: [
+          idPath("Itinerary id."),
+          {
+            name: "userId",
+            in: "query",
+            required: true,
+            schema: { type: "string", format: "uuid" },
+            description: "Owner of the itinerary.",
+          },
+        ],
+        responses: {
+          "200": { description: "Version history, newest last.", content: json(list("ItineraryVersionSummary")) },
+          "400": validation,
+          "401": unauthorized,
+          "404": notFound("ITINERARY_NOT_FOUND"),
+          "500": internal,
+        },
+      },
+    },
+
+    "/api/v1/itineraries/{id}/versions/{version}": {
+      get: {
+        tags: ["Itineraries"],
+        summary: "Get one itinerary version",
+        operationId: "getItineraryVersion",
+        parameters: [
+          idPath("Itinerary id."),
+          versionPath("Version number."),
+          {
+            name: "userId",
+            in: "query",
+            required: true,
+            schema: { type: "string", format: "uuid" },
+            description: "Owner of the itinerary.",
+          },
+        ],
+        responses: {
+          "200": { description: "Version snapshot (stops and route legs).", content: json(single("ItineraryVersion")) },
+          "400": validation,
+          "401": unauthorized,
+          "404": notFound("ITINERARY_NOT_FOUND / VERSION_NOT_FOUND"),
+          "500": internal,
+        },
+      },
+    },
+
+    "/api/v1/itineraries/{id}/versions/{version}/select": {
+      post: {
+        tags: ["Itineraries"],
+        summary: "Select a version as active",
+        operationId: "selectItineraryVersion",
+        description:
+          "One transaction: validates ownership, marks the version selected, syncs final destinations, " +
+          "and confirms the itinerary. No snapshot is mutated.",
+        parameters: [idPath("Itinerary id."), versionPath("Version number.")],
+        requestBody: body("ItineraryOwnerRequest"),
+        responses: {
+          "200": { description: "Active version.", content: json(single("Itinerary")) },
+          "400": validation,
+          "401": unauthorized,
+          "404": notFound("ITINERARY_NOT_FOUND / VERSION_NOT_FOUND"),
+          "500": internal,
+        },
+      },
+    },
+
+    "/api/v1/itineraries/{id}/versions/{version}/save": {
+      post: {
+        tags: ["Itineraries"],
+        summary: "Save an itinerary version",
+        operationId: "saveItineraryVersion",
+        parameters: [idPath("Itinerary id."), versionPath("Version number.")],
+        requestBody: body("ItineraryOwnerRequest"),
+        responses: {
+          "200": { description: "Version marked saved.", content: json(single("ItineraryVersion")) },
+          "400": validation,
+          "401": unauthorized,
+          "404": notFound("ITINERARY_NOT_FOUND / VERSION_NOT_FOUND"),
+          "500": internal,
+        },
+      },
+      delete: {
+        tags: ["Itineraries"],
+        summary: "Unsave an itinerary version",
+        operationId: "unsaveItineraryVersion",
+        parameters: [
+          idPath("Itinerary id."),
+          versionPath("Version number."),
+          {
+            name: "userId",
+            in: "query",
+            required: true,
+            schema: { type: "string", format: "uuid" },
+            description: "Owner of the itinerary.",
+          },
+        ],
+        responses: {
+          "200": { description: "Version no longer saved.", content: json(single("ItineraryVersion")) },
+          "400": validation,
+          "401": unauthorized,
+          "404": notFound("ITINERARY_NOT_FOUND / VERSION_NOT_FOUND"),
+          "500": internal,
+        },
+      },
+    },
+
+    "/api/v1/itineraries/{id}/restore/{version}": {
+      post: {
+        tags: ["Itineraries"],
+        summary: "Restore an itinerary version",
+        operationId: "restoreItineraryVersion",
+        description:
+          "Copies an old snapshot into a new immutable version. Send `expectedVersion` for optimistic " +
+          "concurrency; a mismatch returns 409 `VERSION_CONFLICT`.",
+        parameters: [idPath("Itinerary id."), versionPath("Version number to restore from.")],
+        requestBody: body("RestoreItineraryVersionRequest"),
+        responses: {
+          "200": { description: "New version created from snapshot.", content: json(single("Itinerary")) },
+          "400": validation,
+          "401": unauthorized,
+          "403": forbidden,
+          "404": notFound("ITINERARY_NOT_FOUND / VERSION_NOT_FOUND"),
+          "409": errorResponse("Version changed (`VERSION_CONFLICT`)."),
+          "500": internal,
+        },
+      },
+    },
+
+    "/api/v1/itineraries/{id}/publish/{version}": {
+      post: {
+        tags: ["Itineraries"],
+        summary: "Publish the selected itinerary version",
+        operationId: "publishItineraryVersion",
+        description: "Copies the stops of the chosen version into the final destinations in one transaction.",
+        parameters: [idPath("Itinerary id."), versionPath("Version number.")],
+        requestBody: body("ItineraryOwnerRequest"),
+        responses: {
+          "200": { description: "Version published.", content: json(single("Itinerary")) },
+          "400": validation,
+          "401": unauthorized,
+          "403": forbidden,
+          "404": notFound("ITINERARY_NOT_FOUND / VERSION_NOT_FOUND"),
+          "500": internal,
+        },
+      },
+    },
+
+    "/api/v1/itineraries/{id}": {
+      get: {
+        tags: ["Itineraries"],
+        summary: "Get my itinerary",
+        operationId: "getItinerary",
+        description: "Returns the itinerary with its active version snapshot (stops and route legs).",
+        parameters: [
+          idPath("Itinerary id."),
+          {
+            name: "userId",
+            in: "query",
+            required: true,
+            schema: { type: "string", format: "uuid" },
+            description: "Owner of the itinerary.",
+          },
+        ],
+        responses: {
+          "200": { description: "Itinerary detail.", content: json(single("Itinerary")) },
+          "400": validation,
+          "401": unauthorized,
+          "404": notFound("ITINERARY_NOT_FOUND"),
+          "500": internal,
+        },
+      },
+    },
+
+    "/api/v1/routes/driving": {
+      post: {
+        tags: ["Routes"],
+        summary: "Calculate a driving route",
+        operationId: "calculateDrivingRoute",
+        description:
+          "Requests an OSRM route for `car`, `motorcycle`, or `foot` (`motorcycle` maps to driving with " +
+          "adjusted duration). When OSRM fails or times out, responds 200 with `source: \"fallback\"` " +
+          "and a straight-line geometry (render as a dashed line).",
+        requestBody: body("CalculateRouteRequest"),
+        responses: {
+          "200": { description: "Route or fallback.", content: json(single("RouteResult")) },
+          "400": validation,
           "500": internal,
         },
       },

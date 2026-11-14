@@ -85,3 +85,12 @@ test("filter daftar destination mengubah isActive menjadi boolean", () => {
   assert.equal(listDestinationsQuerySchema.safeParse({ isActive: "yes" }).success, false);
   assert.equal(listDestinationsQuerySchema.safeParse({ source: "unknown" }).success, false);
 });
+
+test("filter daftar destination mendukung city dan alias category", () => {
+  const parsed = listDestinationsQuerySchema.parse({
+    city: "Padang",
+    category: "00000000-0000-4000-8000-000000000001",
+  });
+  assert.equal(parsed.city, "Padang");
+  assert.equal(parsed.category, "00000000-0000-4000-8000-000000000001");
+});

@@ -1,5 +1,5 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+﻿import assert from "node:assert/strict";
+import { test } from "vitest";
 import { app } from "../../src/app.js";
 
 test("live health endpoint returns request id", async () => {

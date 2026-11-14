@@ -21,7 +21,10 @@ const subscriptionStatus: SchemaObject = {
   enum: ["active", "canceled", "expired", "pending"],
 };
 const billingInterval: SchemaObject = { type: "string", enum: ["monthly", "yearly", "forever"] };
-const destinationSource: SchemaObject = { type: "string", enum: ["geoapify", "admin", "user"] };
+const destinationSource: SchemaObject = {
+  type: "string",
+  enum: ["geoapify", "firecrawl", "overpass", "wikidata", "manual", "admin", "user"],
+};
 
 const planLimits: SchemaObject = {
   type: "object",
@@ -664,6 +667,178 @@ export const schemas: Record<string, SchemaObject> = {
         properties: { database: { type: "string", enum: ["ok", "unavailable"] } },
       },
       requestId: uuid,
+    },
+  },
+
+  ChatSession: {
+    type: "object",
+    description: "Chat session backed by the backend chat module.",
+    additionalProperties: true,
+    properties: { id: uuid },
+  },
+
+  CreateChatSessionRequest: {
+    type: "object",
+    required: ["userId"],
+    properties: {
+      userId: uuid,
+      title: { type: "string", minLength: 1, maxLength: 255 },
+    },
+  },
+
+  UpdateChatSessionRequest: {
+    type: "object",
+    minProperties: 1,
+    properties: {
+      userId: uuid,
+      title: { type: "string", minLength: 1, maxLength: 255 },
+      summary: { type: ["string", "null"], maxLength: 4000 },
+      status: { type: "string", minLength: 1, maxLength: 64 },
+    },
+  },
+
+  ChatSessionDeleted: {
+    type: "object",
+    required: ["deleted"],
+    properties: { deleted: { type: "boolean", example: true } },
+  },
+
+  ChatMessage: {
+    type: "object",
+    description: "Chat message, including assistant tool calls and versions.",
+    additionalProperties: true,
+    properties: { id: uuid },
+  },
+
+  SendChatMessageRequest: {
+    type: "object",
+    required: ["userId", "content"],
+    properties: {
+      userId: uuid,
+      content: { type: "string", minLength: 1, maxLength: 4000 },
+    },
+  },
+
+  RegenerateChatMessageRequest: {
+    type: "object",
+    required: ["userId"],
+    properties: { userId: uuid },
+  },
+
+  ActivateChatMessageVersionRequest: {
+    type: "object",
+    required: ["userId"],
+    properties: { userId: uuid },
+  },
+
+  ChatReply: {
+    type: "object",
+    description: "Assistant reply with detected intent and optional itinerary version.",
+    additionalProperties: true,
+    properties: {
+      assistantMessageId: uuid,
+      sessionId: uuid,
+    },
+  },
+
+  ChatRegenerateResult: {
+    type: "object",
+    description: "New assistant message version with usage counters.",
+    additionalProperties: true,
+    properties: {
+      assistantMessageId: uuid,
+      sessionId: uuid,
+      activeVersion: { type: "integer", minimum: 1 },
+    },
+  },
+
+  ChatMessageVersions: {
+    type: "object",
+    description: "Message version history with the active version number.",
+    additionalProperties: true,
+    properties: {
+      messageId: uuid,
+      activeVersion: { type: "integer", minimum: 1 },
+    },
+  },
+
+  ChatVersionActivation: {
+    type: "object",
+    description: "Result of activating one message version.",
+    additionalProperties: true,
+    properties: {
+      messageId: uuid,
+      activeVersion: { type: "integer", minimum: 1 },
+    },
+  },
+
+  Itinerary: {
+    type: "object",
+    description: "Trip itinerary with versions, stops, and routes.",
+    additionalProperties: true,
+    properties: { id: uuid },
+  },
+
+  ItineraryVersionSummary: {
+    type: "object",
+    description: "One row of the itinerary version history.",
+    additionalProperties: true,
+    properties: {
+      version: { type: "integer", minimum: 1 },
+      isSaved: { type: "boolean" },
+      isSelected: { type: "boolean" },
+    },
+  },
+
+  ItineraryVersion: {
+    type: "object",
+    description: "Immutable itinerary version snapshot (stops and route legs).",
+    additionalProperties: true,
+    properties: {
+      id: uuid,
+      version: { type: "integer", minimum: 1 },
+    },
+  },
+
+  ItineraryOwnerRequest: {
+    type: "object",
+    required: ["userId"],
+    properties: { userId: uuid },
+  },
+
+  RestoreItineraryVersionRequest: {
+    type: "object",
+    required: ["userId"],
+    properties: {
+      userId: uuid,
+      expectedVersion: { type: "integer", minimum: 1 },
+    },
+  },
+
+  RouteResult: {
+    type: "object",
+    description: "OSRM driving route between waypoints.",
+    additionalProperties: true,
+  },
+
+  CalculateRouteRequest: {
+    type: "object",
+    required: ["points"],
+    properties: {
+      points: {
+        type: "array",
+        minItems: 2,
+        maxItems: 50,
+        items: {
+          type: "object",
+          required: ["latitude", "longitude"],
+          properties: {
+            latitude: { type: "number", minimum: -90, maximum: 90 },
+            longitude: { type: "number", minimum: -180, maximum: 180 },
+          },
+        },
+      },
+      profile: { type: "string", enum: ["car", "motorcycle", "foot"], default: "car" },
     },
   },
 };

@@ -48,12 +48,17 @@ export const updateDestinationSchema = z
 
 export const listDestinationsQuerySchema = paginationQuerySchema.extend({
   q: z.string().trim().min(1).max(255).optional(),
-  source: z.enum(["geoapify", "admin", "user"]).optional(),
+  source: z
+    .enum(["geoapify", "firecrawl", "overpass", "wikidata", "manual", "admin", "user"])
+    .optional(),
   isActive: z
     .enum(["true", "false"])
     .transform((value) => value === "true")
     .optional(),
+  city: z.string().trim().min(1).optional(),
   categoryId: z.uuid().optional(),
+  // Alias publik backend (`?category=`); dinormalisasi ke categoryId di service.
+  category: z.uuid().optional(),
 });
 
 export const destinationIdSchema = z.object({ id: z.uuid() });

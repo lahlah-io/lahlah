@@ -1,16 +1,22 @@
 enum DestinationSource {
   geoapify
+  firecrawl
+  overpass
+  wikidata
+  manual
   admin
   user
 }
 
 model Destination {
   id                    String                 @id @default(uuid()) @db.Uuid
+  canonicalKey          String?                @unique @map("canonical_key") @db.VarChar
   name                  String                 @db.VarChar
   description           String?                @db.Text
   latitude              Decimal?               @db.Decimal(10, 7)
   longitude             Decimal?               @db.Decimal(10, 7)
   address               String?                @db.VarChar
+  city                  String?                @map("city") @db.VarChar(100)
   source                DestinationSource
   sourcePlaceId         String?                @map("source_place_id") @db.VarChar
   createdBy             String?                @map("created_by") @db.Uuid
@@ -21,10 +27,12 @@ model Destination {
   createdAt             DateTime               @default(now()) @map("created_at") @db.Timestamptz
   updatedAt             DateTime               @updatedAt @map("updated_at") @db.Timestamptz
   creator               User?                  @relation("DestinationCreator", fields: [createdBy], references: [id], onDelete: SetNull)
-  categories            DestinationCategory[]
-  itineraryDestinations ItineraryDestination[]
+  categories        DestinationCategory[]
+  tripDestinations  TripDestination[]
+  tripStops         TripStop[]
 
   @@unique([source, sourcePlaceId])
+  @@index([city, isActive])
   @@map("destinations")
 }
 
