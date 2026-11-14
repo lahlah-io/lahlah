@@ -59,11 +59,18 @@ model DestinationCheckpoint {
   id                String          @id @default(uuid()) @db.Uuid
   tripDestinationId String          @map("trip_destination_id") @db.Uuid
   userId            String          @map("user_id") @db.Uuid
-  imageUrl          String          @map("image_url") @db.VarChar
+  latitude          Decimal         @db.Decimal(10, 7)
+  longitude         Decimal         @db.Decimal(10, 7)
+  accuracyMeters    Float?          @map("accuracy_meters")
+  distanceMeters    Float?          @map("distance_meters")
+  note              String?         @db.Text
+  imageUrl          String?         @map("image_url") @db.VarChar
   metadata          Json            @default("{}")
   createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz
   tripDestination   TripDestination @relation(fields: [tripDestinationId], references: [id], onDelete: Cascade)
   user              User            @relation(fields: [userId], references: [id], onDelete: Restrict)
 
+  @@unique([tripDestinationId, userId])
+  @@index([userId, createdAt])
   @@map("destination_checkpoints")
 }

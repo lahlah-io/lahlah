@@ -1277,4 +1277,73 @@ export const schemas: Record<string, SchemaObject> = {
       profile: { type: "string", enum: ["car", "motorcycle", "foot"], default: "car" },
     },
   },
+
+  Checkpoint: {
+    type: "object",
+    description: "A stored check-in. Coordinates are the device position at check-in time.",
+    required: [
+      "id", "tripDestinationId", "destinationId", "destinationName", "latitude", "longitude",
+      "accuracyMeters", "distanceMeters", "note", "imageUrl", "checkedAt",
+    ],
+    properties: {
+      id: uuid,
+      tripDestinationId: uuid,
+      destinationId: uuid,
+      destinationName: { type: "string" },
+      latitude: { type: "number", minimum: -90, maximum: 90 },
+      longitude: { type: "number", minimum: -180, maximum: 180 },
+      accuracyMeters: { type: ["number", "null"], minimum: 0 },
+      distanceMeters: { type: ["number", "null"], minimum: 0 },
+      note: nullableString,
+      imageUrl: nullableString,
+      checkedAt: timestamp,
+    },
+  },
+
+  CheckpointProgress: {
+    type: "object",
+    required: ["tripId", "total", "checked", "items"],
+    properties: {
+      tripId: uuid,
+      total: { type: "integer", minimum: 0, description: "Stops in the active itinerary version." },
+      checked: { type: "integer", minimum: 0 },
+      items: { type: "array", items: { $ref: "#/components/schemas/Checkpoint" } },
+    },
+  },
+
+  CreateCheckpointRequest: {
+    type: "object",
+    required: ["tripDestinationId", "latitude", "longitude"],
+    properties: {
+      tripDestinationId: uuid,
+      latitude: { type: "number", minimum: -90, maximum: 90 },
+      longitude: { type: "number", minimum: -180, maximum: 180 },
+      accuracyMeters: {
+        type: "number",
+        minimum: 0,
+        maximum: 100000,
+        description: "GPS accuracy in metres. Values above 100 are rejected.",
+      },
+      note: { type: "string", maxLength: 500 },
+      imageUrl: { type: "string", format: "uri", maxLength: 2048 },
+    },
+  },
+
+  CreateCheckpointFormRequest: {
+    type: "object",
+    description: "multipart/form-data variant of `CreateCheckpointRequest`; numbers arrive as strings.",
+    required: ["tripDestinationId", "latitude", "longitude"],
+    properties: {
+      tripDestinationId: uuid,
+      latitude: { type: "string", pattern: "^-?\\d+(\\.\\d+)?$", example: "-0.9471" },
+      longitude: { type: "string", pattern: "^-?\\d+(\\.\\d+)?$", example: "100.4172" },
+      accuracyMeters: { type: "string", example: "8" },
+      note: { type: "string", maxLength: 500 },
+      image: {
+        type: "string",
+        format: "binary",
+        description: "Camera photo. Resized to 1200 px, converted to WebP, EXIF/GPS stripped.",
+      },
+    },
+  },
 };
