@@ -20,7 +20,6 @@ const CATEGORIES = [
   "commercial.supermarket",
   "commercial.marketplace",
   "heritage.unesco",
-  "religion.place_of_worship",
 ];
 
 type GeoapifyFeature = {

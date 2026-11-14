@@ -57,9 +57,13 @@ const EXCLUDED_NAME =
 const EXCLUDED_DESC =
   /\b(perguruan tinggi|higher education institution|sekolah (dasar|menengah|tinggi|kejuruan)|government (office|agency|institution|building)|instansi pemerintah|kantor pemerintahan|lembaga pemerintahan)\b/i;
 
+// Places of worship and monuments are not trip destinations for this app.
+const EXCLUDED_NAME_WORSHIP =
+  /\b(masjid|mushalla|mushollah|mushola|musholah|musala|musalla|surau|langgar|gereja|vihara|wihara|pura|klenteng|kelenteng|gurdwara|kuil|tugu|monumen)\b/i;
+
 function isExcludedInstitution(item: RawPlace): boolean {
   const name = (item.name ?? "").toLowerCase();
-  if (EXCLUDED_NAME.test(name)) return true;
+  if (EXCLUDED_NAME.test(name) || EXCLUDED_NAME_WORSHIP.test(name)) return true;
   // Use description only for strong institutional signals to avoid dropping mis-tagged POIs.
   const desc = (item.description ?? "").toLowerCase();
   if (EXCLUDED_DESC.test(desc) && !/\b(pantai|museum|taman wisata|masjid raya|gereja|vihara|pura|monumen|benteng|pantai|danau|air terjun|gunung|bukit|kawasan wisata|objek wisata)\b/.test(name)) {
