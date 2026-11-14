@@ -44,6 +44,12 @@ describe(`parameter extraction matrix (${fixture.datasetVersion}, ${fixture.prom
     });
   }
 
+  test("extractCategories ignores 'alam' inside an ordinary word like 'alamat' or 'dalam'", () => {
+    expect(extractCategories("Bofet Rajawali Juanda alamatnya di mana?")).toEqual([]);
+    expect(extractCategories("rekomendasi tempat wisata dalam kota")).toEqual([]);
+    expect(extractCategories("wisata alam")).toEqual(["alam"]);
+  });
+
   test("relative date uses Asia/Jakarta, not server local time", () => {
     // 2026-11-09T18:00Z is already 2026-11-10 01:00 in Jakarta.
     const lateUtc = new Date("2026-11-09T18:00:00.000Z");
