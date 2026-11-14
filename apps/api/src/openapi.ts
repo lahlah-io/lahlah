@@ -260,6 +260,8 @@ const itineraryVersionView = z.object({
   routeJson: z.unknown(),
 });
 
+const messageUsage = z.object({ inputTokens: z.number().int(), outputTokens: z.number().int() });
+
 const chatReply = z.object({
   message: z.string(),
   intent: z.enum(intentLabels),
@@ -267,6 +269,7 @@ const chatReply = z.object({
   map: z.object({ versionId: z.uuid(), points: z.array(chatMapPoint) }).nullable(),
   assistantMessageId: z.uuid(),
   sessionId: z.uuid(),
+  usage: messageUsage,
 });
 
 const chatRegenerateResult = z.object({
@@ -276,6 +279,7 @@ const chatRegenerateResult = z.object({
   intent: z.enum(intentLabels),
   version: itineraryVersionView.nullable(),
   activeVersion: z.number().int(),
+  usage: messageUsage,
 });
 
 const sessionDeleteResult = z.object({ deleted: z.literal(true) });

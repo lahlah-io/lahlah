@@ -4,7 +4,7 @@ import { HttpError } from "../../../shared/http/errors.js";
 import { completeChat, resolveAiRoleConfig } from "../../../integrations/ai/chat-completions.js";
 import type { AiMessage, AiToolDefinition } from "../../../integrations/ai/schemas.js";
 import { classify, type Intent } from "./classifier.js";
-import { generateNaturalReply } from "./answerer.js";
+import { formatItineraryReply, generateNaturalReply, isClearlyOffTopic, OFF_TOPIC_REPLY, ONE_TRIP_PER_CHAT } from "./answerer.js";
 import { buildConversationContext } from "./conversation-context.js";
 import { generateItinerary } from "./itinerary-generator.js";
 import { createToolExecutor, mergeDestinationRows } from "./tools.js";
@@ -43,12 +43,6 @@ type ChatDeps = {
 };
 
 export type TripDetails = { travelDate: string; startTime: string; endTime: string; categories: string[]; destinationCount?: number };
-
-function mapUsage(raw: { usage?: { promptTokens?: number; completionTokens?: number } }): { inputTokens?: number; outputTokens?: number } {
-  const u = raw.usage;
-  if (!u) return {};
-  return { inputTokens: u.promptTokens ?? 0, outputTokens: u.completionTokens ?? 0 };
-}
 
 function asAiHistory(rows: Array<{ role: "user" | "assistant" | "system" | "tool"; content: string }>) {
   return rows.filter((r): r is { role: "user" | "assistant"; content: string } => r.role === "user" || r.role === "assistant");
@@ -173,7 +167,7 @@ export function extractDestinationCount(text: string): number | null {
 }
 
 // "3 itinerary / alternatif / opsi / pilihan" berarti minta beberapa susunan, bukan jumlah destinasi.
-const ALTERNATIVES_NOUN = "itinerary|itinerari|itenerary|alternatif|opsi|pilihan";
+const ALTERNATIVES_NOUN = "trip|itinerary|itinerari|itenerary|alternatif|opsi|pilihan";
 export function wantsMultipleItineraries(text: string): boolean {
   return new RegExp(`\\b\\d+\\s+(?:${ALTERNATIVES_NOUN})\\b`, "i").test(text);
 }
@@ -250,6 +244,8 @@ export function mergeCategories(prior: string[], text: string, latest: string[])
   return [...new Set([...prior, ...latest])];
 }
 
+const TRIP_REQUEST = /\b(buat|buatkan|rencana|rencanakan|itinerary|itinerari|itenerary|destinasi|susun|bikin|generate|minta)\b/i;
+
 export function accumulateTripParams(
   history: Array<{ role: string; content: string }>,
   current: string,
@@ -272,7 +268,8 @@ export function accumulateTripParams(
   };
   for (const row of history) {
     if (row.role === "user" && row.content !== current) {
-      pending = true;
+      // Only an earlier trip request/param makes this turn a follow-up; small talk ("halo") does not.
+      if (messageContributesParams(row.content, now) || TRIP_REQUEST.test(row.content)) pending = true;
       apply(row.content);
     }
   }
@@ -401,6 +398,7 @@ async function runItineraryToolFlow(input: {
   const executeTool = createToolExecutor({
     searchDestinations: input.deps.searchDestinations,
     getDestinationDetails: input.deps.getDestinationDetails,
+    defaultCategories: input.request.categories,
   });
   const config = resolveAiRoleConfig("tool");
   const tools: AiToolDefinition[] = [
@@ -415,6 +413,8 @@ async function runItineraryToolFlow(input: {
   const maxRounds = Math.max(1, Math.min(env.AI_TOOL_MAX_ROUNDS, 10));
   const collected = new Map<string, Record<string, unknown>>();
   let last: Awaited<ReturnType<typeof run>> | null = null;
+  // Sum every provider round so usage stays correct if the loop ever runs more than once.
+  const usage = { inputTokens: 0, outputTokens: 0 };
 
   for (let round = 0; round < maxRounds; round++) {
     const providerStarted = Date.now();
@@ -435,6 +435,8 @@ async function runItineraryToolFlow(input: {
       throw err;
     }
     const providerLatencyMs = Date.now() - providerStarted;
+    usage.inputTokens += last.usage?.promptTokens ?? 0;
+    usage.outputTokens += last.usage?.completionTokens ?? 0;
     if (last.toolCalls.length === 0) {
       await chatRepository.appendMessage({
         sessionId: input.sessionId,
@@ -504,7 +506,7 @@ async function runItineraryToolFlow(input: {
   }).filter((c) => c.id && c.name);
   const generated = generateItinerary({ city: "Padang", ...input.request, transportMode: "walk" }, candidates);
   if (generated.destinations.length === 0) throw new HttpError(422, "ITINERARY_REQUEST_INVALID", "No valid destinations available for this request");
-  return { generated, usage: mapUsage(last) };
+  return { generated, usage };
 }
 
 export function createChatService(deps: ChatDeps) {
@@ -546,13 +548,10 @@ export function createChatService(deps: ChatDeps) {
         sessionId: input.sessionId,
         version: input.mod.version,
       });
-      if (!selected) throw new HttpError(422, "VERSION_NOT_FOUND", "Versi itinerary tidak ditemukan");
+      if (!selected) throw new HttpError(422, "VERSION_NOT_FOUND", "Versi trip tidak ditemukan");
       return {
         intent: "modify_itinerary",
-        message: oneOf(
-          `Siap, versi ${selected.versionNumber} sudah saya aktifkan — berisi ${selected.stops.length} destinasi.`,
-          `Baik, sekarang versi ${selected.versionNumber} yang aktif dengan ${selected.stops.length} destinasi.`,
-        ),
+        message: formatItineraryReply({ kind: "select", ...selected }),
         version: selected,
         usage: {},
       };
@@ -602,7 +601,7 @@ export function createChatService(deps: ChatDeps) {
         const list = active.stops.map((s) => `${s.position}. ${s.name}`).join("; ");
         return {
           intent: "modify_itinerary",
-          message: `Hmm, destinasi itu tidak saya temukan di itinerary saat ini. Destinasi aktif: ${list}. Sebutkan nomornya (misal "hapus destinasi ke-3") atau nama persisnya ya.`,
+          message: `Hmm, destinasi itu tidak saya temukan di trip kamu saat ini. Destinasi aktif: ${list}. Sebutkan nomornya (misal "hapus destinasi ke-3") atau nama persisnya ya.`,
           version: active,
           usage: {},
         };
@@ -671,10 +670,7 @@ export function createChatService(deps: ChatDeps) {
 
     return {
       intent: "modify_itinerary",
-      message: oneOf(
-        `Siap! Versi ${saved.versionNumber} sudah saya susun dengan ${saved.stops.length} destinasi.`,
-        `Baik, versi ${saved.versionNumber} siap — sekarang ${saved.stops.length} destinasi.`,
-      ),
+      message: formatItineraryReply({ kind: "update", ...saved }),
       version: saved,
       usage: {},
     };
@@ -687,6 +683,8 @@ export function createChatService(deps: ChatDeps) {
     history: AiMessage[];
     sourceMessageId?: string;
   }): Promise<{ intent: Intent; message: string; version: ItineraryVersionView | null; usage: { inputTokens?: number; outputTokens?: number } }> {
+    // Obvious off-topic (code, politics): fixed decline, zero AI calls/tokens.
+    if (isClearlyOffTopic(input.content)) return { intent: "general_chat", message: OFF_TOPIC_REPLY, version: null, usage: {} };
     const classified = await doClassify(input.content, process.env, input.sessionId);
     let intent: Intent = classified.intent;
     let version: ItineraryVersionView | null = null;
@@ -698,7 +696,7 @@ export function createChatService(deps: ChatDeps) {
     const outcome = resolveEffectiveRequest(merged.params);
     const contributes = messageContributesParams(input.content);
     const isGeneratorIntent = intent === "generate_itinerary" || intent === "modify_itinerary" || intent === "regenerate_itinerary";
-    const wantsItinerary = /\b(buat|buatkan|rencana|rencanakan|itinerary|itinerari|itenerary|destinasi|susun|bikin|generate|minta)\b/i.test(input.content);
+    const wantsItinerary = TRIP_REQUEST.test(input.content);
   const usesTripFlow = isGeneratorIntent || (contributes && (merged.pending || wantsItinerary));
 
     const modification = parseModification(input.content);
@@ -722,13 +720,19 @@ export function createChatService(deps: ChatDeps) {
     }
 
     if (wantsMultipleItineraries(input.content) && isGeneratorIntent) {
-      const multiMessage = "Satu perjalanan = satu itinerary yang tersimpan sebagai beberapa versi. Mau alternatif lain? Minta \"buat ulang\" — setiap kali saya susun versi baru, nanti tinggal pilih versi yang paling cocok.";
-      return { intent, message: multiMessage, version: null, usage };
+      return { intent, message: ONE_TRIP_PER_CHAT, version: null, usage };
     }
 
-    if (usesTripFlow && outcome.kind === "ready") {
+    // Non-generator turns that only "look like" trip params (e.g. "cuaca di bogor hari ini") may get no tool call; answer naturally instead of erroring.
+    const result = usesTripFlow && outcome.kind === "ready"
+      ? await runItineraryToolFlow({ deps, history: input.history, userMessage: input.content, sessionId: input.sessionId, request: outcome.trip })
+        .catch((err: unknown) => {
+          if (!isGeneratorIntent && err instanceof HttpError && err.code === "TOOL_CALL_REQUIRED") return null;
+          throw err;
+        })
+      : null;
+    if (result && outcome.kind === "ready") {
       if (!isGeneratorIntent) intent = "modify_itinerary";
-      const result = await runItineraryToolFlow({ deps, history: input.history, userMessage: input.content, sessionId: input.sessionId, request: outcome.trip });
       const generated = result.generated;
       usage = {
         inputTokens: (usage.inputTokens ?? 0) + (result.usage.inputTokens ?? 0),
@@ -751,21 +755,19 @@ export function createChatService(deps: ChatDeps) {
           sourceMessageId: input.sourceMessageId ?? null,
         });
       }
-      const stopCount = version?.stops.length ?? generated.destinations.length;
-      const versionNumber = version?.versionNumber ?? 1;
       const defaults: string[] = [];
       if (merged.params.travelDate == null) defaults.push(`tanggal hari ini (${outcome.trip.travelDate})`);
       if (merged.params.startTime == null) defaults.push(`jam ${outcome.trip.startTime}-${outcome.trip.endTime}`);
-      const generatedMessage = oneOf(
-        `Versi ${versionNumber} untuk ${stopCount} destinasi di Padang sudah saya susun.`,
-        `Selesai! Versi ${versionNumber} dengan ${stopCount} destinasi di Padang sudah saya siapkan.`,
-      );
-      return {
-        intent,
-        message: defaults.length ? `${generatedMessage} Dipakai default ${defaults.join(", ")} (bisa diubah).` : generatedMessage,
-        version,
-        usage,
-      };
+      const message = formatItineraryReply({
+        kind: "generate",
+        versionNumber: version?.versionNumber ?? 1,
+        travelDate: outcome.trip.travelDate,
+        startTime: outcome.trip.startTime,
+        endTime: outcome.trip.endTime,
+        stops: version?.stops ?? generatedStops(generated),
+        defaults,
+      });
+      return { intent, message, version, usage };
     } else {
       const hint = intent === "general_chat" ? undefined : "Beberapa detail perjalanan belum lengkap (kategori, tanggal, atau jam). Tanyakan detail yang kurang dengan ramah.";
       if (intent !== "general_chat") intent = "missing_information";
@@ -888,6 +890,7 @@ export function createChatService(deps: ChatDeps) {
           map: version ? { versionId: version.versionId, points: mapPoints } : null,
           assistantMessageId: saved.id,
           sessionId: session.id,
+          usage: { inputTokens: saved.inputTokens, outputTokens: saved.outputTokens },
         },
       };
     },
@@ -969,6 +972,7 @@ export function createChatService(deps: ChatDeps) {
             intent,
             version,
             activeVersion: saved.activeVersion,
+            usage: { inputTokens: inTok, outputTokens: outTok },
           },
         };
       } catch (err) {
