@@ -164,6 +164,23 @@ test("rejects text-only response when tool required", async () => {
   );
 });
 
+test("maps provider tool_use_failed 400 to TOOL_CALL_REQUIRED without leaking generation", async () => {
+  const cfg = { baseUrl: "https://x.test/v1", apiKey: "k", model: "m", provider: "openai-compatible" };
+  const body = { error: { code: "tool_use_failed", message: "Tool choice is required", failed_generation: "Maaf, cuaca..." } };
+  await withFetch(async () => new Response(JSON.stringify(body), { status: 400 }), async () => {
+    await assert.rejects(
+      () => completeChat({ role: "tool", config: cfg, messages: [{ role: "user", content: "x" }], toolChoice: "required" }),
+      (err: unknown) => err instanceof HttpError && err.status === 422 && err.code === "TOOL_CALL_REQUIRED" && !err.message.includes("Maaf"),
+    );
+  });
+  await withFetch(async () => new Response("bad", { status: 400 }), async () => {
+    await assert.rejects(
+      () => completeChat({ role: "tool", config: cfg, messages: [{ role: "user", content: "x" }] }),
+      (err: unknown) => err instanceof HttpError && err.status === 502 && err.code === "AI_UPSTREAM_ERROR",
+    );
+  });
+});
+
 test("reads per-role reasoning_effort with defaults", () => {
   const cls = resolveAiRoleConfig("classifier", {
     AI_BASE_URL: "https://shared.example/v1",

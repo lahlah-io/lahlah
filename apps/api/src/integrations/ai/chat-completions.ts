@@ -107,6 +107,16 @@ export async function completeChat(input: {
   }
 
   if (!response.ok) {
+    // Groq answers tool_choice=required + no tool call with 400 tool_use_failed; failed_generation is never forwarded.
+    if (response.status === 400 && input.toolChoice === "required") {
+      let code: unknown;
+      try {
+        code = (JSON.parse(await response.text()) as { error?: { code?: unknown } }).error?.code;
+      } catch {
+        code = undefined;
+      }
+      if (code === "tool_use_failed") throw new HttpError(422, "TOOL_CALL_REQUIRED", "AI provider did not return required tool calls");
+    }
     const status = response.status === 429 ? 429 : response.status >= 500 ? 502 : 502;
     const message = response.status === 429 ? "AI provider rate limit exceeded" : "AI provider request failed";
     // shortcut: upstream body not inspected for safety/size, upgrade if specific provider codes needed.

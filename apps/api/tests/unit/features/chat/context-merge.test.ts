@@ -148,6 +148,15 @@ describe("accumulateTripParams", () => {
     expect(pending).toBe(false);
   });
 
+  test("pending false when earlier user messages carry no trip params", () => {
+    const history = [
+      { role: "user", content: "halo" },
+      { role: "assistant", content: "..." },
+    ];
+    expect(accumulateTripParams(history, "apa cuaca di bogor hari ini?", refNow).pending).toBe(false);
+    expect(accumulateTripParams([{ role: "user", content: "pantai" }], "besok", refNow).pending).toBe(true);
+  });
+
   test("applies current once when it does not literally appear in history", () => {
     const history = [
       { role: "user", content: "Buat itinerary besok" },
