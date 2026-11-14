@@ -9,6 +9,8 @@ export type ItineraryVersionStop = {
   departureTime?: string | null;
   visitDurationMin: number | null;
   category: string | null;
+  /** Foto destinasi dari database; null bila admin belum mengisinya. */
+  imageUrl?: string | null;
   /** Road distance in meters from the previous stop; null for the first stop. */
   distance?: number | null;
   distanceKm?: number | null;

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   ArrowLeft,
   Bell,
@@ -5,10 +6,22 @@ import {
   ChevronRight,
   Crown,
   Globe,
+  LogOut,
   Moon,
   type LucideIcon,
 } from "lucide-react";
 import { useNavigate } from "react-router";
+
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/shared/components/ui/alert-dialog";
 
 import {
   Avatar,
@@ -56,9 +69,25 @@ function SettingRow({
   );
 }
 
-export function SettingsPanel() {
+export function SettingsPanel({
+  onLogout,
+}: {
+  onLogout: () => void | Promise<void>;
+}) {
   const { name, plan, avatarUrl } = useCurrentUser();
   const navigate = useNavigate();
+  const [confirmLogout, setConfirmLogout] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  async function handleLogout() {
+    setLoggingOut(true);
+    try {
+      await onLogout();
+    } finally {
+      setLoggingOut(false);
+      setConfirmLogout(false);
+    }
+  }
 
   return (
     <div className="mx-auto flex h-full w-full max-w-2xl flex-col gap-5 overflow-y-auto px-4 pt-6 pb-24 sm:px-6 md:pb-10">
@@ -177,6 +206,57 @@ export function SettingsPanel() {
           />
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Sesi</CardTitle>
+          <CardDescription>Keluar dari akun di perangkat ini.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <button
+            type="button"
+            onClick={() => setConfirmLogout(true)}
+            className="flex w-full items-center gap-3 rounded-lg px-2 py-3 text-left text-destructive transition-colors hover:bg-destructive/10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          >
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-destructive/10">
+              <LogOut aria-hidden="true" className="size-4" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-medium">Keluar</span>
+              <span className="block text-xs text-muted-foreground">
+                Sesi berakhir di perangkat ini
+              </span>
+            </span>
+            <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+          </button>
+        </CardContent>
+      </Card>
+
+      <AlertDialog
+        open={confirmLogout}
+        onOpenChange={(open) => {
+          if (!loggingOut && !open) setConfirmLogout(false);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Keluar dari Lahlah?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Sesi kamu di perangkat ini berakhir. Masuk lagi untuk lanjut.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={loggingOut}>Batal</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={loggingOut}
+              onClick={() => void handleLogout()}
+            >
+              {loggingOut ? "Keluar…" : "Ya, keluar"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

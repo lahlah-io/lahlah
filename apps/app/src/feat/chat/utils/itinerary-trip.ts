@@ -9,7 +9,7 @@ import type {
   ItineraryVersionDto,
 } from "../types/itinerary";
 
-/** Foto pengganti: destinasi dari API belum menyimpan foto terkurasi. */
+/** Foto pengganti hanya untuk destinasi yang benar-benar belum punya foto. */
 const STOP_PHOTO =
   "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=400&q=80";
 
@@ -81,7 +81,8 @@ function toDestination(
     coordinates: [stop.longitude, stop.latitude],
     id: stop.destinationId ?? `${stop.position}-${stop.name}`,
     name: stop.name,
-    photo: STOP_PHOTO,
+    // Foto asli destinasi menang; placeholder hanya kalau DB belum punya.
+    photo: stop.imageUrl?.trim() ? stop.imageUrl : STOP_PHOTO,
     rating: stop.category
       ? (CATEGORY_LABELS[stop.category] ?? stop.category)
       : "Padang",

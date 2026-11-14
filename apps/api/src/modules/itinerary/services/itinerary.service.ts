@@ -121,6 +121,7 @@ function batchStops(batch: TripBatch | undefined): ItineraryVersionStop[] {
     departureTime: null,
     visitDurationMin: null,
     category: categorySlug(row),
+    imageUrl: row.destination.imageUrl ?? null,
     distance: row.distance,
     distanceKm: metersToKm(row.distance),
   }));
@@ -168,6 +169,7 @@ function asVersionPayload(batch: TripBatch) {
       destinationId: row.destinationId,
       position: index + 1,
       name: row.destination.name,
+      imageUrl: row.destination.imageUrl ?? null,
       latitude: Number(row.destination.latitude ?? 0),
       longitude: Number(row.destination.longitude ?? 0),
       arrivalTime: row.visitAt ? hhmm(row.visitAt) : null,

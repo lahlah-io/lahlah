@@ -16,6 +16,7 @@ const destinationRowSelect = {
     select: {
       id: true,
       name: true,
+      imageUrl: true,
       latitude: true,
       longitude: true,
       categories: { select: { category: { select: { slug: true } } } },

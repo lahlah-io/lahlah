@@ -825,6 +825,7 @@ async function runItineraryToolFlow(input: {
     const cats = Array.isArray(row.categories) ? row.categories : [];
     return {
       id: String(row.id), name: String(row.name ?? ""),
+      imageUrl: typeof row.imageUrl === "string" && row.imageUrl.trim() ? row.imageUrl : null,
       latitude: (row.latitude as number | null) ?? null, longitude: (row.longitude as number | null) ?? null,
       details: row.details,
       categories: cats.map((c) => (c as Record<string, unknown>).slug).filter((s): s is string => typeof s === "string"),

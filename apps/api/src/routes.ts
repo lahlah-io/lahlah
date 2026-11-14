@@ -34,6 +34,7 @@ import * as usersRepository from "./modules/users/repositories/users.repository.
 
 function toToolRow(row: {
   id: string; name: string; description: string | null; address: string | null;
+  imageUrl: string | null;
   latitude: { toNumber(): number } | null; longitude: { toNumber(): number } | null;
   details: unknown; city: string | null; isActive: boolean;
   categories: Array<{ category: { id: string; name: string; slug: string } }>;
@@ -43,6 +44,7 @@ function toToolRow(row: {
     name: row.name,
     description: row.description,
     address: row.address,
+    imageUrl: row.imageUrl,
     latitude: row.latitude == null ? null : row.latitude.toNumber(),
     longitude: row.longitude == null ? null : row.longitude.toNumber(),
     details: row.details,
@@ -53,7 +55,7 @@ function toToolRow(row: {
 }
 
 const toolSelect = {
-  id: true, name: true, description: true, address: true, latitude: true, longitude: true,
+  id: true, name: true, description: true, address: true, imageUrl: true, latitude: true, longitude: true,
   details: true, city: true, district: true, isActive: true,
   categories: { select: { category: { select: { id: true, name: true, slug: true } } } },
 } as const;

@@ -4,6 +4,8 @@ export interface ItineraryStopDto {
   arrivalTime: string | null;
   category: string | null;
   destinationId: string | null;
+  /** Foto destinasi dari database; null bila belum diisi admin. */
+  imageUrl?: string | null;
   latitude: number;
   longitude: number;
   name: string;
