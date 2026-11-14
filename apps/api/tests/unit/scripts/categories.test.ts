@@ -10,8 +10,9 @@ test("tag historic apa pun masuk sejarah", () => {
   assert.deepEqual(resolveCategories(["historic=fort"]), ["sejarah"]);
 });
 
-test("tag tak dikenal jatuh ke alam", () => {
-  assert.deepEqual(resolveCategories(["unknown.tag"]), ["alam"]);
+// RS/sekolah/masjid dulu masuk "alam" lewat fallback ini; tag tak dikenal sekarang tanpa kategori.
+test("tag tak dikenal tidak diberi kategori", () => {
+  assert.deepEqual(resolveCategories(["unknown.tag"]), []);
 });
 
 test("kategori yang sama tidak dobel", () => {
