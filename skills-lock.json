@@ -1,11 +1,17 @@
 {
-  "version": 1,
+  "version": 2,
   "skills": {
+    "google-maps-scraper": {
+      "source": "gosom/google-maps-scraper",
+      "sourceType": "github",
+      "skillPath": "skills/google-maps-scraper/SKILL.md",
+      "computedHash": "f12f2d77c25e846283f75fd70d683ba4718aef39ace605bd210240d1a24be7e4"
+    },
     "mapcn": {
       "source": "AnmolSaini16/mapcn",
       "sourceType": "github",
       "skillPath": "skills/mapcn/SKILL.md",
-      "computedHash": "e64adc9efc04b529f9e7d2c9472c412d64bb84417a432f4fb5940b8b065fa935"
+      "computedHash": "42d50799345436de238dc9673def0d864d3d9db24faf7d0804534c2c1c13e2b2"
     }
   }
 }
