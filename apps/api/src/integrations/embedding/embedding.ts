@@ -1,9 +1,12 @@
-import { pipeline, type FeatureExtractionPipeline } from "@huggingface/transformers";
+import { pipeline, env as transformersEnv, type FeatureExtractionPipeline } from "@huggingface/transformers";
 import { env } from "../../env.js";
 
 export type Embedding = number[];
 
 let extractor: FeatureExtractionPipeline | null = null;
+
+// Biarkan operator menaruh model di cache persisten agar cold-start tidak mengunduh ulang.
+transformersEnv.cacheDir = process.env.TRANSFORMERS_CACHE || transformersEnv.cacheDir;
 
 async function initEmbeddingPipeline(): Promise<FeatureExtractionPipeline> {
   if (!extractor) {
