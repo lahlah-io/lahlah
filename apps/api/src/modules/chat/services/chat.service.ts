@@ -182,8 +182,13 @@ export function extractCategories(text: string): string[] {
   // "alam" muncul di dalam "alamat"/"dalam"; scope kategori jangan dipicu kata biasa.
   if (/(?:^|[^a-z])alam(?!at)/.test(t)) categories.push("alam");
   if (t.includes("kuliner") || t.includes("makan")) categories.push("kuliner");
-  if (t.includes("santai")) categories.push("santai");
-  if (t.includes("belanja") || t.includes("shopping")) categories.push("belanja");
+  if (
+    t.includes("santai") ||
+    /\b(?:nongkrong|tepi\s+laut|ngopi|santai\s+keluarga|jalan-jalan\s+sore|suasana\s+sore|santai\s+sore|sore\s+santai)\b/i.test(t)
+  ) {
+    categories.push("santai");
+  }
+  if (t.includes("belanja") || t.includes("shopping") || /\b(?:oleh-oleh|oleh2)\b/i.test(t)) categories.push("belanja");
   return [...new Set(categories)];
 }
 
@@ -206,16 +211,82 @@ const REJECTION_CUE = new RegExp(
 const REJECTED_ALIASES: Array<[RegExp, string[]]> = [[/\bmuseum\b/i, ["sejarah", "budaya"]]];
 const CLAUSE_SPLIT = /[.,;!?]|\b(?:tapi|tetapi|namun|malah|sebaliknya)\b/i;
 
+export type RejectedDestination = {
+  name: string;
+  category: string;
+  pattern: RegExp;
+  aliases: string[];
+  alternatives: string[];
+};
+
+export const KNOWN_DESTINATION_REJECTIONS: RejectedDestination[] = [
+  {
+    name: "Pantai Air Manis",
+    category: "pantai",
+    pattern: /\b(?:pantai\s+air\s+manis|pantai\s+manis|air\s+manis)\b/i,
+    aliases: ["Pantai Air Manis", "Air Manis Beach", "pantai manis", "air manis"],
+    alternatives: ["Pantai Padang (Taplau)", "Pantai Nirwana", "Pantai Carolina", "Pantai Pasir Jambak", "Pantai Bungus"],
+  },
+  {
+    name: "Pantai Nirwana",
+    category: "pantai",
+    pattern: /\bpantai\s+nirwana\b/i,
+    aliases: ["Pantai Nirwana"],
+    alternatives: ["Pantai Air Manis", "Pantai Padang (Taplau)", "Pantai Carolina", "Pantai Pasir Jambak", "Pantai Bungus"],
+  },
+  {
+    name: "Pantai Carolina",
+    category: "pantai",
+    pattern: /\bpantai\s+carolina\b/i,
+    aliases: ["Pantai Carolina"],
+    alternatives: ["Pantai Air Manis", "Pantai Padang (Taplau)", "Pantai Nirwana", "Pantai Pasir Jambak", "Pantai Bungus"],
+  },
+  {
+    name: "Pantai Padang",
+    category: "pantai",
+    pattern: /\b(?:pantai\s+padang|taplau)\b/i,
+    aliases: ["Pantai Padang", "Pantai Padang (Taplau)", "Taplau Padang"],
+    alternatives: ["Pantai Air Manis", "Pantai Nirwana", "Pantai Carolina", "Pantai Pasir Jambak", "Pantai Bungus"],
+  },
+];
+
+export function detectRejectedDestination(text: string): RejectedDestination | null {
+  for (const clause of text.split(CLAUSE_SPLIT)) {
+    if (!REJECTION_CUE.test(clause)) continue;
+    for (const item of KNOWN_DESTINATION_REJECTIONS) {
+      if (item.pattern.test(clause)) return item;
+    }
+  }
+  return null;
+}
+
+export function detectRejectedDestinationNames(text: string): string[] {
+  const dest = detectRejectedDestination(text);
+  return dest ? dest.aliases : [];
+}
+
 /** Kategori yang ditolak pengguna, dibaca per klausa agar "jangan pantai, mau kuliner" hanya menolak pantai. */
-// shortcut: nama destinasi ikut terbaca sebagai kategorinya ("tidak suka Pantai Air Manis" = tolak pantai); upgrade saat butuh penolakan per destinasi.
 export function detectRejectedCategories(text: string): string[] {
   const found: string[] = [];
   for (const clause of text.split(CLAUSE_SPLIT)) {
     if (!REJECTION_CUE.test(clause)) continue;
-    found.push(...extractCategories(clause));
-    for (const [pattern, slugs] of REJECTED_ALIASES) if (pattern.test(clause)) found.push(...slugs);
+    const dest = detectRejectedDestination(clause);
+    const cats = extractCategories(clause);
+    for (const c of cats) {
+      // Jika klausa ini menolak destinasi spesifik (misal Pantai Air Manis), kategori pantainya sendiri tidak ditolak.
+      if (dest && dest.category === c) continue;
+      found.push(c);
+    }
+    for (const [pattern, slugs] of REJECTED_ALIASES) {
+      if (pattern.test(clause)) found.push(...slugs);
+    }
   }
   return [...new Set(found)];
+}
+
+export function destinationRejectionReply(dest: RejectedDestination): string {
+  const categoryLabel = CATEGORY_LABELS[dest.category] ?? dest.category;
+  return `Oke, ${dest.name} kita lewati ya. Kamu lebih suka suasana ${categoryLabel} yang seperti apa? Pilihannya: ${dest.alternatives.join(", ")}.`;
 }
 
 /** Pertanyaan balik: jangan pilihkan pengganti sepihak saat pengguna menolak sesuatu. */
@@ -229,15 +300,32 @@ export function rejectionReply(text: string, rejected: string[]): string {
   return `Oke, ${target} kita lewati ya. Sebelum saya ganti, kamu lebih suka diganti dengan apa? Pilihannya: ${options.join(", ")}.`;
 }
 
-export type RejectionOutcome = { kind: "ask"; message: string } | { kind: "continue"; categories: string[] };
+export type RejectionOutcome =
+  | { kind: "ask"; message: string }
+  | { kind: "continue"; categories: string[]; excludedDestinations?: string[] };
 
-/** null = tidak ada penolakan; "ask" = tanya dulu; "continue" = lanjut tanpa kategori yang ditolak. */
+/** null = tidak ada penolakan; "ask" = tanya dulu; "continue" = lanjut tanpa kategori/destinasi yang ditolak. */
 export function handleRejection(text: string, categories: string[]): RejectionOutcome | null {
-  const rejected = detectRejectedCategories(text);
-  if (rejected.length === 0) return null;
-  const wanted = extractCategories(text).filter((c) => !rejected.includes(c));
-  if (wanted.length === 0) return { kind: "ask", message: rejectionReply(text, rejected) };
-  return { kind: "continue", categories: categories.filter((c) => !rejected.includes(c)) };
+  const rejectedDest = detectRejectedDestination(text);
+  const rejectedCats = detectRejectedCategories(text);
+
+  if (!rejectedDest && rejectedCats.length === 0) return null;
+
+  if (rejectedDest) {
+    const wanted = extractCategories(text).filter((c) => c !== rejectedDest.category && !rejectedCats.includes(c));
+    if (wanted.length > 0) {
+      return {
+        kind: "continue",
+        categories: categories.filter((c) => c !== rejectedDest.category && !rejectedCats.includes(c)),
+        excludedDestinations: rejectedDest.aliases,
+      };
+    }
+    return { kind: "ask", message: destinationRejectionReply(rejectedDest) };
+  }
+
+  const wanted = extractCategories(text).filter((c) => !rejectedCats.includes(c));
+  if (wanted.length === 0) return { kind: "ask", message: rejectionReply(text, rejectedCats) };
+  return { kind: "continue", categories: categories.filter((c) => !rejectedCats.includes(c)) };
 }
 
 function parseTripDetails(text: string, now = new Date()): TripDetails | null {
