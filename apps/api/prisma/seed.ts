@@ -43,8 +43,14 @@ const DEV_DESTINATIONS = [
   { sourcePlaceId: "seed-padang-pantai-cimpago", name: "Pantai Cimpago (Seed)", latitude: -0.9339, longitude: 100.3436, estimatedDurationMinutes: 90, categorySlugs: ["seed-pantai", "seed-alam"] },
 ];
 
-function dec(value: string | null): Prisma.Decimal | null {
-  return value == null ? null : new Prisma.Decimal(value);
+function dec(value: string | number | null): Prisma.Decimal | null {
+  if (value == null) return null;
+  if (typeof value === "number") return Number.isFinite(value) ? new Prisma.Decimal(value) : null;
+  const s = value.trim();
+  // shortcut: HTML penulis memakai "-" untuk koordinat tak diketahui; simpan null.
+  if (s === "" || s === "-" || s.toLowerCase() === "null") return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? new Prisma.Decimal(n) : null;
 }
 
 async function upsertCategory(category: SeedCategory, map: Map<string, string>) {
@@ -96,12 +102,12 @@ async function seedDevExamples(categoryMap: Map<string, string>) {
 
 async function seedScraped(categoryMap: Map<string, string>) {
   const here = dirname(fileURLToPath(import.meta.url));
-  const dataPath = join(here, "seed-data", "destinations.padang.json");
+  const dataPath = join(here, "seed-data", "destinations.padang.primary.json");
   let raw: string;
   try {
     raw = readFileSync(dataPath, "utf8");
   } catch {
-    console.log("seed-data/destinations.padang.json tidak ditemukan; melewati data scraper.");
+    console.log("seed-data/destinations.padang.primary.json tidak ditemukan; melewati data scraper.");
     return;
   }
   const data = JSON.parse(raw) as SeedData;

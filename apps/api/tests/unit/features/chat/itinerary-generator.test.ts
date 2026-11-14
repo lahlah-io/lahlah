@@ -177,6 +177,20 @@ test("no destinationCount stays schedule-clamped", async () => {
   for (const d of result.destinations) assert.ok(d.endTime <= "20:00");
 });
 
+test("requested categories are balanced in the final trip", async () => {
+  const { generateItinerary } = await loadGenerator();
+  const mixed: CandidateDestination[] = [
+    { id: "p1", name: "P1", latitude: -0.9, longitude: 100.35, details: {}, categories: ["pantai"] },
+    { id: "p2", name: "P2", latitude: -0.9, longitude: 100.351, details: {}, categories: ["pantai"] },
+    { id: "p3", name: "P3", latitude: -0.9, longitude: 100.352, details: {}, categories: ["pantai"] },
+    { id: "k1", name: "K1", latitude: -0.9, longitude: 100.353, details: {}, categories: ["kuliner"] },
+  ];
+  const result = generateItinerary({ ...baseReq, startTime: "09:00", endTime: "13:00", categories: ["pantai", "kuliner"] }, mixed) as {
+    destinations: Array<{ id: string }>;
+  };
+  assert.deepEqual(result.destinations.map((d) => d.id), ["p1", "k1", "p2", "p3"]);
+});
+
 test("destinationCount zero or non-integer is rejected", async () => {
   const { generateItinerary } = await loadGenerator();
   await expect422(() => generateItinerary({ ...baseReq, destinationCount: 0 }, candidates), "ITINERARY_REQUEST_INVALID");
