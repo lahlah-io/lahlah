@@ -153,6 +153,7 @@ export const openApiDocument: OpenApiDocument = {
     { name: "Destinations", description: "Destination catalog. Reads are public; writes are admin (delete is soft; create accepts `categoryIds[]`)." },
     { name: "Chat", description: "Conversational trip planning with RAG destinations and tool calls." },
     { name: "Itineraries", description: "Trip itineraries with versioned `trip_destinations` batches, restore, publish (sets `isPublic` only), and like/view." },
+    { name: "Trips", description: "One active trip per user (mark/clear) and geofenced check-ins with camera photos." },
     { name: "Images", description: "Image proxy (resize + WebP + disk cache) and user-uploaded checkpoint photos." },
     { name: "Routes", description: "OSRM driving routes between waypoints." },
     { name: "Health", description: "Liveness and readiness probes." },
@@ -1514,6 +1515,77 @@ export const openApiDocument: OpenApiDocument = {
           "400": validation,
           "401": unauthorized,
           "404": notFound("ITINERARY_NOT_FOUND"),
+          "500": internal,
+        },
+      },
+    },
+
+    "/api/v1/trips/active": {
+      get: {
+        tags: ["Trips"],
+        summary: "Get the caller's active trip",
+        operationId: "getActiveTrip",
+        description:
+          "Returns the trip the caller marked as active (`GET` counterpart of `POST /trips/{tripId}/active`). " +
+          "A trip created from a chat session becomes active automatically. `total` counts the stops of the " +
+          "newest itinerary version; `checked` counts how many of those the caller already checked in at.",
+        security: sessionSecurity,
+        responses: {
+          "200": { description: "Active trip summary.", content: json(single("ActiveTrip")) },
+          "401": unauthorized,
+          "404": notFound("NO_ACTIVE_TRIP"),
+          "500": internal,
+        },
+      },
+    },
+
+    "/api/v1/trips/{tripId}/active": {
+      post: {
+        tags: ["Trips"],
+        summary: "Mark a trip as active",
+        operationId: "activateTrip",
+        description:
+          "Idempotent. Clears any other active trip of the caller, so at most one stays active. " +
+          "Requires trip membership.",
+        parameters: [
+          {
+            name: "tripId",
+            in: "path",
+            required: true,
+            description: "Trip id.",
+            schema: { type: "string", format: "uuid" },
+          },
+        ],
+        security: sessionSecurity,
+        responses: {
+          "200": { description: "Trip is now active.", content: json(single("ActiveTrip")) },
+          "400": validation,
+          "401": unauthorized,
+          "403": errorResponse("Caller is not a trip member (`FORBIDDEN`)."),
+          "404": notFound("TRIP_NOT_FOUND"),
+          "500": internal,
+        },
+      },
+      delete: {
+        tags: ["Trips"],
+        summary: "Clear the active trip",
+        operationId: "deactivateTrip",
+        description: "Marks the trip inactive for the caller. Safe to repeat.",
+        parameters: [
+          {
+            name: "tripId",
+            in: "path",
+            required: true,
+            description: "Trip id.",
+            schema: { type: "string", format: "uuid" },
+          },
+        ],
+        security: sessionSecurity,
+        responses: {
+          "200": { description: "Trip is no longer active.", content: json(single("TripActiveState")) },
+          "400": validation,
+          "401": unauthorized,
+          "403": errorResponse("Caller is not a trip member (`FORBIDDEN`)."),
           "500": internal,
         },
       },

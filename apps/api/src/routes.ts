@@ -19,6 +19,8 @@ import {
   createCheckpointService,
   createItineraryApi,
   createItineraryService,
+  createTripApi,
+  createTripService,
 } from "./modules/itinerary/index.js";
 import { createImagesApi, createImagesService } from "./modules/images/index.js";
 import { modelsApi } from "./modules/models/index.js";
@@ -121,6 +123,7 @@ apiV1.route("/subscriptions", subscriptionsApi);
 apiV1.route("/categories", categoriesApi);
 apiV1.route("/destinations", destinationsApi);
 apiV1.route("/chat", createChatApi(chatService));
+apiV1.route("/trips", createTripApi(createTripService()));
 apiV1.route(
   "/trips",
   createCheckpointApi(createCheckpointService(), imagesService, {

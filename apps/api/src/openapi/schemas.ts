@@ -1278,6 +1278,29 @@ export const schemas: Record<string, SchemaObject> = {
     },
   },
 
+  ActiveTrip: {
+    type: "object",
+    description: "Summary of the caller's active trip.",
+    required: ["tripId", "title", "isPublic", "total", "checked", "updatedAt"],
+    properties: {
+      tripId: uuid,
+      title: { type: "string" },
+      isPublic: { type: "boolean" },
+      total: { type: "integer", minimum: 0, description: "Stops in the newest itinerary version." },
+      checked: { type: "integer", minimum: 0, description: "Stops the caller already checked in at." },
+      updatedAt: timestamp,
+    },
+  },
+
+  TripActiveState: {
+    type: "object",
+    required: ["tripId", "isActive"],
+    properties: {
+      tripId: uuid,
+      isActive: { type: "boolean", enum: [false] },
+    },
+  },
+
   Checkpoint: {
     type: "object",
     description: "A stored check-in. Coordinates are the device position at check-in time.",
