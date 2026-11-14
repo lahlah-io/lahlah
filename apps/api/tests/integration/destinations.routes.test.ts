@@ -18,8 +18,8 @@ test("list destinations city=Padang returns only active Padang destinations", as
 });
 
 test("list destinations category filter works", async () => {
-  const category = await prisma.category.findUnique({ where: { slug: "seed-pantai" } });
-  assert.ok(category, "seed-pantai category missing (run seed)");
+  const category = await prisma.category.findUnique({ where: { slug: "pantai" } });
+  assert.ok(category, "pantai category missing (run seed)");
   const response = await app.request(
     `/api/v1/destinations?city=Padang&category=${category.id}&limit=50`,
   );
