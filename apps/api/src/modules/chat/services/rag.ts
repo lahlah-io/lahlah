@@ -11,8 +11,20 @@ export type DestinationKbRow = {
   categories?: Array<{ name?: string; slug?: string }>;
 };
 
+const CATEGORY_KEYWORDS: Record<string, string> = {
+  belanja: "oleh-oleh, oleh2",
+  santai: "nongkrong, sore, tepi laut, ngopi, santai keluarga",
+};
+
 export function buildDestinationChunk(row: DestinationKbRow): string {
-  const cats = (row.categories ?? []).map((c) => c.name).filter(Boolean).join(", ");
+  const cats = (row.categories ?? [])
+    .map((c) => {
+      const slug = (c.slug ?? c.name ?? "").toLowerCase();
+      const extra = CATEGORY_KEYWORDS[slug];
+      return extra ? `${c.name} (${extra})` : c.name;
+    })
+    .filter(Boolean)
+    .join(", ");
   const details = row.details != null ? (typeof row.details === "string" ? row.details : JSON.stringify(row.details)) : "";
   return [
     row.name,
@@ -37,8 +49,14 @@ export function findRelevantChunks(
   categorySlugs: string[] = [],
   fallbackMin: number = env.EMBEDDING_FALLBACK_MIN_SIMILARITY,
   excludedSlugs: string[] = [],
+  excludedNames: string[] = [],
 ): RetrievedChunk[] {
-  const available = excludedSlugs.length > 0 ? kb.filter((c) => !c.categorySlugs.some((slug) => excludedSlugs.includes(slug))) : kb;
+  const withoutExcludedCategories = excludedSlugs.length > 0
+    ? kb.filter((c) => !c.categorySlugs.some((slug) => excludedSlugs.includes(slug)))
+    : kb;
+  const available = excludedNames.length > 0
+    ? withoutExcludedCategories.filter((c) => !excludedNames.some((ex) => c.name.toLowerCase().includes(ex.toLowerCase())))
+    : withoutExcludedCategories;
   const scoped = categorySlugs.length > 0 ? available.filter((c) => c.categorySlugs.some((slug) => categorySlugs.includes(slug))) : available;
   const pool = scoped.length > 0 ? scoped : available;
   const scored = pool.map((c) => ({
@@ -86,20 +104,28 @@ export async function retrieveRelevantChunks(
   kb: KbChunk[],
   categorySlugs: string[] = [],
   excludedSlugs: string[] = [],
+  excludedNames: string[] = [],
 ): Promise<RetrievedChunk[]> {
   const queryEmbedding = await embed(query);
-  return findRelevantChunks(queryEmbedding, kb, undefined, undefined, categorySlugs, undefined, excludedSlugs);
+  return findRelevantChunks(queryEmbedding, kb, undefined, undefined, categorySlugs, undefined, excludedSlugs, excludedNames);
 }
 
 export function makeRagContextProvider(
   loadRows: () => Promise<DestinationKbRow[]>,
   categoriesFor: (query: string) => string[] = () => [],
   exclusionsFor: (query: string) => string[] = () => [],
+  destinationExclusionsFor: (query: string) => string[] = () => [],
 ): (query: string) => Promise<string> {
   return async (query) => {
     if (env.NODE_ENV === "test") return "";
     const kb = await getKnowledgeBase(loadRows);
-    const chunks = await retrieveRelevantChunks(query, kb, categoriesFor(query), exclusionsFor(query));
+    const chunks = await retrieveRelevantChunks(
+      query,
+      kb,
+      categoriesFor(query),
+      exclusionsFor(query),
+      destinationExclusionsFor(query),
+    );
     if (chunks.length === 0) return "";
     return JSON.stringify(chunks.map((c) => ({ name: c.name, text: c.text })), null, 2);
   };
