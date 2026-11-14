@@ -8,6 +8,40 @@ const nullableTimestamp: SchemaObject = { type: ["string", "null"], format: "dat
 const nullableUuid: SchemaObject = { type: ["string", "null"], format: "uuid" };
 const integer: SchemaObject = { type: "integer", minimum: 0 };
 const nullableInteger: SchemaObject = { type: ["integer", "null"], minimum: 0 };
+
+/** Road distance in meters from the previous stop; null on the first stop or when routing failed. */
+const legDistanceM: SchemaObject = {
+  type: ["integer", "null"],
+  minimum: 0,
+  description:
+    "Road distance in meters from the previous stop to this one (OSRM driving route, not a straight line). " +
+    "`null` for the first stop of a version, when a stop lacks coordinates, or when routing fell back to a straight line.",
+  example: 1200,
+};
+
+/** Same value as `distance`, in km with one decimal, for display. */
+const legDistanceKm: SchemaObject = {
+  type: ["number", "null"],
+  minimum: 0,
+  description: "Same value as `distance`, in km with one decimal, for display.",
+  example: 1.2,
+};
+
+const totalDistanceM: SchemaObject = {
+  type: ["integer", "null"],
+  minimum: 0,
+  description:
+    "Road distance total for this version batch, in meters: `SUM(distance)` over its stops. A batch is the set of " +
+    "`trip_destinations` rows sharing one `createdAt`. `null` when no stop has a road distance.",
+  example: 3000,
+};
+
+const totalDistanceKm: SchemaObject = {
+  type: ["number", "null"],
+  minimum: 0,
+  description: "Same total as `totalDistanceM`, in km with one decimal.",
+  example: 3,
+};
 const jsonObject: SchemaObject = { type: "object", additionalProperties: true };
 const nullableJson: SchemaObject = { type: ["object", "array", "null"] };
 const ymd: SchemaObject = { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$", example: "2026-12-01" };
@@ -46,6 +80,21 @@ const destinationSource: SchemaObject = {
   type: "string",
   enum: ["geoapify", "firecrawl", "overpass", "wikidata", "manual", "admin", "user"],
 };
+
+/** Kecamatan Kota Padang. Nilai resmi saja; input bebas dinormalisasi backend. */
+const PADANG_DISTRICT_NAMES = [
+  "Bungus Teluk Kabung",
+  "Koto Tangah",
+  "Kuranji",
+  "Lubuk Begalung",
+  "Lubuk Kilangan",
+  "Nanggalo",
+  "Padang Barat",
+  "Padang Selatan",
+  "Padang Timur",
+  "Padang Utara",
+  "Pauh",
+] as const;
 
 const planLimits: SchemaObject = {
   type: "object",
@@ -563,6 +612,47 @@ export const schemas: Record<string, SchemaObject> = {
     },
   },
 
+  District: {
+    type: "string",
+    enum: [...PADANG_DISTRICT_NAMES],
+    example: "Padang Barat",
+    description:
+      "Kecamatan Kota Padang (11 kecamatan). Query/filter menerima nama bebas (`padang barat`, `barat`, `Kec. Padang Bar.`) dan menormalkannya; nilai di luar daftar ditolak `422`.",
+  },
+  DistrictCount: {
+    type: "object",
+    required: ["district", "total"],
+    properties: {
+      district: { $ref: "#/components/schemas/District" },
+      total: { type: "integer", minimum: 0, example: 134, description: "Destinasi aktif di kecamatan ini." },
+    },
+  },
+  EstimatedCost: {
+    type: "object",
+    description:
+      "Estimasi biaya kasar per destinasi, disimpan di `Destination.details.estimatedCost`. " +
+      "Bukan harga resmi: `confidence` selalu `estimasi` dan `verified` masih `false` sampai diverifikasi lapangan. " +
+      "Tampilkan sebagai rentang (mis. \"sekitar Rp20.000–50.000/orang\") dan jangan dijumlahkan sebagai biaya final trip. " +
+      "`null` bila destinasi belum punya estimasi; jawaban tetap valid tanpa field ini.",
+    required: ["currency", "min", "max", "kind", "confidence", "verified"],
+    properties: {
+      currency: { type: "string", enum: ["IDR"], example: "IDR" },
+      min: { type: "integer", minimum: 0, example: 20000, description: "Batas bawah estimasi (inklusif)." },
+      max: { type: "integer", minimum: 0, example: 50000, description: "Batas atas estimasi (inklusif)." },
+      kind: {
+        type: "string",
+        enum: ["konsumsi", "tiket", "parkir", "gratis"],
+        example: "konsumsi",
+        description:
+          "`konsumsi` makanan/minuman, `tiket` tiket masuk, `parkir` biaya parkir, `gratis` tanpa biaya (min=max=0).",
+      },
+      unit: { type: "string", example: "per orang", description: "Satuan biaya, mis. `per orang`, `per kendaraan`." },
+      note: { type: "string", example: "estimasi minum + camilan" },
+      basis: { type: "string", example: "kedai kopi", description: "Kategori Google/katalog yang jadi dasar estimasi." },
+      confidence: { type: "string", enum: ["estimasi"], example: "estimasi" },
+      verified: { type: "boolean", example: false, description: "`true` hanya setelah dicek lapangan." },
+    },
+  },
   Destination: {
     type: "object",
     required: [
@@ -572,6 +662,7 @@ export const schemas: Record<string, SchemaObject> = {
       "latitude",
       "longitude",
       "address",
+      "district",
       "source",
       "sourcePlaceId",
       "createdBy",
@@ -600,6 +691,17 @@ export const schemas: Record<string, SchemaObject> = {
         description: "Normalised to 7 decimal places.",
       },
       address: nullableString,
+      city: {
+        type: ["string", "null"],
+        maxLength: 100,
+        example: "Padang",
+        description: "Kota administratif destinasi. Katalog chat hanya memakai `Padang`.",
+      },
+      district: {
+        $ref: "#/components/schemas/District",
+        description:
+          "Kecamatan Kota Padang. Bisa `null` bila alamat tidak menyebut kecamatan/kelurahan; baris seperti itu tetap muncul di filter kategori, tetapi tidak di filter `district`.",
+      },
       source: destinationSource,
       sourcePlaceId: nullableString,
       createdBy: nullableUuid,
@@ -608,7 +710,9 @@ export const schemas: Record<string, SchemaObject> = {
       details: {
         type: "object",
         additionalProperties: true,
-        description: "Free-form metadata. PATCH merges instead of replacing.",
+        description:
+          "Free-form metadata. PATCH merges instead of replacing. " +
+          "Katalog seeder Padang mengisi `estimatedCost` (lihat `EstimatedCost`), `googleCategory`, `reviewRating`, `phone`, `link`.",
       },
       lastSyncedAt: nullableTimestamp,
       ...durationMetadata,
@@ -638,12 +742,24 @@ export const schemas: Record<string, SchemaObject> = {
         example: 106.8166666,
       },
       address: { ...nullableString, maxLength: 255 },
+      district: { $ref: "#/components/schemas/District" },
       imageUrl: { ...nullableString, format: "uri", maxLength: 2048 },
       details: {
         type: "object",
         additionalProperties: true,
         default: {},
-        example: { entranceFee: 10000 },
+        example: {
+          estimatedCost: {
+            currency: "IDR",
+            min: 20000,
+            max: 50000,
+            kind: "konsumsi",
+            unit: "per orang",
+            basis: "kedai kopi",
+            confidence: "estimasi",
+            verified: false,
+          },
+        },
       },
       categoryIds: {
         type: "array",
@@ -663,6 +779,7 @@ export const schemas: Record<string, SchemaObject> = {
       latitude: { type: ["number", "string", "null"], minimum: -90, maximum: 90 },
       longitude: { type: ["number", "string", "null"], minimum: -180, maximum: 180 },
       address: { ...nullableString, maxLength: 255 },
+      district: { $ref: "#/components/schemas/District" },
       imageUrl: { ...nullableString, format: "uri", maxLength: 2048 },
       details: {
         type: "object",
@@ -981,15 +1098,18 @@ export const schemas: Record<string, SchemaObject> = {
 
   ItineraryDestination: {
     type: "object",
-    description: "Legacy join row between a trip and a destination (current batch only).",
-    required: ["id", "itineraryId", "destinationId", "visitAt", "estimatedCost", "notes", "createdAt"],
+    description:
+      "One `trip_destinations` row: a stop of the trip. Rows sharing one `createdAt` form one version batch; " +
+      "`distance` and the batch total (`ItineraryVersion.totalDistanceM`) come from road routing, never from a straight line.",
+    required: ["id", "itineraryId", "destinationId", "visitAt", "estimatedCost", "distance", "distanceKm", "notes", "createdAt"],
     properties: {
       id: uuid,
       itineraryId: uuid,
       destinationId: uuid,
       visitAt: nullableTimestamp,
       estimatedCost: { type: ["number", "null"] },
-      distance: { type: ["number", "null"] },
+      distance: legDistanceM,
+      distanceKm: legDistanceKm,
       notes: nullableString,
       createdAt: timestamp,
     },
@@ -1045,10 +1165,13 @@ export const schemas: Record<string, SchemaObject> = {
 
   ItineraryStop: {
     type: "object",
-    description: "One stop inside a version snapshot. `arrivalTime` is local Padang time (`HH:mm`).",
+    description:
+      "One stop inside a version snapshot. `arrivalTime` is local Padang time (`HH:mm`). `distance` is the road " +
+      "distance travelled to reach this stop from the previous one.",
     required: [
       "id", "itineraryVersionId", "destinationId", "position", "name", "latitude", "longitude",
       "arrivalTime", "departureTime", "visitDurationMin", "travelDurationMin", "notes", "category", "snapshotJson",
+      "distance", "distanceKm",
     ],
     properties: {
       id: uuid,
@@ -1065,6 +1188,8 @@ export const schemas: Record<string, SchemaObject> = {
       notes: nullableString,
       category: nullableString,
       snapshotJson: nullableJson,
+      distance: legDistanceM,
+      distanceKm: legDistanceKm,
     },
   },
 
@@ -1101,7 +1226,7 @@ export const schemas: Record<string, SchemaObject> = {
     description: "Immutable version snapshot stored as one `trip_destinations` batch.",
     required: [
       "id", "itineraryId", "version", "basedOnVersion", "changeInstruction", "changeType",
-      "totalDistanceM", "totalDurationMin", "totalEstimatedMin", "status", "sourceMessageId",
+      "totalDistanceM", "totalDistanceKm", "totalDurationMin", "totalEstimatedMin", "status", "sourceMessageId",
       "routeJson", "expiresAt", "createdAt", "stops", "travelDate", "startTime", "endTime",
     ],
     properties: {
@@ -1111,7 +1236,8 @@ export const schemas: Record<string, SchemaObject> = {
       basedOnVersion: nullableInteger,
       changeInstruction: nullableString,
       changeType: { type: "string", example: "snapshot" },
-      totalDistanceM: nullableInteger,
+      totalDistanceM,
+      totalDistanceKm,
       totalDurationMin: nullableInteger,
       totalEstimatedMin: nullableInteger,
       status: { type: "string", example: "confirmed" },
@@ -1130,7 +1256,7 @@ export const schemas: Record<string, SchemaObject> = {
     type: "object",
     description: "One row of the version history. The active version is the one with `isSelected: true`.",
     required: [
-      "version", "basedOnVersion", "changeType", "changeInstruction", "status", "totalDistanceM",
+      "version", "basedOnVersion", "changeType", "changeInstruction", "status", "totalDistanceM", "totalDistanceKm",
       "totalDurationMin", "totalEstimatedMin", "createdAt", "stopCount", "routeCount", "isSaved", "isSelected",
     ],
     properties: {
@@ -1139,7 +1265,8 @@ export const schemas: Record<string, SchemaObject> = {
       changeType: { type: "string" },
       changeInstruction: nullableString,
       status: { type: "string" },
-      totalDistanceM: nullableInteger,
+      totalDistanceM,
+      totalDistanceKm,
       totalDurationMin: nullableInteger,
       totalEstimatedMin: nullableInteger,
       createdAt: timestamp,
@@ -1152,8 +1279,13 @@ export const schemas: Record<string, SchemaObject> = {
 
   ItineraryVersionView: {
     type: "object",
-    description: "Version payload returned by the chat reply. Rendered on the map as `stops`.",
-    required: ["versionId", "versionNumber", "itineraryId", "travelDate", "startTime", "endTime", "stops", "routeJson"],
+    description:
+      "Version payload returned by the chat reply. Rendered on the map as `stops`; `totalDistanceM`/`totalDistanceKm` " +
+      "is the road distance of the whole batch, and each stop carries the leg distance from the previous one.",
+    required: [
+      "versionId", "versionNumber", "itineraryId", "travelDate", "startTime", "endTime", "stops", "routeJson",
+      "totalDistanceM", "totalDistanceKm",
+    ],
     properties: {
       versionId: { type: "string", description: "First stop id, or an ISO timestamp for an empty batch." },
       versionNumber: { type: "integer", minimum: 1 },
@@ -1177,11 +1309,15 @@ export const schemas: Record<string, SchemaObject> = {
             departureTime: nullableString,
             visitDurationMin: nullableInteger,
             category: nullableString,
+            distance: legDistanceM,
+            distanceKm: legDistanceKm,
           },
         },
       },
       routes: { type: "array", items: jsonObject, description: "Optional per-leg geometry; currently empty." },
       routeJson: { oneOf: [{ $ref: "#/components/schemas/ItineraryRouteJson" }, { type: "null" }] },
+      totalDistanceM,
+      totalDistanceKm,
     },
   },
 
@@ -1313,13 +1449,22 @@ export const schemas: Record<string, SchemaObject> = {
     description:
       "Route between waypoints. `source: \"cache\"` is a cached OSRM hit, `\"fallback\"` is a straight line " +
       "(`durationMin: null`, render dashed).",
-    required: ["source", "distanceKm", "durationMin", "estimated", "geometry"],
+    required: ["source", "distanceKm", "durationMin", "estimated", "legsDistanceKm", "geometry"],
     properties: {
       source: { type: "string", enum: ["osrm", "cache", "fallback"] },
       distanceKm: { type: ["number", "null"], minimum: 0, example: 12.4 },
       durationMin: nullableInteger,
       estimated: { type: "boolean", description: "True when `motorcycle` duration was derived from driving." },
       error: { type: "string", description: "Only present on fallback." },
+      legsDistanceKm: {
+        type: "array",
+        items: { type: "number", minimum: 0 },
+        description:
+          "Road distance per consecutive point pair, in km, in request order (`length === points.length - 1`). " +
+          "This is what per-stop itinerary distance is built from. On `source: \"fallback\"` these are straight-line " +
+          "distances, so clients must check `source` before treating them as road distance.",
+        example: [1.2, 1.8],
+      },
       geometry: { $ref: "#/components/schemas/GeoLineString" },
     },
   },

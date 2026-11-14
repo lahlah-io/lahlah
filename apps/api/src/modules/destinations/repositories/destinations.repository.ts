@@ -13,6 +13,7 @@ export const destinationSelect = {
   longitude: true,
   address: true,
   city: true,
+  district: true,
   source: true,
   sourcePlaceId: true,
   createdBy: true,
@@ -60,6 +61,7 @@ export async function findDestinations(input: z.infer<typeof listDestinationsQue
     ...(input.isActive === undefined ? {} : { isActive: input.isActive }),
     ...(input.source === undefined ? {} : { source: input.source }),
     ...(input.city ? { city: input.city } : {}),
+    ...(input.district ? { district: input.district } : {}),
     ...(categoryId ? { categories: { some: { categoryId } } } : {}),
     ...(input.q
       ? {
@@ -90,6 +92,19 @@ export const findDestinationById = (id: string) =>
 
 export const findActiveForKnowledgeBase = () =>
   prisma.destination.findMany({ where: { city: "Padang", isActive: true }, select: destinationSelect });
+
+/** Jumlah destinasi aktif per kecamatan; dipakai filter wilayah di FE dan chat. */
+export async function findDistrictCounts() {
+  const rows = await prisma.destination.groupBy({
+    by: ["district"],
+    where: { city: "Padang", isActive: true, district: { not: null } },
+    _count: { _all: true },
+  });
+  return rows
+    .filter((row): row is typeof row & { district: string } => row.district !== null)
+    .map((row) => ({ district: row.district, total: row._count._all }))
+    .sort((a, b) => b.total - a.total);
+}
 
 export function insertDestination(
   data: Prisma.DestinationUncheckedCreateInput,

@@ -4,6 +4,7 @@ import { HttpError } from "../../../shared/http/errors.js";
 import * as categoriesRepository from "../repositories/categories.repository.js";
 import * as destinationsRepository from "../repositories/destinations.repository.js";
 import { toDestinationResponse } from "../repositories/destinations.repository.js";
+import { resolveDistrict } from "../../../shared/geo/padang-district.js";
 import type {
   createDestinationSchema,
   updateDestinationSchema,
@@ -16,6 +17,8 @@ export const listDestinations = destinationsRepository.findDestinations;
 
 export const listKnowledgeBaseDestinations = () =>
   destinationsRepository.findActiveForKnowledgeBase().then((rows) => rows.map(toDestinationResponse));
+
+export const listDistricts = destinationsRepository.findDistrictCounts;
 
 export async function getDestination(id: string) {
   const destination = await destinationsRepository.findDestinationById(id);
@@ -44,6 +47,8 @@ export async function createDestination(
     latitude: input.latitude ?? null,
     longitude: input.longitude ?? null,
     address: input.address ?? null,
+    // Admin tidak mengisi district; tebak dari alamat supaya filter wilayah tetap konsisten.
+    district: input.district ?? resolveDistrict(input.address ?? null),
     source: "admin",
     createdBy: actor.id,
     imageUrl: input.imageUrl ?? null,
@@ -83,6 +88,7 @@ export async function updateDestination(
   if (input.latitude !== undefined) data.latitude = input.latitude;
   if (input.longitude !== undefined) data.longitude = input.longitude;
   if (input.address !== undefined) data.address = input.address;
+  if (input.district !== undefined) data.district = input.district;
   if (input.imageUrl !== undefined) data.imageUrl = input.imageUrl;
   if (input.isActive !== undefined) data.isActive = input.isActive;
   if (input.details !== undefined) {

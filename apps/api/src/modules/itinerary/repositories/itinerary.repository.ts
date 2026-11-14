@@ -69,6 +69,17 @@ export async function findBySessionId(sessionId: string) {
   return prisma.trip.findUnique({ where: { chatSessionId: sessionId }, select: tripSelect });
 }
 
+/** Coordinates for the given destinations; rows without coordinates are absent from the map. */
+export async function findDestinationCoords(ids: string[]) {
+  const rows = await prisma.destination.findMany({
+    where: { id: { in: ids }, latitude: { not: null }, longitude: { not: null } },
+    select: { id: true, latitude: true, longitude: true },
+  });
+  return new Map(
+    rows.map((row) => [row.id, { latitude: Number(row.latitude), longitude: Number(row.longitude) }] as const),
+  );
+}
+
 export async function upsertTripRoot(input: { userId: string; sessionId: string; title: string }) {
   return prisma.$transaction(async (tx) => {
     const trip = await ensureTripForSessionTx(tx, input);

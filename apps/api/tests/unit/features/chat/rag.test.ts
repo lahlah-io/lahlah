@@ -8,11 +8,13 @@ test("buildDestinationChunk joins name, categories, address, description, detail
     name: "Pantai Air Manis",
     description: "Pantai dengan batu Malin Kundang",
     address: "Padang Selatan",
+    district: "Padang Selatan",
     categories: [{ name: "Pantai" }, { name: "Alam" }],
     details: { price: 10000 },
   });
   assert.ok(chunk.includes("Pantai Air Manis"));
   assert.ok(chunk.includes("Kategori: Pantai, Alam"));
+  assert.ok(chunk.includes("Wilayah: Padang Selatan"));
   assert.ok(chunk.includes("Alamat: Padang Selatan"));
   assert.ok(chunk.includes("Deskripsi: Pantai dengan batu Malin Kundang"));
   assert.ok(chunk.includes('"price":10000'));

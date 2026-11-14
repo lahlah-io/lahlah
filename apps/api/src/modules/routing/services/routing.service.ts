@@ -30,19 +30,27 @@ function toRad(d: number): number {
   return (d * Math.PI) / 180;
 }
 
+/** Straight-line distance in km between two points (Haversine). */
+function haversineKm(a: RoutePoint, b: RoutePoint): number {
+  const R = 6371;
+  const h =
+    Math.sin(toRad(b.latitude - a.latitude) / 2) ** 2 +
+    Math.cos(toRad(a.latitude)) * Math.cos(toRad(b.latitude)) * Math.sin(toRad(b.longitude - a.longitude) / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
 /** Total straight-line distance in km (Haversine); only for fallback metadata. */
 export function fallbackKm(points: RoutePoint[]): number {
-  const R = 6371;
   let total = 0;
-  for (let i = 1; i < points.length; i++) {
-    const a = points[i - 1]!;
-    const b = points[i]!;
-    const h =
-      Math.sin(toRad(b.latitude - a.latitude) / 2) ** 2 +
-      Math.cos(toRad(a.latitude)) * Math.cos(toRad(b.latitude)) * Math.sin(toRad(b.longitude - a.longitude) / 2) ** 2;
-    total += 2 * R * Math.asin(Math.sqrt(h));
-  }
+  for (let i = 1; i < points.length; i++) total += haversineKm(points[i - 1]!, points[i]!);
   return Math.round(total * 10) / 10;
+}
+
+/** Straight-line distance per consecutive pair in km. */
+function fallbackLegsKm(points: RoutePoint[]): number[] {
+  const legs: number[] = [];
+  for (let i = 1; i < points.length; i++) legs.push(Math.round(haversineKm(points[i - 1]!, points[i]!) * 1000) / 1000);
+  return legs;
 }
 
 async function fetchWithTimeout(fetchFn: FetchFn, url: string, timeoutMs: number, userAgent: string): Promise<Response> {
@@ -66,7 +74,7 @@ export function createRoutingService(deps: RoutingServiceDeps): RoutingService {
   async function fetchOsrm(
     osrmProfile: string,
     path: string,
-  ): Promise<{ distanceKm: number; durationMin: number; coordinates: Array<[number, number]> }> {
+  ): Promise<{ distanceKm: number; durationMin: number; coordinates: Array<[number, number]>; legsDistanceKm: number[] }> {
     const url = `${deps.osrmBaseUrl.replace(/\/+$/, "")}/route/v1/${osrmProfile}/${path}?overview=full&geometries=geojson`;
     let res: Response;
     try {
@@ -85,7 +93,12 @@ export function createRoutingService(deps: RoutingServiceDeps): RoutingService {
     }
     if (!res.ok) throw new Error(`OSRM HTTP ${res.status}`);
     const body = (await res.json()) as {
-      routes?: Array<{ distance?: number; duration?: number; geometry?: { coordinates?: unknown } }>;
+      routes?: Array<{
+        distance?: number;
+        duration?: number;
+        geometry?: { coordinates?: unknown };
+        legs?: Array<{ distance?: number }>;
+      }>;
     };
     const route = body.routes?.[0];
     const coordinates = route?.geometry?.coordinates;
@@ -96,6 +109,9 @@ export function createRoutingService(deps: RoutingServiceDeps): RoutingService {
       distanceKm: Math.round((route.distance / 1000) * 10) / 10,
       durationMin: Math.round(route.duration / 60),
       coordinates: coordinates as Array<[number, number]>,
+      legsDistanceKm: (route.legs ?? [])
+        .filter((leg): leg is { distance: number } => typeof leg.distance === "number")
+        .map((leg) => Math.round((leg.distance / 1000) * 1000) / 1000),
     };
   }
 
@@ -114,6 +130,7 @@ export function createRoutingService(deps: RoutingServiceDeps): RoutingService {
         distanceKm: osrm.distanceKm,
         durationMin: estimated ? Math.max(1, Math.round(osrm.durationMin * MOTORCYCLE_DURATION_FACTOR)) : osrm.durationMin,
         estimated,
+        legsDistanceKm: osrm.legsDistanceKm,
         geometry: { type: "LineString", coordinates: osrm.coordinates },
       };
       deps.cache.set(key, result);
@@ -125,6 +142,7 @@ export function createRoutingService(deps: RoutingServiceDeps): RoutingService {
         durationMin: null,
         estimated: input.profile === "motorcycle",
         error: err instanceof Error ? err.message : "gagal",
+        legsDistanceKm: fallbackLegsKm(input.points),
         geometry: { type: "LineString", coordinates: input.points.map((p) => [p.longitude, p.latitude]) },
       };
     }

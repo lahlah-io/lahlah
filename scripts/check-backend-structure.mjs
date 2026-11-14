@@ -8,7 +8,7 @@ function entries(directory) {
 const appRoot = process.cwd();
 const srcRoot = path.join(appRoot, "src");
 const errors = [];
-const requiredFiles = ["app.ts", "env.ts", "index.ts", "routes.ts"];
+const requiredFiles = ["app.ts", "env.ts", "index.ts", "openapi/index.ts", "routes.ts"];
 const requiredDirs = ["db", "modules", "openapi", "shared"];
 const allowedDirs = new Set([...requiredDirs, "generated", "integrations", "scripts"]);
 const moduleLayers = ["api", "schemas", "services", "repositories"];

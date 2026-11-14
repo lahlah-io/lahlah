@@ -328,7 +328,8 @@ Contoh (dipotong):
   "createdAt": "...",
   "updatedAt": "...",
   "destinations": [
-    { "id": "...", "itineraryId": "...", "destinationId": "dest-uuid", "visitAt": "2026-11-20T08:00:00.000Z", "estimatedCost": null, "notes": null, "createdAt": "..." }
+    { "id": "...", "itineraryId": "...", "destinationId": "dest-uuid", "visitAt": "2026-11-20T08:00:00.000Z", "estimatedCost": null, "distance": null, "distanceKm": null, "notes": null, "createdAt": "..." },
+    { "id": "...", "itineraryId": "...", "destinationId": "dest-uuid-2", "visitAt": "2026-11-20T09:00:00.000Z", "estimatedCost": null, "distance": 1200, "distanceKm": 1.2, "notes": null, "createdAt": "..." }
   ],
   "version": {
     "id": "version-uuid",
@@ -457,7 +458,8 @@ Content-Type: application/json
 ```
 
 - `points`: 2 sampai 50 titik. `profile`: `car` | `motorcycle` | `foot` (default `car`).
-- Balasan `200`: `{ "data": { "source", "distanceKm", "durationMin", "estimated", "geometry", "error?" } }`
+- Balasan `200`: `{ "data": { "source", "distanceKm", "durationMin", "estimated", "legsDistanceKm", "geometry", "error?" } }`
+- `legsDistanceKm`: satu nilai per pasangan titik berurutan (`length === points.length - 1`), urutan sama dengan `points`. Ini dasar jarak per-stop itinerary. Saat `source: "fallback"`, nilainya jarak garis lurus — jangan dianggap jarak jalan.
 
 Arti `source`:
 
@@ -466,6 +468,23 @@ Arti `source`:
 - `fallback` — OSRM gagal/timeout, geometri garis lurus antar titik; `durationMin` bisa `null`, ada `error`
 
 Perhatian koordinat: input `{ latitude, longitude }`, tapi `geometry.coordinates` adalah `[longitude, latitude]`.
+
+## 10a. jarak trip (total per versi)
+
+- Sumber: `trip_destinations.distance` = jarak jalan **meter** dari stop sebelumnya (rute OSRM driving, bukan garis lurus). Stop pertama tiap versi `null`.
+- `null` juga muncul bila destinasi tidak punya koordinat, atau routing jatuh ke garis lurus. **Jangan** baca `null` sebagai `0`, dan jangan jumlahkan fallback sebagai jarak jalan.
+- Satu versi = semua baris `trip_destinations` dengan `created_at` sama. Totalnya `totalDistanceM` (`SUM(distance)`), pendamping tampilan `totalDistanceKm` (1 desimal).
+- Dihitung sekali saat versi ditulis; endpoint baca tidak memanggil OSRM. Data versi lama diisi lewat `pnpm --filter api db:backfill-distances`.
+- Tersedia di: `version.stops[].distance`/`distanceKm` (payload chat), `destinations[].distance`/`distanceKm` dan `version.totalDistanceM`/`totalDistanceKm` (`GET /itineraries/:id`, `/by-session/:sessionId`, `/versions`, `/versions/:version`).
+
+```json
+{ "version": { "totalDistanceM": 3000, "totalDistanceKm": 3,
+  "stops": [
+    { "position": 1, "distance": null, "distanceKm": null },
+    { "position": 2, "distance": 1200, "distanceKm": 1.2 },
+    { "position": 3, "distance": 1800, "distanceKm": 1.8 }
+  ] } }
+```
 
 Catatan profil:
 - `foot` memakai profil jalan kaki OSRM.

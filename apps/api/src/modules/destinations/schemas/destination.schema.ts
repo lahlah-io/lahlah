@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PADANG_DISTRICTS, normalizeDistrict } from "../../../shared/geo/padang-district.js";
 import { paginationQuerySchema } from "../../../shared/schemas/pagination.schema.js";
 
 const label = z.string().trim().min(1).max(255);
@@ -20,12 +21,29 @@ const address = z.string().trim().max(255);
 const imageUrl = z.url().max(2048);
 const details = z.record(z.string(), z.unknown());
 
+/** Kecamatan Kota Padang; input bebas ("padang barat", "barat") dinormalisasi ke nama resmi. */
+const district = z
+  .string()
+  .trim()
+  .min(1)
+  .max(100)
+  .transform((value, ctx) => {
+    const resolved = normalizeDistrict(value);
+    if (!resolved) {
+      ctx.addIssue({ code: "custom", message: `Unknown district: ${value}` });
+      return z.NEVER;
+    }
+    return resolved;
+  })
+  .pipe(z.enum(PADANG_DISTRICTS));
+
 export const createDestinationSchema = z.object({
   name: label,
   description: description.nullable().optional(),
   latitude: coordinate(-90, 90).nullable().optional(),
   longitude: coordinate(-180, 180).nullable().optional(),
   address: address.nullable().optional(),
+  district: district.nullable().optional(),
   imageUrl: imageUrl.nullable().optional(),
   details: details.default({}),
   categoryIds: z.array(z.uuid()).default([]),
@@ -38,6 +56,7 @@ export const updateDestinationSchema = z
     latitude: coordinate(-90, 90).nullable(),
     longitude: coordinate(-180, 180).nullable(),
     address: address.nullable(),
+    district: district.nullable(),
     imageUrl: imageUrl.nullable(),
     details: details,
     categoryIds: z.array(z.uuid()),
@@ -56,6 +75,7 @@ export const listDestinationsQuerySchema = paginationQuerySchema.extend({
     .transform((value) => value === "true")
     .optional(),
   city: z.string().trim().min(1).optional(),
+  district: district.optional(),
   categoryId: z.uuid().optional(),
   // Alias publik backend (`?category=`); dinormalisasi ke categoryId di service.
   category: z.uuid().optional(),

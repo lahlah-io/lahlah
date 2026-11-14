@@ -4,8 +4,10 @@ import { randomUUID } from "node:crypto";
 import { HttpError } from "../../../../src/shared/http/errors.js";
 
 type ToolDeps = {
-  searchDestinations: (input: { keywords?: string; categories?: string[] }) => Promise<unknown[]>;
+  searchDestinations: (input: { keywords?: string; categories?: string[]; district?: string }) => Promise<unknown[]>;
   getDestinationDetails: (input: { destinationIds: string[] }) => Promise<unknown[]>;
+  defaultCategories?: string[];
+  defaultDistrict?: string;
 };
 
 async function loadTools() {
@@ -185,6 +187,76 @@ test("filters out inactive/non-Padang detail rows returned by repo", async () =>
   assert.equal(result[0]?.city, "Padang");
   assert.equal(result[0]?.isActive, true);
   assert.equal("canonicalKey" in result[0]!, false);
+});
+
+test("district diteruskan ke searchDestinations", async () => {
+  const { executeTool } = await loadTools();
+  const seen: Array<{ district?: string }> = [];
+  await executeTool(
+    "search_destinations",
+    { categories: ["kuliner"], district: "Padang Barat" },
+    baseDeps({
+      searchDestinations: async (input) => {
+        seen.push(input);
+        return [];
+      },
+    }),
+  );
+  assert.equal(seen[0]?.district, "Padang Barat");
+});
+
+test("district dari pesan user dipakai saat model tidak mengirimnya", async () => {
+  const { createToolExecutor } = await loadTools();
+  const seen: Array<{ district?: string }> = [];
+  const exec = createToolExecutor({
+    ...baseDeps({
+      searchDestinations: async (input) => {
+        seen.push(input);
+        return [{ id: "d1", name: "Pantai", city: "Padang", isActive: true }];
+      },
+    }),
+    defaultDistrict: "Padang Selatan",
+  } as ToolDeps);
+  await exec("search_destinations", { categories: ["pantai"] });
+  await exec("search_destinations", { categories: ["pantai"], district: "Padang Barat" });
+  assert.deepEqual(seen.map((s) => s.district), ["Padang Selatan", "Padang Barat"]);
+});
+
+test("wilayah hanya pengayaan: hasil kosong di wilayah itu dicari ulang tanpa wilayah", async () => {
+  const { createToolExecutor } = await loadTools();
+  const seen: Array<{ district?: string }> = [];
+  const exec = createToolExecutor({
+    ...baseDeps({
+      searchDestinations: async (input) => {
+        seen.push(input);
+        return input.district ? [] : [{ id: "d9", name: "Pantai Air Manis", city: "Padang", isActive: true }];
+      },
+    }),
+    defaultDistrict: "Lubuk Kilangan",
+  } as ToolDeps);
+  const rows = (await exec("search_destinations", { categories: ["pantai"] })) as Array<{ name: string }>;
+  assert.deepEqual(seen.map((s) => s.district), ["Lubuk Kilangan", undefined], "harus retry tanpa wilayah");
+  assert.equal(rows[0]?.name, "Pantai Air Manis");
+});
+
+test("hasil tool menyertakan wilayah agar jawaban bisa menyebut kecamatan", async () => {
+  const { executeTool } = await loadTools();
+  const rows = (await executeTool(
+    "search_destinations",
+    { categories: ["kuliner"] },
+    baseDeps({
+      searchDestinations: async () => [
+        {
+          id: "d1", name: "Kebuli Sultan", description: null, address: "Jl. Purus",
+          latitude: -0.95, longitude: 100.35, city: "Padang", district: "Padang Barat",
+          isActive: true, details: { estimatedCost: { currency: "IDR", min: 20000, max: 50000 } },
+          categories: [{ id: "c1", name: "Kuliner", slug: "kuliner" }],
+        },
+      ],
+    }),
+  )) as Array<{ district?: string; details?: { estimatedCost?: { min: number } } }>;
+  assert.equal(rows[0]?.district, "Padang Barat");
+  assert.equal(rows[0]?.details?.estimatedCost?.min, 20000);
 });
 
 test("mergeDestinationRows accumulates across calls and dedupes by id", async () => {

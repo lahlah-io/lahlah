@@ -227,6 +227,58 @@ test("health and openapi docs return their documented shapes", async () => {
   }
 });
 
+test("openapi documents road distance units, per-leg values, and batch totals", async () => {
+  const res = await app.request("/openapi.json");
+  assert.equal(res.status, 200);
+  const spec = (await res.json()) as {
+    info: { description: string };
+    paths: Record<string, Record<string, { responses: Record<string, { content: Record<string, { example?: unknown }> }> }>>;
+    components: { schemas: Record<string, { required?: string[]; properties?: Record<string, { description?: string; items?: { properties?: Record<string, unknown> }; example?: unknown }>; description?: string }> };
+  };
+  const schemas = spec.components.schemas;
+  const props = (name: string) => schemas[name]?.properties ?? {};
+
+  // Routing: per-leg road distance in km.
+  const routeLegs = props("RouteResult").legsDistanceKm;
+  assert.ok(routeLegs, "RouteResult.legsDistanceKm missing");
+  assert.match(String(routeLegs.description), /km/);
+
+  // Destination row: meters, with a km mirror for display.
+  const destinationRow = props("ItineraryDestination");
+  assert.match(String(destinationRow.distance?.description), /meters/);
+  assert.ok(destinationRow.distanceKm, "ItineraryDestination.distanceKm missing");
+
+  // Stop inside a version snapshot carries the same per-leg value.
+  const stop = props("ItineraryStop");
+  assert.match(String(stop.distance?.description), /meters/);
+  assert.ok(stop.distanceKm, "ItineraryStop.distanceKm missing");
+
+  // Chat version view (what the FE map renders) carries the same fields.
+  const versionStops = props("ItineraryVersionView").stops?.items?.properties ?? {};
+  assert.ok(versionStops.distance, "ItineraryVersionView.stops[].distance missing");
+  assert.ok(versionStops.distanceKm, "ItineraryVersionView.stops[].distanceKm missing");
+  assert.ok(props("ItineraryVersionView").totalDistanceM, "ItineraryVersionView.totalDistanceM missing");
+  assert.ok(props("ItineraryVersionView").totalDistanceKm, "ItineraryVersionView.totalDistanceKm missing");
+
+  // Batch totals are part of the contract, not optional extras.
+  for (const name of ["ItineraryVersion", "ItineraryVersionSummary"]) {
+    assert.ok(props(name).totalDistanceKm, `${name}.totalDistanceKm missing`);
+    assert.ok(schemas[name]?.required?.includes("totalDistanceKm"), `${name} must require totalDistanceKm`);
+  }
+  assert.match(String(props("ItineraryVersionSummary").totalDistanceM?.description), /meters/);
+
+  // Agents need the rule in prose too: how to total, and what null means.
+  assert.match(spec.info.description, /totalDistanceM/);
+
+  // A concrete example is what makes the rule copy-able.
+  const detail = spec.paths["/api/v1/itineraries/{id}"].get.responses["200"].content["application/json"].example as {
+    data: { version: { totalDistanceM: number; stops: Array<{ distance: number | null }> } };
+  };
+  assert.equal(detail.data.version.stops[0]!.distance, null);
+  assert.equal(detail.data.version.stops[1]!.distance, 1200);
+  assert.equal(detail.data.version.totalDistanceM, 3000);
+});
+
 test("users API response shapes match the OpenAPI contract", async () => {
   const admin = await adminAuth();
   const email = `openapi-${randomUUID()}@example.test`;

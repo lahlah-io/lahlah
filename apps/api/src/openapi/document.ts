@@ -8,8 +8,8 @@ import type {
   SchemaObject,
 } from "./types.js";
 
-const json = (schema: SchemaObject): Record<string, OpenApiMediaType> => ({
-  "application/json": { schema },
+const json = (schema: SchemaObject, example?: unknown): Record<string, OpenApiMediaType> => ({
+  "application/json": example === undefined ? { schema } : { schema, example },
 });
 
 const ref = (name: string): SchemaObject => ({ $ref: `#/components/schemas/${name}` });
@@ -136,8 +136,27 @@ export const openApiDocument: OpenApiDocument = {
       "**Chat reply.** `intent` is one of the classifier labels listed on `ChatReply`;",
       "`version` is the itinerary snapshot to render on the map, or `null` for plain chat.",
       "",
+      "**Wilayah & estimasi biaya (enrichment, bukan syarat).** Setiap destinasi boleh punya",
+      "`district` (kecamatan, 11 nilai resmi di `District`) dan `details.estimatedCost`",
+      "(lihat `EstimatedCost`). Keduanya opsional: `district` bisa `null` dan `estimatedCost`",
+      "bisa tidak ada. Pakai sebagai pengaya jawaban/tampilan, bukan filter wajib — bila user",
+      "tidak menyebut wilayah atau biaya, hasil tanpa keduanya tetap sah. Alur yang disarankan:",
+      "`GET /api/v1/destinations/districts` untuk daftar wilayah + jumlah, lalu",
+      "`GET /api/v1/destinations?district=...&categoryId=...` untuk isi satu wilayah. Query",
+      "`district` menerima nama bebas (`padang barat`, `barat`, `Kec. Padang Bar.`) dan",
+      "dinormalisasi; nama di luar 11 kecamatan ditolak `400`. Filter `district` tidak",
+      "mengembalikan baris yang `district`-nya `null`, sedangkan filter kategori tetap.",
+      "",
       "**Admin-only.** Users, models, categories, destinations, and plan writes require",
       "the `admin` role. Plan reads are public for the pricing page.",
+      "",
+      "**Trip distance (road km).** A version is the set of `trip_destinations` rows sharing one `createdAt`.",
+      "Each row's `distance` is the road distance in **meters** from the previous stop (OSRM driving route, not a",
+      "straight line); the first stop of a version is `null`. The batch total is `totalDistanceM` = `SUM(distance)`,",
+      "with `totalDistanceKm` as the one-decimal display mirror. Distances are computed once when a version is",
+      "written and are not recalculated on reads. `null` means the value is genuinely unknown (no coordinates, or",
+      "routing fell back to a straight line) — never treat `null` as `0`, and never total straight-line fallbacks",
+      "as road distance. `POST /api/v1/routes/driving` exposes the same per-leg values as `legsDistanceKm`.",
     ].join("\n"),
   },
   servers: [
@@ -960,6 +979,16 @@ export const openApiDocument: OpenApiDocument = {
             description: "Filter by city (for example `Padang`).",
           },
           {
+            name: "district",
+            in: "query",
+            schema: { type: "string", minLength: 1, maxLength: 100 },
+            description:
+              "Filter by kecamatan (`District`). Free text is normalised (`padang barat`, `barat`, `Kec. Padang Bar.`); " +
+              "unknown names return `400`. Rows whose `district` is `null` are excluded, so this narrows the catalog — " +
+              "drop it when the user did not name a wilayah.",
+            example: "Padang Barat",
+          },
+          {
             name: "categoryId",
             in: "query",
             schema: { type: "string", format: "uuid" },
@@ -997,6 +1026,26 @@ export const openApiDocument: OpenApiDocument = {
             "This destination already exists",
           ),
           "413": payloadTooLarge,
+          "500": internal,
+        },
+      },
+    },
+
+    "/api/v1/destinations/districts": {
+      get: {
+        tags: ["Destinations"],
+        summary: "List kecamatan with destination counts",
+        operationId: "listDestinationDistricts",
+        description:
+          "Public. Active Padang destinations grouped by kecamatan, sorted by `total` descending. " +
+          "Use it to build a wilayah picker, then pass `district` to `GET /api/v1/destinations`. " +
+          "Destinations without a resolvable kecamatan are excluded, so totals may sum to less than the full catalog. " +
+          "Tabel `DistrictCount.total` adalah hitungan nyata, bukan estimasi; untuk biaya pakai `Destination.details.estimatedCost`.",
+        responses: {
+          "200": {
+            description: "Kecamatan list with counts.",
+            content: json(list("DistrictCount")),
+          },
           "500": internal,
         },
       },
@@ -1205,7 +1254,12 @@ export const openApiDocument: OpenApiDocument = {
         tags: ["Chat"],
         summary: "Send a message",
         operationId: "sendChatMessage",
-        description: "Returns the assistant reply, detected intent, and an itinerary version when applicable.",
+        description:
+          "Returns the assistant reply, detected intent, and an itinerary version when applicable. " +
+          "When the user names a wilayah or asks about budget, the assistant looks destinations up in the catalog and may " +
+          "mention `district` and `details.estimatedCost` in `message` as estimates (\"sekitar Rp20.000–50.000/orang\"). " +
+          "Those are free text, not structured fields: read them from `GET /api/v1/destinations` if you need values. " +
+          "If the user names no wilayah or budget, the reply is generated from the model's own knowledge and stays valid.",
         parameters: [idPath("Chat session id.")],
         requestBody: body("SendChatMessageRequest"),
         responses: {
@@ -1571,7 +1625,32 @@ export const openApiDocument: OpenApiDocument = {
           },
         ],
         responses: {
-          "200": { description: "Itinerary detail.", content: json(single("Itinerary")) },
+          "200": {
+            description:
+              "Itinerary detail. `version.stops[].distance` is road meters from the previous stop; the batch total is " +
+              "`version.totalDistanceM`.",
+            content: json(single("Itinerary"), {
+              data: {
+                id: "6f1d0a52-0d21-4f31-9f0e-3a1f1c2b3d4e",
+                currentVersion: 1,
+                destinations: [
+                  { destinationId: "08051695-f482-473d-9694-5673354652aa", distance: null, distanceKm: null },
+                  { destinationId: "7ae1c0b8-59dd-4646-95bd-f3983cad4157", distance: 1200, distanceKm: 1.2 },
+                  { destinationId: "4994e2bf-221c-419a-83d8-2afe68cf8a89", distance: 1800, distanceKm: 1.8 },
+                ],
+                version: {
+                  versionNumber: 1,
+                  totalDistanceM: 3000,
+                  totalDistanceKm: 3,
+                  stops: [
+                    { position: 1, name: "Pantai Padang", distance: null, distanceKm: null },
+                    { position: 2, name: "Marawa Beach Club", distance: 1200, distanceKm: 1.2 },
+                    { position: 3, name: "Pantai Air Manis", distance: 1800, distanceKm: 1.8 },
+                  ],
+                },
+              },
+            }),
+          },
           "400": validation,
           "401": unauthorized,
           "404": notFound("ITINERARY_NOT_FOUND"),
@@ -1803,10 +1882,23 @@ export const openApiDocument: OpenApiDocument = {
         description:
           "Requests an OSRM route for `car`, `motorcycle`, or `foot` (`motorcycle` maps to driving with " +
           "adjusted duration). When OSRM fails or times out, responds 200 with `source: \"fallback\"` " +
-          "and a straight-line geometry (render as a dashed line).",
+          "and a straight-line geometry (render as a dashed line). `legsDistanceKm` holds one road distance per " +
+          "consecutive point pair; check `source` before treating those values as road distance.",
         requestBody: body("CalculateRouteRequest"),
         responses: {
-          "200": { description: "Route or fallback.", content: json(single("RouteResult")) },
+          "200": {
+            description: "Route or fallback.",
+            content: json(single("RouteResult"), {
+              data: {
+                source: "osrm",
+                distanceKm: 3,
+                durationMin: 6,
+                estimated: false,
+                legsDistanceKm: [1.2, 1.8],
+                geometry: { type: "LineString", coordinates: [[100.35, -0.95], [100.36, -0.94]] },
+              },
+            }),
+          },
           "400": validation,
           "500": internal,
         },

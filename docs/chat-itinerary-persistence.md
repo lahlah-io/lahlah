@@ -33,7 +33,7 @@ Dokumen ini menjelaskan arsitektur penyimpanan, versioning, dan kontrak backend 
   - Stop terurut dalam versi: `position`, `destinationId?`, `name`, `latitude/longitude` (Decimal), waktu kedatangan/keberangkatan (string HH:MM pada snapshot), durasi kunjung/perjalanan, catatan/kategori.
 - **ItineraryRoute** (`itinerary_routes`)
   - Leg antar stop dalam versi: `fromStopId`, `toStopId`, `transportMode`, `distanceM`, `durationSec`, `geometryJson` (GeoJSON LineString, koordinat `[lng, lat]`), `provider`, `providerProfile`, `fallback`, timestamps.
-- **ItineraryDestination**: tautan itinerary ke destinasi master + info kunjungan (visitAt/cost/notes).
+- **ItineraryDestination**: tautan itinerary ke destinasi master + info kunjungan (visitAt/cost/notes). Di skema baru ini `trip_destinations`; kolom `distance` menyimpan **jarak jalan (meter)** dari stop sebelumnya ke stop ini (rute OSRM driving), `null` untuk stop pertama atau saat routing/koordinat tidak tersedia. Total per batch = `SUM(distance)`, diekspos sebagai `totalDistanceM`/`totalDistanceKm`.
 
 ## invarian & aturan utama
 

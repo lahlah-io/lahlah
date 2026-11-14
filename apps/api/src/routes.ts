@@ -29,6 +29,7 @@ import { subscriptionsApi } from "./modules/subscriptions/index.js";
 import { usersApi } from "./modules/users/index.js";
 import { createRouteCache, createRoutingApi, createRoutingService } from "./modules/routing/index.js";
 import { env } from "./env.js";
+import { normalizeDistrict } from "./shared/geo/padang-district.js";
 import * as usersRepository from "./modules/users/repositories/users.repository.js";
 
 function toToolRow(row: {
@@ -53,19 +54,25 @@ function toToolRow(row: {
 
 const toolSelect = {
   id: true, name: true, description: true, address: true, latitude: true, longitude: true,
-  details: true, city: true, isActive: true,
+  details: true, city: true, district: true, isActive: true,
   categories: { select: { category: { select: { id: true, name: true, slug: true } } } },
 } as const;
 
 // Uncategorized rows are unvetted scraper output; never offer them to the chat.
-export function searchDestinationsWhere(input: { keywords?: string; categories?: string[] }) {
+export function searchDestinationsWhere(input: {
+  keywords?: string;
+  categories?: string[];
+  district?: string;
+}) {
   const q = input.keywords?.trim();
   const cats = input.categories?.filter(Boolean) ?? [];
   const catSlugs = [...new Set(cats.flatMap((c) => (c.startsWith("seed-") ? [c.slice(5)] : [c])))];
+  const district = normalizeDistrict(input.district ?? null);
   return {
     city: "Padang",
     isActive: true,
     source: { not: "admin" as const },
+    ...(district ? { district } : {}),
     ...(q ? { OR: [{ name: { contains: q, mode: "insensitive" as const } }, { description: { contains: q, mode: "insensitive" as const } }] } : {}),
     categories: { some: catSlugs.length ? { category: { slug: { in: catSlugs } } } : {} },
   };
@@ -80,6 +87,7 @@ const routingService = createRoutingService({
 
 const itineraryService = createItineraryService({
   findUserById: (id) => usersRepository.findUserById(id).then((u) => (u ? { id: u.id, isActive: u.isActive } : null)),
+  getRoute: routingService.getRoute,
 });
 
 const knowledgeBaseRows = async () => listKnowledgeBaseDestinations();

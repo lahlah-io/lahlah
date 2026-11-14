@@ -5,6 +5,7 @@ import { completeChat, resolveAiRoleConfig } from "../../../integrations/ai/chat
 import type { AiMessage, AiToolDefinition } from "../../../integrations/ai/schemas.js";
 import { classify, type Intent } from "./classifier.js";
 import { formatItineraryReply, generateNaturalReply, isClearlyOffTopic, OFF_TOPIC_REPLY, ONE_TRIP_PER_CHAT } from "./answerer.js";
+import { normalizeDistrict } from "../../../shared/geo/padang-district.js";
 import { buildConversationContext } from "./conversation-context.js";
 import { generateItinerary, scheduleStops } from "./itinerary-generator.js";
 import { createToolExecutor, mergeDestinationRows } from "./tools.js";
@@ -30,7 +31,10 @@ async function ragContextMessage(deps: Pick<ChatDeps, "retrieveRagContext">, que
 
 const HISTORY_LIMIT = 20;
 export const SYSTEM_PROMPT =
-  "You are a helpful Padang travel assistant. For itinerary requests, you MUST use provided tools to fetch destination data from the database before suggesting places. Return concise Indonesian responses.";
+  "You are a helpful Padang travel assistant. For itinerary requests, you MUST use provided tools to fetch destination data from the database before suggesting places. Return concise Indonesian responses. " +
+  "Each destination may include `district` (kecamatan) and `details.estimatedCost` ({currency, min, max, kind, unit, basis, confidence}). " +
+  "Use them only as enrichment: mention the wilayah and say cost as an estimate (e.g. \"sekitar Rp20.000–50.000/orang\") when it helps the user's question. " +
+  "If a field is null or the user did not ask about cost/wilayah, answer from what you know without inventing numbers or districts.";
 
 type UserRow = { id: string; isActive: boolean };
 type ChatDeps = {
@@ -39,7 +43,11 @@ type ChatDeps = {
   completeAiChat?: typeof completeChat;
   retrieveRagContext?: (query: string) => Promise<string>;
   itinerary?: ItineraryVersionGateway;
-  searchDestinations: (input: { keywords?: string; categories?: string[] }) => Promise<unknown[]>;
+  searchDestinations: (input: {
+    keywords?: string;
+    categories?: string[];
+    district?: string;
+  }) => Promise<unknown[]>;
   getDestinationDetails: (input: { destinationIds: string[] }) => Promise<unknown[]>;
   /** Injectable randomness for the category pick; tests pass a fixed function. */
   random?: () => number;
@@ -200,6 +208,11 @@ export function extractCategories(text: string): string[] {
   }
   if (t.includes("belanja") || t.includes("shopping") || /\b(?:oleh-oleh|oleh2)\b/i.test(t)) categories.push("belanja");
   return [...new Set(categories)];
+}
+
+/** Kecamatan yang disebut user; null bila pesan tidak menyebut wilayah Padang. */
+export function extractDistrict(text: string): string | null {
+  return normalizeDistrict(text);
 }
 
 export const CATEGORY_LABELS: Record<string, string> = {
@@ -701,14 +714,16 @@ async function runItineraryToolFlow(input: {
   request: TripDetails;
 }) {
   const run = input.deps.completeAiChat ?? completeChat;
+  const district = extractDistrict(input.userMessage);
   const executeTool = createToolExecutor({
     searchDestinations: input.deps.searchDestinations,
     getDestinationDetails: input.deps.getDestinationDetails,
     defaultCategories: input.request.categories,
+    ...(district ? { defaultDistrict: district } : {}),
   });
   const config = resolveAiRoleConfig("tool");
   const tools: AiToolDefinition[] = [
-    { type: "function", function: { name: "search_destinations", description: "Search active Padang destinations.", parameters: { type: "object", properties: { keywords: { type: "string" }, categories: { type: "array", items: { type: "string" } } } } } },
+    { type: "function", function: { name: "search_destinations", description: "Search active Padang destinations by keywords, category, or kecamatan (district).", parameters: { type: "object", properties: { keywords: { type: "string" }, categories: { type: "array", items: { type: "string" } }, district: { type: "string", description: "Kecamatan Kota Padang, mis. Padang Barat." } } } } },
     { type: "function", function: { name: "get_destination_details", description: "Get active Padang destination details.", parameters: { type: "object", properties: { destinationId: { type: "string" }, destinationIds: { type: "array", items: { type: "string" } } } } } },
   ];
   const messages: AiMessage[] = [

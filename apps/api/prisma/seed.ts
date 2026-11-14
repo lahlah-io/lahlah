@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { Prisma } from "../src/generated/prisma/client.js";
 import { prisma } from "../src/db/client.js";
+import { resolveDistrict } from "../src/shared/geo/padang-district.js";
 
 type SeedCategory = { slug: string; name: string };
 type SeedDestination = {
@@ -69,6 +70,7 @@ async function seedScraped(categoryMap: Map<string, string>) {
   for (const c of data.categories) await upsertCategory(c, categoryMap);
 
   let saved = 0;
+  const seededKeys: string[] = [];
   for (const d of data.destinations) {
     const rowData = {
       name: d.name,
@@ -77,6 +79,7 @@ async function seedScraped(categoryMap: Map<string, string>) {
       longitude: dec(d.longitude),
       address: d.address,
       city: d.city ?? "Padang",
+      district: resolveDistrict(d.address),
       source: d.source,
       sourcePlaceId: d.sourcePlaceId,
       isActive: d.isActive ?? true,
@@ -84,26 +87,47 @@ async function seedScraped(categoryMap: Map<string, string>) {
       details: (d.details ?? {}) as Prisma.InputJsonValue,
       lastSyncedAt: new Date(),
     };
-    let row: { id: string };
-    if (d.canonicalKey) {
-      row = await prisma.destination.upsert({
-        where: { canonicalKey: d.canonicalKey },
-        create: { ...rowData, canonicalKey: d.canonicalKey },
-        update: rowData,
-        select: { id: true },
-      });
-    } else if (d.sourcePlaceId) {
-      row = await prisma.destination.upsert({
-        where: { source_sourcePlaceId: { source: d.source, sourcePlaceId: d.sourcePlaceId } },
-        create: { ...rowData, canonicalKey: null },
-        update: rowData,
-        select: { id: true },
-      });
-    } else {
-      continue;
-    }
+    // Baris lama bisa cocok lewat canonicalKey atau sourcePlaceId (mis. nama berubah saat
+    // data gmaps baru masuk), jadi cari dulu salah satu, baru update/create — bukan upsert
+    // pada satu unique key saja.
+    const existing = await prisma.destination.findFirst({
+      where: {
+        OR: [
+          ...(d.canonicalKey ? [{ canonicalKey: d.canonicalKey }] : []),
+          ...(d.sourcePlaceId ? [{ source: d.source, sourcePlaceId: d.sourcePlaceId }] : []),
+        ],
+      },
+      select: { id: true },
+    });
+    if (!existing && !d.canonicalKey && !d.sourcePlaceId) continue;
+    if (d.canonicalKey) seededKeys.push(d.canonicalKey);
+    const row = existing
+      ? await prisma.destination.update({
+          where: { id: existing.id },
+          data: { ...rowData, ...(d.canonicalKey ? { canonicalKey: d.canonicalKey } : {}) },
+          select: { id: true },
+        })
+      : await prisma.destination.create({
+          data: { ...rowData, canonicalKey: d.canonicalKey ?? null },
+          select: { id: true },
+        });
     await syncLinks(row.id, d.categorySlugs, categoryMap);
     saved += 1;
+  }
+  // Data katalog yang tidak ada lagi di seeder dinonaktifkan, bukan dihapus:
+  // trip_destinations memakai onDelete Restrict dan riwayat trip user harus tetap utuh.
+  // Destinasi buatan admin/user tidak disentuh.
+  if (seededKeys.length > 0) {
+    const stale = await prisma.destination.updateMany({
+      where: {
+        city: "Padang",
+        isActive: true,
+        source: { notIn: ["admin", "user"] },
+        canonicalKey: { notIn: seededKeys },
+      },
+      data: { isActive: false },
+    });
+    if (stale.count > 0) console.log(`Seed scraper: ${stale.count} destinasi lama dinonaktifkan.`);
   }
   console.log(`Seed scraper: ${data.categories.length} kategori, ${saved} destinasi.`);
 }

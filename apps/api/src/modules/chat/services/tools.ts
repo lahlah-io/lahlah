@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { AiToolDefinition } from "../../../integrations/ai/schemas.js";
 import { HttpError } from "../../../shared/http/errors.js";
+import { normalizeDistrict } from "../../../shared/geo/padang-district.js";
 
 const SEARCH_LIMIT = 10;
 const KNOWN_CATEGORY_SLUGS = new Set([
@@ -29,6 +30,13 @@ const searchArgsSchema = z.object({
     .max(10)
     .optional()
     .transform((v) => v?.map((s) => s.toLowerCase()).filter((s) => KNOWN_CATEGORY_SLUGS.has(s))),
+  // Wilayah: nama bebas dinormalisasi; yang tidak dikenal dibuang agar filter tidak salah sempit.
+  district: z
+    .string()
+    .trim()
+    .max(100)
+    .optional()
+    .transform((v) => normalizeDistrict(v ?? null) ?? undefined),
 });
 
 const detailArgsSchema = z
@@ -42,10 +50,16 @@ const detailArgsSchema = z
   });
 
 export type ToolDeps = {
-  searchDestinations: (input: { keywords?: string; categories?: string[] }) => Promise<unknown[]>;
+  searchDestinations: (input: {
+    keywords?: string;
+    categories?: string[];
+    district?: string;
+  }) => Promise<unknown[]>;
   getDestinationDetails: (input: { destinationIds: string[] }) => Promise<unknown[]>;
   /** User's requested categories; used when the model sends none, so search never runs unfiltered. */
   defaultCategories?: string[];
+  /** Kecamatan yang disebut user ("di Padang Barat"); dipakai bila model tidak mengirim district. */
+  defaultDistrict?: string;
 };
 
 export const toolDefinitions: AiToolDefinition[] = [
@@ -53,13 +67,19 @@ export const toolDefinitions: AiToolDefinition[] = [
     type: "function",
     function: {
       name: "search_destinations",
-      description: "Search active Padang destinations by keywords or known category slugs.",
+      description:
+        "Search active Padang destinations by keywords, category slug, or kecamatan (district). district and details.estimatedCost are optional enrichment; omit them when the user did not ask.",
       parameters: {
         type: "object",
         additionalProperties: false,
         properties: {
           keywords: { type: "string" },
           categories: { type: "array", items: { type: "string" } },
+          district: {
+            type: "string",
+            description:
+              "Opsional. Kecamatan Kota Padang bila user menyebut wilayah (mis. Padang Barat, Padang Selatan, Kuranji). Kosongkan bila tidak disebut; hasil tanpa wilayah tetap valid.",
+          },
         },
       },
     },
@@ -100,6 +120,7 @@ function safeRow(row: unknown) {
         })
       : [],
     city: r.city,
+    district: r.district ?? null,
     isActive: r.isActive,
   };
 }
@@ -126,12 +147,20 @@ export function createToolExecutor(deps: ToolDeps) {
       // shortcut: union model categories with the user's requested categories,
       // the model sometimes searches only one of several requested categories.
       const categories = [...new Set([...(args.categories ?? []), ...(deps.defaultCategories ?? [])])];
+      // Wilayah eksplisit dari model menang atas wilayah yang ditebak dari pesan user.
+      // Wilayah adalah pengayaan, bukan syarat: kalau filter wilayah membuat hasil kosong,
+      // cari ulang tanpa wilayah supaya user tetap dapat rekomendasi.
+      const district = args.district ?? deps.defaultDistrict;
       const searchRows = async (cats: string[], keywords: string | null = args.keywords ?? null) => {
-        const rows = await deps.searchDestinations({
+        const query = (withDistrict: boolean) => ({
           ...(keywords ? { keywords } : {}),
           ...(cats.length ? { categories: cats } : {}),
+          ...(withDistrict && district ? { district } : {}),
         });
-        return rows.map(safeRow).filter(Boolean) as Array<Record<string, unknown>>;
+        const clean = (rows: unknown[]) => rows.map(safeRow).filter(Boolean) as Array<Record<string, unknown>>;
+        const rows = clean(await deps.searchDestinations(query(true)));
+        if (rows.length > 0 || !district) return rows;
+        return clean(await deps.searchDestinations(query(false)));
       };
       // Vibe words ("sepi", "enak buat ngobrol") rarely appear in name/description.
       // If keyword matching finds nothing, retry on category filters alone, then unfiltered.
