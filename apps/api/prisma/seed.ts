@@ -115,8 +115,8 @@ async function cleanupLegacySeed() {
   });
   if (legacyDestinations.length > 0) {
     const ids = legacyDestinations.map((d) => d.id);
-    // ItineraryDestination memakai onDelete: Restrict; hapus turunannya dulu.
-    await prisma.itineraryDestination.deleteMany({ where: { destinationId: { in: ids } } });
+    // TripDestination memakai onDelete: Restrict; hapus turunannya dulu.
+    await prisma.tripDestination.deleteMany({ where: { destinationId: { in: ids } } });
     await prisma.destinationCategory.deleteMany({ where: { destinationId: { in: ids } } });
     await prisma.destination.deleteMany({ where: { id: { in: ids } } });
   }

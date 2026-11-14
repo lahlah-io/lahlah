@@ -17,7 +17,10 @@ async function seedCounts() {
 test("seed Padang idempotent saat dijalankan dua kali", { timeout: 180_000 }, async () => {
   runSeed();
   const first = await seedCounts();
-  assert.equal(first.categories, 8);
+  const seedSlugs = ["alam", "belanja", "budaya", "keluarga", "kuliner", "pantai", "santai", "sejarah"];
+  // Hitung absolut rapuh: DB dev bisa berisi kategori nyata lain di luar 8 seed.
+  const seeded = await prisma.category.count({ where: { slug: { in: seedSlugs } } });
+  assert.equal(seeded, 8);
   assert.ok(first.destinations > 0);
 
   runSeed();

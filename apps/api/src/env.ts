@@ -50,6 +50,7 @@ export const env = z
     EMBEDDING_MODEL: z.string().default("Xenova/paraphrase-multilingual-MiniLM-L12-v2"),
     EMBEDDING_TOP_K: z.coerce.number().int().min(1).max(20).default(3),
     EMBEDDING_SIMILARITY_THRESHOLD: z.coerce.number().min(0).max(1).default(0.3),
+    EMBEDDING_FALLBACK_MIN_SIMILARITY: z.coerce.number().min(0).max(1).default(0.2),
     DRAFT_TTL_SECONDS: z.coerce.number().int().min(60).max(86_400).default(1800),
     OSRM_BASE_URL: z.string().default("https://router.project-osrm.org"),
     OSRM_TIMEOUT_MS: z.coerce.number().int().min(1000).max(30000).default(8000),
