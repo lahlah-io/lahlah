@@ -93,3 +93,26 @@ test("findRelevantChunks excludes rejected categories, including from the fallba
   const hits = findRelevantChunks([1, 0.9], kb, 3, 0.3, [], 0.2, ["sejarah"]);
   assert.deepEqual(hits.map((h) => h.name), ["Pantai B"]);
 });
+
+test("findRelevantChunks excludes specific rejected destinations while preserving the category", () => {
+  const kb = [
+    { text: "pantai air manis", embedding: [1, 0], destinationId: "1", name: "Pantai Air Manis", categorySlugs: ["pantai"] },
+    { text: "pantai padang", embedding: [0.95, 0.05], destinationId: "2", name: "Pantai Padang", categorySlugs: ["pantai"] },
+  ];
+  const hits = findRelevantChunks([1, 0], kb, 3, 0.3, ["pantai"], 0.2, [], ["Pantai Air Manis"]);
+  assert.deepEqual(hits.map((h) => h.name), ["Pantai Padang"]);
+});
+
+test("buildDestinationChunk enriches shopping and relaxation categories with keywords", () => {
+  const belanjaChunk = buildDestinationChunk({
+    name: "Toko Sanjai",
+    categories: [{ name: "Belanja", slug: "belanja" }],
+  });
+  assert(belanjaChunk.includes("oleh-oleh, oleh2"));
+
+  const santaiChunk = buildDestinationChunk({
+    name: "Kafe Sunset",
+    categories: [{ name: "Santai", slug: "santai" }],
+  });
+  assert(santaiChunk.includes("nongkrong, sore, tepi laut, ngopi, santai keluarga"));
+});

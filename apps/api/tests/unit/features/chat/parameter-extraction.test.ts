@@ -50,6 +50,13 @@ describe(`parameter extraction matrix (${fixture.datasetVersion}, ${fixture.prom
     expect(extractCategories("wisata alam")).toEqual(["alam"]);
   });
 
+  test("extractCategories extracts shopping and relaxation keywords", () => {
+    expect(extractCategories("tempat belanja oleh-oleh khas padang")).toEqual(["belanja"]);
+    expect(extractCategories("beli oleh2")).toEqual(["belanja"]);
+    expect(extractCategories("tempat nongkrong sore tepi laut")).toEqual(["santai"]);
+    expect(extractCategories("tempat ngopi santai keluarga")).toEqual(["santai"]);
+  });
+
   test("relative date uses Asia/Jakarta, not server local time", () => {
     // 2026-11-09T18:00Z is already 2026-11-10 01:00 in Jakarta.
     const lateUtc = new Date("2026-11-09T18:00:00.000Z");
