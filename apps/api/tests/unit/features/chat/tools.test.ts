@@ -65,7 +65,28 @@ test("drops unknown category slug instead of rejecting", async () => {
   assert.deepEqual(result, []);
 });
 
-test("search falls back to the user's categories when the model sends none", async () => {
+test("multi-category search fans out per category and round-robins", async () => {
+  const { createToolExecutor } = await loadTools();
+  const seen: Array<string[] | undefined> = [];
+  const row = (id: string, name: string) => ({ id, name, city: "Padang", isActive: true });
+  const poolA = Array.from({ length: 10 }, (_, i) => row(`a${i}`, `A${i}`));
+  const poolB = [row("b0", "B0"), row("b1", "B1")];
+  const exec = createToolExecutor({
+    ...baseDeps({
+      searchDestinations: async (input) => {
+        seen.push(input.categories);
+        return input.categories?.[0] === "pantai" ? poolA : poolB;
+      },
+    }),
+    defaultCategories: ["pantai", "kuliner"],
+  } as ToolDeps);
+  const result = (await exec("search_destinations", { categories: ["pantai"] })) as Array<{ id: string }>;
+  // one query per category, interleaved so kuliner rows are not starved
+  assert.deepEqual(seen, [["pantai"], ["kuliner"]]);
+  assert.deepEqual(result.map((r) => r.id), ["a0", "b0", "a1", "b1", "a2", "a3", "a4", "a5", "a6", "a7"]);
+});
+
+test("model categories are merged with the user's requested categories", async () => {
   const { createToolExecutor } = await loadTools();
   const seen: Array<string[] | undefined> = [];
   const exec = createToolExecutor({
@@ -75,7 +96,8 @@ test("search falls back to the user's categories when the model sends none", asy
   await exec("search_destinations", { categories: [] });
   await exec("search_destinations", {});
   await exec("search_destinations", { categories: ["kuliner"] });
-  assert.deepEqual(seen, [["pantai", "budaya"], ["pantai", "budaya"], ["kuliner"]]);
+  await exec("search_destinations", { categories: ["Pantai", "KELUARGA"] });
+  assert.deepEqual(seen, [["pantai"], ["budaya"], ["pantai"], ["budaya"], ["kuliner"], ["pantai"], ["budaya"], ["pantai"], ["keluarga"], ["budaya"]]);
 });
 
 test("rejects non-UUID destination ids", async () => {

@@ -35,6 +35,20 @@ const toolSelect = {
   categories: { select: { category: { select: { id: true, name: true, slug: true } } } },
 } as const;
 
+// Uncategorized rows are unvetted scraper output; never offer them to the chat.
+export function searchDestinationsWhere(input: { keywords?: string; categories?: string[] }) {
+  const q = input.keywords?.trim();
+  const cats = input.categories?.filter(Boolean) ?? [];
+  const catSlugs = [...new Set(cats.flatMap((c) => (c.startsWith("seed-") ? [c.slice(5)] : [c])))];
+  return {
+    city: "Padang",
+    isActive: true,
+    source: { not: "admin" as const },
+    ...(q ? { OR: [{ name: { contains: q, mode: "insensitive" as const } }, { description: { contains: q, mode: "insensitive" as const } }] } : {}),
+    categories: { some: catSlugs.length ? { category: { slug: { in: catSlugs } } } : {} },
+  };
+}
+
 const routeCache = createRouteCache({ ttlMs: env.OSRM_CACHE_TTL_HOURS * 3_600_000 });
 const routingService = createRoutingService({
   osrmBaseUrl: env.OSRM_BASE_URL,
@@ -53,19 +67,7 @@ const chatService = createChatService({
   findUserById: (id) => usersRepository.findUserById(id).then((u) => (u ? { id: u.id, isActive: u.isActive } : null)),
   retrieveRagContext: makeRagContextProvider(knowledgeBaseRows),
   searchDestinations: async (input) => {
-    const q = input.keywords?.trim();
-    const cats = input.categories?.filter(Boolean) ?? [];
-    const catSlugs = [...new Set(cats.flatMap((c) => (c.startsWith("seed-") ? [c, c.slice(5)] : [c, `seed-${c}`])))];
-    const rows = await prisma.destination.findMany({
-      where: {
-        city: "Padang",
-        isActive: true,
-        ...(q ? { OR: [{ name: { contains: q, mode: "insensitive" } }, { description: { contains: q, mode: "insensitive" } }] } : {}),
-        ...(catSlugs.length ? { categories: { some: { category: { slug: { in: catSlugs } } } } } : {}),
-      },
-      take: 10,
-      select: toolSelect,
-    });
+    const rows = await prisma.destination.findMany({ where: searchDestinationsWhere(input), take: 10, select: toolSelect });
     return rows.map(toToolRow);
   },
   getDestinationDetails: async (input) => {
