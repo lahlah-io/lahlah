@@ -1,0 +1,41 @@
+name: Supabase migrate
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-migrate
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: migrate-and-seed
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.25.0
+          run_install: false
+      - run: pnpm install --frozen-lockfile
+      - name: Apply migrations
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+        run: pnpm --filter api db:deploy
+      - name: Seed data
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          # Placeholder: seed hanya menulis destinasi/kategori, tidak membuat sesi atau token.
+          PERIDOT_CLIENT_ID: pidapp_seed_ci
+          SESSION_TOKEN_PEPPER: seed-ci-placeholder-not-a-secret
+        run: pnpm --filter api db:seed

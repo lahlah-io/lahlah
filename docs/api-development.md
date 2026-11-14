@@ -182,6 +182,8 @@ pnpm --filter api db:migrate:status
 pnpm --filter api db:deploy
 ```
 
+Deployment ke Supabase berjalan otomatis lewat `.github/workflows/supabase-migrate.yml` setiap push ke `main` (atau manual via `workflow_dispatch`): job menjalankan `db:deploy` lalu `db:seed`. Satu-satunya rahasia yang dibutuhkan adalah `SUPABASE_DATABASE_URL` (Settings → Secrets and variables → Actions) berisi Session pooler URI port `5432`; port `6543` gagal karena `migrate deploy` butuh session-level lock. Seed di CI memakai placeholder `PERIDOT_CLIENT_ID` dan `SESSION_TOKEN_PEPPER` karena seed hanya menulis kategori dan destinasi, tidak membuat sesi.
+
 `db:deploy` menjalankan `prisma migrate deploy`; ia menjalankan migrasi yang telah dibuat sebelumnya. Jangan memakai `migrate dev` terhadap production, jangan membuat perubahan schema manual di database bersama, dan jangan memakai `prisma db push` untuk deployment.
 
 Jangan mengedit SQL migrasi yang telah diterapkan ke lingkungan bersama. Jika status migrasi berbeda, hentikan dan selidiki; jangan menjalankan reset pada database berisi data tanpa persetujuan eksplisit.
