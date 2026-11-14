@@ -1839,7 +1839,8 @@ export const openApiDocument: OpenApiDocument = {
         description:
           "Downloads an allowlisted https image, resizes it to `w` (never upscales), re-encodes it as " +
           "WebP (quality 80), and caches the result on disk. Only hosts in `IMAGE_PROXY_HOSTS` are accepted " +
-          "(default `upload.wikimedia.org`); private/loopback addresses and redirects are refused. " +
+          "(default `upload.wikimedia.org`, `commons.wikimedia.org`, `lh3.googleusercontent.com`); " +
+          "private/loopback addresses and redirects are refused. " +
           "Responses are immutable for a year and carry an `ETag`, so repeat calls with `If-None-Match` " +
           "return 304.",
         parameters: [

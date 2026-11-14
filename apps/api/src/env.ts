@@ -57,7 +57,7 @@ export const env = z
     OSRM_CACHE_TTL_HOURS: z.coerce.number().int().min(1).max(168).default(24),
     IMAGE_PROXY_HOSTS: z
       .string()
-      .default("upload.wikimedia.org")
+      .default("upload.wikimedia.org,commons.wikimedia.org,lh3.googleusercontent.com")
       .transform((value) => value.split(",").map((host) => host.trim().toLowerCase()).filter(Boolean)),
     IMAGE_CACHE_DIR: z.string().min(1).default(".cache/images"),
     // Directory for user-uploaded photos (checkpoint check-ins). Local disk for now.

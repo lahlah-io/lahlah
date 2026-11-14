@@ -11,7 +11,14 @@ async function seedCounts() {
   const categories = await prisma.category.count();
   const destinations = await prisma.destination.count();
   const links = await prisma.destinationCategory.count();
-  return { categories, destinations, links };
+  // Demo feed rows are scoped by username so parallel tests cannot skew them.
+  const user = { username: { startsWith: "seed-" } };
+  const users = await prisma.user.count({ where: user });
+  const trips = await prisma.trip.count({ where: { members: { some: { user } } } });
+  const likes = await prisma.tripLike.count({ where: { user } });
+  const views = await prisma.tripView.count({ where: { user } });
+  const shares = await prisma.tripShare.count({ where: { user } });
+  return { categories, destinations, links, users, trips, likes, views, shares };
 }
 
 test("seed Padang idempotent saat dijalankan dua kali", { timeout: 180_000 }, async () => {

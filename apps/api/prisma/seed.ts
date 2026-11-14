@@ -132,6 +132,114 @@ async function seedScraped(categoryMap: Map<string, string>) {
   console.log(`Seed scraper: ${data.categories.length} kategori, ${saved} destinasi.`);
 }
 
+// --- Home feed demo data -----------------------------------------------------
+// Fixed ids keep `pnpm db:seed` idempotent: rows are upserted by id and child
+// rows are rebuilt instead of appended.
+
+const SEED_USERS = [
+  { id: "11111111-1111-4111-8111-000000000001", name: "Raisya Putri", username: "seed-raisya", email: "raisya@seed.lahlah.local" },
+  { id: "11111111-1111-4111-8111-000000000002", name: "Bagas Pratama", username: "seed-bagas", email: "bagas@seed.lahlah.local" },
+  { id: "11111111-1111-4111-8111-000000000003", name: "Nadia Salsabila", username: "seed-nadia", email: "nadia@seed.lahlah.local" },
+  { id: "11111111-1111-4111-8111-000000000004", name: "Fajar Ramadhan", username: "seed-fajar", email: "fajar@seed.lahlah.local" },
+  { id: "11111111-1111-4111-8111-000000000005", name: "Intan Permata", username: "seed-intan", email: "intan@seed.lahlah.local" },
+] as const;
+
+const SEED_TRIP_THEMES = [
+  "Pantai & sunset",
+  "Kuliner legendaris",
+  "Jejak sejarah",
+  "Liburan keluarga",
+] as const;
+
+const SEED_TRIPS_PER_USER = SEED_TRIP_THEMES.length;
+const SEED_SHARE_CHANNELS = ["whatsapp", "instagram", "link"] as const;
+
+const seedTripId = (index: number) => `22222222-2222-4222-8222-${String(index).padStart(12, "0")}`;
+
+async function seedFeed() {
+  const pool = await prisma.destination.findMany({
+    where: { city: "Padang", isActive: true, latitude: { not: null }, longitude: { not: null } },
+    orderBy: { name: "asc" },
+    select: { id: true },
+  });
+  if (pool.length === 0) {
+    console.log("Seed feed: destinasi Padang belum ada; lewati data beranda.");
+    return;
+  }
+
+  for (const user of SEED_USERS) {
+    await prisma.user.upsert({
+      where: { id: user.id },
+      create: user,
+      update: { name: user.name, username: user.username, email: user.email },
+    });
+  }
+
+  let index = 0;
+  for (const author of SEED_USERS) {
+    for (let theme = 0; theme < SEED_TRIPS_PER_USER; theme += 1) {
+      const tripId = seedTripId(index);
+      const stopCount = 3 + (index % 3);
+      const start = (index * 13) % Math.max(pool.length - stopCount, 1);
+      const stops = pool.slice(start, start + stopCount);
+      // Staggered so the feed order is stable: the first trip is the newest.
+      const updatedAt = new Date(Date.now() - index * 3 * 3_600_000);
+      const batchCreatedAt = new Date(Date.UTC(2026, 0, 1) + index * 60_000);
+
+      await prisma.trip.upsert({
+        where: { id: tripId },
+        create: {
+          id: tripId,
+          title: `${SEED_TRIP_THEMES[theme]} di Padang (${author.name.split(" ")[0]})`,
+          isPublic: true,
+          createdAt: updatedAt,
+          updatedAt,
+        },
+        update: {
+          title: `${SEED_TRIP_THEMES[theme]} di Padang (${author.name.split(" ")[0]})`,
+          isPublic: true,
+          updatedAt,
+        },
+      });
+      await prisma.userTrip.upsert({
+        where: { userId_tripId: { userId: author.id, tripId } },
+        create: { userId: author.id, tripId, status: "active" },
+        update: { status: "active" },
+      });
+
+      await prisma.tripDestination.deleteMany({ where: { tripId } });
+      await prisma.tripDestination.createMany({
+        data: stops.map((destination, position) => ({
+          tripId,
+          destinationId: destination.id,
+          visitAt: new Date(Date.UTC(2026, 0, 2, 8 + position * 2)),
+          createdAt: batchCreatedAt,
+        })),
+      });
+
+      const likers = SEED_USERS.slice(0, index % SEED_USERS.length);
+      const viewers = SEED_USERS.slice(0, 1 + (index % SEED_USERS.length));
+      const sharers = SEED_USERS.slice(0, index % SEED_SHARE_CHANNELS.length);
+      await prisma.tripLike.deleteMany({ where: { tripId } });
+      await prisma.tripView.deleteMany({ where: { tripId } });
+      await prisma.tripShare.deleteMany({ where: { tripId } });
+      await prisma.tripLike.createMany({ data: likers.map((user) => ({ userId: user.id, tripId })) });
+      await prisma.tripView.createMany({ data: viewers.map((user) => ({ userId: user.id, tripId })) });
+      await prisma.tripShare.createMany({
+        data: sharers.map((user, channel) => ({
+          userId: user.id,
+          tripId,
+          channel: SEED_SHARE_CHANNELS[channel]!,
+        })),
+      });
+
+      index += 1;
+    }
+  }
+
+  console.log(`Seed feed: ${SEED_USERS.length} user, ${index} trip publik.`);
+}
+
 async function cleanupLegacySeed() {
   const legacyDestinations = await prisma.destination.findMany({
     where: { source: "admin", sourcePlaceId: { startsWith: "seed-padang-" } },
@@ -160,6 +268,7 @@ async function main() {
   const categoryMap = new Map<string, string>();
   await cleanupLegacySeed();
   await seedScraped(categoryMap);
+  await seedFeed();
 }
 
 main()
