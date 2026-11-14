@@ -1,18 +1,19 @@
 import { useMemo } from "react";
 
-import { FanGallery } from "./gallery/fan-gallery";
-import { ITINERARY_DAYS } from "@/shared/data/itinerary";
+import { FanGallery } from "@/shared/components/gallery/fan-gallery";
+import type { ItineraryDay } from "@/shared/types/itinerary";
 
-export function TripGallery() {
+/** Galeri kipas foto destinasi; dipakai hero trip di chat dan arsip trip. */
+export function TripGallery({ days }: { days: ItineraryDay[] }) {
   const items = useMemo(
     () =>
-      ITINERARY_DAYS.flatMap((day) =>
+      days.flatMap((day) =>
         day.destinations.map((destination) => ({
           alt: destination.name,
           src: destination.photo,
         })),
       ),
-    [],
+    [days],
   );
 
   return (

@@ -2,17 +2,24 @@ import { motion } from "motion/react";
 import { CalendarDays, MapPin, Milestone } from "lucide-react";
 
 import { Badge } from "@/shared/components/ui/badge";
+import type { Trip } from "@/shared/types/itinerary";
 
-import { TRIP_SUMMARY } from "@/shared/data/itinerary";
 import { TripGallery } from "./trip-gallery";
 
-const META = [
-  { icon: CalendarDays, label: TRIP_SUMMARY.dates },
-  { icon: MapPin, label: `Berakhir di ${TRIP_SUMMARY.destination}` },
-  { icon: Milestone, label: `Total ${TRIP_SUMMARY.distance}` },
-] as const;
+/**
+ * Hero trip: galeri foto, judul besar, ringkasan, dan badge meta.
+ *
+ * Dipakai panel Trip di chat dan halaman arsip trip supaya keduanya identik.
+ * `status` hanya diisi arsip untuk menandai trip yang sudah selesai.
+ */
+export function TripHero({ trip, status }: { trip: Trip; status?: string }) {
+  const { summary, days } = trip;
+  const meta = [
+    { icon: CalendarDays, label: summary.dates },
+    { icon: MapPin, label: `Berakhir di ${summary.destination}` },
+    { icon: Milestone, label: `Total ${summary.distance}` },
+  ] as const;
 
-export function ItineraryHero() {
   return (
     <div className="mx-auto w-full max-w-2xl">
       <motion.div
@@ -21,7 +28,7 @@ export function ItineraryHero() {
         transition={{ duration: 0.6 }}
         className="w-full"
       >
-        <TripGallery />
+        <TripGallery days={days} />
       </motion.div>
 
       <section
@@ -34,7 +41,7 @@ export function ItineraryHero() {
           transition={{ duration: 0.6, delay: 0.15 }}
           className="max-w-xl text-3xl font-semibold tracking-tight text-balance sm:text-4xl"
         >
-          {TRIP_SUMMARY.title}
+          {summary.title}
         </motion.h2>
 
         <motion.p
@@ -43,7 +50,7 @@ export function ItineraryHero() {
           transition={{ duration: 0.5, delay: 0.25 }}
           className="mt-3 max-w-md text-sm leading-6 text-muted-foreground"
         >
-          {TRIP_SUMMARY.description}
+          {summary.description}
         </motion.p>
 
         <motion.ul
@@ -53,7 +60,7 @@ export function ItineraryHero() {
           className="mt-5 flex flex-wrap justify-center gap-2.5"
           aria-label="Detail perjalanan"
         >
-          {META.map((item) => (
+          {meta.map((item) => (
             <li key={item.label}>
               <Badge variant="outline" className="px-2.5">
                 <item.icon data-icon="inline-start" />
@@ -61,9 +68,16 @@ export function ItineraryHero() {
               </Badge>
             </li>
           ))}
+          {status ? (
+            <li>
+              <Badge variant="secondary" className="px-2.5">
+                {status}
+              </Badge>
+            </li>
+          ) : null}
           <li>
             <Badge variant="secondary" className="px-2.5">
-              {TRIP_SUMMARY.duration}
+              {summary.duration}
             </Badge>
           </li>
         </motion.ul>

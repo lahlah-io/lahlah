@@ -1,3 +1,5 @@
+import { useNavigate } from "react-router";
+
 import {
   Avatar,
   AvatarFallback,
@@ -5,78 +7,85 @@ import {
 } from "@/shared/components/ui/avatar";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
-import { ITINERARY_DAYS, TRIP_SUMMARY } from "@/shared/data/itinerary";
-import { CURRENT_USER, getUserInitials } from "@/shared/types/user";
+import { TRIPS, TRIP_SUMMARY } from "@/shared/data/itinerary";
+import { getUserInitials, type CurrentUser } from "@/shared/types/user";
 
-const BIO = "Rencana perjalanan dan itinerary yang dibuat bareng Lahlah AI.";
-
-export function ProfileHeader() {
-  const { name, plan, avatarUrl } = CURRENT_USER;
+export function ProfileHeader({
+  user,
+  editable = true,
+}: {
+  user: CurrentUser;
+  editable?: boolean;
+}) {
+  const navigate = useNavigate();
+  const { name, plan, username, avatarUrl } = user;
 
   const stats = [
+    { label: "Trip", value: TRIPS.length.toLocaleString("id-ID") },
     {
-      label: "Destinasi",
-      value: ITINERARY_DAYS.reduce(
-        (total, day) => total + day.destinations.length,
-        0,
+      label: "Likes",
+      value: TRIPS.reduce((total, trip) => total + (trip.likes ?? 0), 0).toLocaleString(
+        "id-ID",
       ),
     },
-    { label: "Hari", value: ITINERARY_DAYS.length },
     { label: "Jarak", value: TRIP_SUMMARY.distance.replace("±", "") },
   ];
 
   return (
-    <header className="px-4 pt-6 sm:px-6">
-      <div className="flex items-center gap-5 sm:gap-10">
-        <Avatar className="size-20 shrink-0 sm:size-28">
+    <header className="flex flex-col gap-4 px-4 pt-5">
+      <div className="flex items-center gap-6">
+        <Avatar className="size-20 shrink-0">
           {avatarUrl ? <AvatarImage src={avatarUrl} alt={name} /> : null}
-          <AvatarFallback className="text-xl font-medium">
+          <AvatarFallback className="text-lg font-medium">
             {getUserInitials(name)}
           </AvatarFallback>
         </Avatar>
 
-        <div className="flex min-w-0 flex-1 flex-col gap-3">
-          <div className="hidden items-center gap-2 sm:flex">
-            <h1 className="truncate text-xl font-semibold tracking-tight">
-              {name}
-            </h1>
-            <Badge variant={plan === "Plus" ? "default" : "secondary"}>
-              {plan}
-            </Badge>
-          </div>
-
-          <ul className="flex items-center justify-around gap-4 sm:justify-start sm:gap-10">
-            {stats.map((stat) => (
-              <li key={stat.label} className="text-center sm:text-left">
-                <p className="text-base font-semibold tabular-nums">
-                  {stat.value}
-                </p>
-                <p className="text-xs text-muted-foreground">{stat.label}</p>
-              </li>
-            ))}
-          </ul>
-        </div>
+        <ul className="flex min-w-0 flex-1 items-center justify-around">
+          {stats.map((stat) => (
+            <li
+              key={stat.label}
+              className="flex min-w-0 flex-col items-center gap-0.5 text-center"
+            >
+              <p className="text-base font-semibold tabular-nums">
+                {stat.value}
+              </p>
+              <p className="text-xs text-muted-foreground">{stat.label}</p>
+            </li>
+          ))}
+        </ul>
       </div>
 
-      <div className="mt-4 flex flex-col gap-1 text-sm">
-        <p className="flex items-center gap-2 font-semibold sm:hidden">
-          {name}
+      <div className="flex flex-col gap-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <h1 className="truncate text-xl font-semibold tracking-tight">
+            {name}
+          </h1>
           <Badge variant={plan === "Plus" ? "default" : "secondary"}>
             {plan}
           </Badge>
+        </div>
+        <p className="truncate text-sm leading-5 text-muted-foreground">
+          @{username}
         </p>
-        <p className="leading-5">{BIO}</p>
-        <p className="text-muted-foreground">Paket {plan}</p>
       </div>
 
-      <div className="mt-4 flex gap-2">
-        <Button variant="secondary" className="flex-1">
-          Edit profil
-        </Button>
-        <Button variant="secondary" className="flex-1">
-          Bagikan profil
-        </Button>
-      </div>
+      {editable ? (
+        <div className="flex gap-2">
+          <Button
+            variant="secondary"
+            className="flex-1"
+            onClick={() => navigate("/profile/edit")}
+          >
+            Edit profil
+          </Button>
+          <Button variant="secondary" className="flex-1">
+            Bagikan profil
+          </Button>
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">Akun trip publik</p>
+      )}
     </header>
   );
 }

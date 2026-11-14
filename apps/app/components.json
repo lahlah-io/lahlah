@@ -29,6 +29,7 @@
       "headers": {
         "Authorization": "Bearer ${REACTBITS_PRO_LICENSE_KEY}"
       }
-    }
+    },
+    "@mapcn": "https://mapcn.dev/r/{name}.json"
   }
 }

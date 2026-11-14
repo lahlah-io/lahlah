@@ -60,3 +60,19 @@ pnpm dlx shadcn@latest add dialog --cwd apps/admin
 ```
 
 Periksa file hasil generator sebelum menyimpan. Komponen atau blok yang merupakan bagian dari satu fitur harus ditempatkan di `feat/<nama-fitur>/`, bukan otomatis dianggap kode `shared/`. Jalankan lint dan build setelah penambahan.
+
+## Tipografi
+
+Dua peran font didefinisikan sebagai token di `src/shared/styles/globals.css`:
+
+| Token            | Font                      | Dipakai untuk                                                        |
+| ---------------- | ------------------------- | -------------------------------------------------------------------- |
+| `--font-sans`    | Geist Variable            | Teks isi, label, tombol, input, dan semua angka (termasuk harga)     |
+| `--font-heading` | Bricolage Grotesque Variable | Judul: `h1`–`h3`, `CardTitle`, `DialogTitle`, `SheetTitle`, dll.   |
+
+Aturan:
+
+- Jangan menulis nama font langsung di komponen. Pakai `font-heading` atau biarkan elemen `h1`–`h3` mendapatkannya dari base layer.
+- Angka dan data numerik tetap di Geist. Jangan pasang `font-heading` pada nominal, persentase, atau statistik; pakai `tabular-nums` bila perlu perataan.
+- Judul yang bukan elemen heading (misalnya `CardTitle` dari shadcn/ui) sudah memakai `font-heading`; jangan menggantinya dengan `font-sans`.
+- Menambah font baru berarti menambah token di `globals.css` dan mendokumentasikan perannya di tabel ini.

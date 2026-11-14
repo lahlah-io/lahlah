@@ -2,9 +2,7 @@ import { NavLink } from "react-router";
 
 import { cn } from "@/shared/utils/cn";
 
-import { PRIMARY_NAV_ITEMS, SETTINGS_NAV_ITEM } from "./nav-items";
-
-const TAB_ITEMS = [...PRIMARY_NAV_ITEMS, SETTINGS_NAV_ITEM];
+import { PRIMARY_NAV_ITEMS } from "./nav-items";
 
 /** Icon-only bottom navigation for small screens, mirroring the desktop rail. */
 export function AppTabBar() {
@@ -13,7 +11,7 @@ export function AppTabBar() {
       aria-label="Navigasi utama"
       className="fixed inset-x-0 bottom-0 z-40 flex items-stretch border-t border-sidebar-border bg-background pb-[env(safe-area-inset-bottom)] md:hidden"
     >
-      {TAB_ITEMS.map((item) => {
+      {PRIMARY_NAV_ITEMS.map((item) => {
         const Icon = item.icon;
 
         return (

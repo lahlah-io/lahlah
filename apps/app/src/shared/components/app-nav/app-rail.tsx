@@ -11,7 +11,9 @@ import { PRIMARY_NAV_ITEMS, SETTINGS_NAV_ITEM, type NavItem } from "./nav-items"
 
 function RailLink({ item }: { item: NavItem }) {
   const { pathname } = useLocation();
-  const isActive = pathname === item.to;
+  const isActive = item.end
+    ? pathname === item.to
+    : pathname === item.to || pathname.startsWith(`${item.to}/`);
   const Icon = item.icon;
 
   return (

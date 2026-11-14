@@ -171,11 +171,11 @@ function ChatWorkspace() {
             </ToggleGroupItem>
             <ToggleGroupItem
               value="itinerary"
-              aria-label="Itinerary"
+              aria-label="Trip"
               className="h-10 gap-2.5 px-8 text-sm has-data-[icon=inline-end]:pr-8 has-data-[icon=inline-start]:pl-8 group-data-[spacing=0]/toggle-group:px-8 group-data-[spacing=0]/toggle-group:has-data-[icon=inline-end]:pr-8 group-data-[spacing=0]/toggle-group:has-data-[icon=inline-start]:pl-8 [&_svg:not([class*='size-'])]:size-4.5"
             >
               <Map data-icon="inline-start" />
-              Itinerary
+              Trip
             </ToggleGroupItem>
           </ToggleGroup>
         </header>

@@ -10,30 +10,32 @@ import {
 } from "@/shared/components/ui/empty";
 import { cn } from "@/shared/utils/cn";
 
-import { ItineraryGrid } from "./itinerary-grid";
+import type { Trip } from "@/shared/types/itinerary";
 
-type TabId = "itinerary" | "saved" | "tagged";
+import { TripGrid } from "./trip-grid";
+
+type TabId = "trip" | "saved" | "tagged";
 
 const TABS = [
-  { id: "itinerary", icon: LayoutGrid, label: "Itinerary" },
+  { id: "trip", icon: LayoutGrid, label: "Trip" },
   { id: "saved", icon: Bookmark, label: "Disimpan" },
   { id: "tagged", icon: SquareUser, label: "Ditandai" },
 ] as const;
 
-const EMPTY_STATES: Record<Exclude<TabId, "itinerary">, string> = {
-  saved: "Itinerary yang kamu simpan akan muncul di sini.",
-  tagged: "Itinerary yang menandai kamu akan muncul di sini.",
+const EMPTY_STATES: Record<Exclude<TabId, "trip">, string> = {
+  saved: "Trip yang kamu simpan akan muncul di sini.",
+  tagged: "Trip yang menandai kamu akan muncul di sini.",
 };
 
-export function ProfileTabs() {
-  const [tab, setTab] = useState<TabId>("itinerary");
+export function ProfileTabs({ trips }: { trips: Trip[] }) {
+  const [tab, setTab] = useState<TabId>("trip");
 
   return (
-    <section aria-label="Itinerary" className="mt-5">
+    <section aria-label="Trip" className="mt-5">
       <div
         role="tablist"
         aria-label="Tab profil"
-        className="flex border-t border-border"
+        className="mx-4 flex border-t border-border"
       >
         {TABS.map((item) => {
           const Icon = item.icon;
@@ -62,8 +64,8 @@ export function ProfileTabs() {
       </div>
 
       <div role="tabpanel" className="mt-0">
-        {tab === "itinerary" ? (
-          <ItineraryGrid />
+        {tab === "trip" ? (
+          <TripGrid trips={trips} />
         ) : (
           <Empty className="border-0 py-16">
             <EmptyHeader>
@@ -75,7 +77,7 @@ export function ProfileTabs() {
                 )}
               </EmptyMedia>
               <EmptyTitle>
-                {tab === "saved" ? "Belum ada itinerary" : "Belum ditandai"}
+                {tab === "saved" ? "Belum ada trip" : "Belum ditandai"}
               </EmptyTitle>
               <EmptyDescription>{EMPTY_STATES[tab]}</EmptyDescription>
             </EmptyHeader>

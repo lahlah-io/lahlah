@@ -4,6 +4,9 @@ export type UserPlan = "Free" | "Plus";
 export interface CurrentUser {
   name: string;
   plan: UserPlan;
+  bio: string;
+  /** Nama pengguna unik tanpa tanda @; ditampilkan sebagai @username di profil. */
+  username: string;
   /** URL foto profil. `null` berarti belum ada foto → tampilkan inisial. */
   avatarUrl: string | null;
 }
@@ -12,6 +15,8 @@ export interface CurrentUser {
 export const CURRENT_USER: CurrentUser = {
   name: "Nama Pengguna",
   plan: "Plus",
+  bio: "Rencana perjalanan dan itinerary yang dibuat bareng Lahlah AI.",
+  username: "namapengguna_",
   avatarUrl: null,
 };
 
