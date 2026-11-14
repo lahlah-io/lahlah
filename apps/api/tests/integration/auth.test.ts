@@ -88,7 +88,7 @@ test("login Peridot menautkan akun yang dibuat admin lewat email", async () => {
     const response = await app.request("/api/v1/auth/peridot/exchange", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ code: "kode-tautan" }),
+      body: JSON.stringify({ code: "kode-tautan", redirectUri: "http://localhost:5174/" }),
     });
     assert.equal(response.status, 200);
     const user = await response.json().then((body) => body.data.user);
@@ -131,7 +131,7 @@ test("exchange pid_code membuat user, sesi, langganan free, dan log", async () =
     const response = await app.request("/api/v1/auth/peridot/exchange", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ code: "kode-sekali-pakai" }),
+      body: JSON.stringify({ code: "kode-sekali-pakai", redirectUri: "http://localhost:5173/" }),
     });
 
     assert.equal(response.status, 200);
@@ -160,7 +160,7 @@ test("exchange pid_code membuat user, sesi, langganan free, dan log", async () =
     const bearerResponse = await app.request("/api/v1/auth/peridot/exchange", {
       method: "POST",
       headers: { "content-type": "application/json", "x-session-mode": "bearer" },
-      body: JSON.stringify({ code: "kode-kedua" }),
+      body: JSON.stringify({ code: "kode-kedua", redirectUri: "http://localhost:5173/" }),
     });
     assert.equal(bearerResponse.status, 200);
     const bearerBody = await bearerResponse.json();

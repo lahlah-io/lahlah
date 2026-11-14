@@ -20,6 +20,7 @@ export const env = z
       .trim()
       .min(1),
     PERIDOT_CLIENT_SECRET: z.string().trim().min(1).optional(),
+    PERIDOT_ENV: z.enum(["sandbox", "production"]).default("sandbox"),
     SESSION_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(30),
     SESSION_TOKEN_PEPPER: z
       .string({ error: "SESSION_TOKEN_PEPPER wajib diisi, lihat apps/api/.env.example" })

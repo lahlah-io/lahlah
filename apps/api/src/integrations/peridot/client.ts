@@ -1,7 +1,10 @@
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { env } from "../../env.js";
 
-const EXCHANGE_URL = "https://api.peridot.id/v1/auth/exchange";
+const EXCHANGE_URLS = {
+  sandbox: "https://sandbox-api.peridot.id/v1/auth/exchange",
+  production: "https://api.peridot.id/v1/auth/exchange",
+} as const;
 
 export type PeridotIdentity = {
   pid: string;
@@ -25,31 +28,40 @@ export class PeridotError extends Error {
 
 type ExchangeOptions = {
   codeVerifier?: string;
+  redirectUri: string;
   fetchImpl?: typeof fetch;
 };
 
 /**
  * Server-side exchange of a one-time `pid_code` for the signed-in identity.
+ * `redirectUri` wajib dan harus sama persis dengan URL tempat kode diterima
+ * (OAuth binding ala `peridot.auth.exchange(code, redirectUri)`).
  * The code is single-use, expires within minutes, and must never be logged.
  * `identity.accessToken` is read-only and must stay server-side.
  */
 export async function exchangePidCode(
   code: string,
-  options: ExchangeOptions = {},
+  options: ExchangeOptions,
 ): Promise<PeridotIdentity> {
   const payload: Record<string, string> = {
     code,
     clientId: env.PERIDOT_CLIENT_ID,
   };
 
+  // `redirectUri` wajib Peridot (OAuth binding): harus sama persis dengan URL
+  // tempat kode diterima. Tanpa ini exchange ditolak 400.
+  payload.redirectUri = options.redirectUri;
+
   if (env.PERIDOT_CLIENT_SECRET) payload.clientSecret = env.PERIDOT_CLIENT_SECRET;
   if (options.codeVerifier) payload.codeVerifier = options.codeVerifier;
 
   const fetchImpl = options.fetchImpl ?? fetch;
 
+  const exchangeUrl = EXCHANGE_URLS[env.PERIDOT_ENV];
+
   let response: Response;
   try {
-    response = await fetchImpl(EXCHANGE_URL, {
+    response = await fetchImpl(exchangeUrl, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(payload),
@@ -61,7 +73,18 @@ export async function exchangePidCode(
 
   if (!response.ok) {
     const status: ContentfulStatusCode =
-      response.status === 429 ? 429 : response.status === 401 ? 401 : 502;
+      response.status === 400 || response.status === 401 || response.status === 429
+        ? response.status
+        : 502;
+    let detail = "";
+    try {
+      const text = await response.text();
+      if (text) detail = `: ${text.slice(0, 300)}`;
+    } catch {
+      // Badan error PeridotID opsional; status saja cukup.
+    }
+    // ponytail: log detail mentah hanya server-side; respons API tetap generik.
+    console.error(`[peridot] exchange rejected (${response.status})${detail}`);
     throw new PeridotError(`PeridotID rejected the code (${response.status})`, status);
   }
 

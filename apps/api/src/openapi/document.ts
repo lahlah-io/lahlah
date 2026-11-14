@@ -240,7 +240,7 @@ export const openApiDocument: OpenApiDocument = {
             description: "Session created.",
             content: json(single("ExchangeResponse")),
           },
-          "400": validation,
+          "400": errorResponse("PeridotID rejected the code (`PERIDOT_EXCHANGE_FAILED`)."),
           "401": errorResponse("PeridotID rejected the code (`PERIDOT_EXCHANGE_FAILED`)."),
           "403": errorResponse("Account is inactive (`ACCOUNT_INACTIVE`)."),
           "429": errorResponse("PeridotID rate limit reached (`PERIDOT_EXCHANGE_FAILED`)."),

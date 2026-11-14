@@ -139,7 +139,10 @@ export async function loginWithPidCode(
 ): Promise<LoginResult> {
   let identity: PeridotIdentity;
   try {
-    identity = await exchangePidCode(input.code, { codeVerifier: input.codeVerifier });
+    identity = await exchangePidCode(input.code, {
+      codeVerifier: input.codeVerifier,
+      redirectUri: input.redirectUri,
+    });
   } catch (error) {
     if (error instanceof PeridotError) {
       throw new HttpError(error.status, "PERIDOT_EXCHANGE_FAILED", error.message);

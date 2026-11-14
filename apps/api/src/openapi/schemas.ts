@@ -121,7 +121,7 @@ export const schemas: Record<string, SchemaObject> = {
 
   ExchangeRequest: {
     type: "object",
-    required: ["code"],
+    required: ["code", "redirectUri"],
     properties: {
       code: {
         type: "string",
@@ -134,6 +134,12 @@ export const schemas: Record<string, SchemaObject> = {
         minLength: 1,
         maxLength: 512,
         description: "PKCE verifier when the PeridotID app requires one.",
+      },
+      redirectUri: {
+        type: "string",
+        minLength: 1,
+        maxLength: 2048,
+        description: "Must exactly match the URL the code was issued for (OAuth binding).",
       },
     },
   },
