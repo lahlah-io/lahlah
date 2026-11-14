@@ -15,6 +15,7 @@ export const frontendConfig = [
       // menandai anotasi tipe seperti `type Foo` sebagai variabel global.
       "no-undef": "off",
       "no-unused-vars": "off",
+      "no-undef": "off",
     },
   },
   {

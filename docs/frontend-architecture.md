@@ -61,21 +61,37 @@ pnpm dlx shadcn@latest add dialog --cwd apps/admin
 
 Periksa file hasil generator sebelum menyimpan. Komponen atau blok yang merupakan bagian dari satu fitur harus ditempatkan di `feat/<nama-fitur>/`, bukan otomatis dianggap kode `shared/`. Jalankan lint dan build setelah penambahan.
 
-## Autentikasi admin
+## Tipografi
 
-`apps/admin` memakai fondasi auth di `src/feat/auth/`:
+Dua peran font didefinisikan sebagai token di `src/shared/styles/globals.css`:
+
+| Token            | Font                      | Dipakai untuk                                                        |
+| ---------------- | ------------------------- | -------------------------------------------------------------------- |
+| `--font-sans`    | Geist Variable            | Teks isi, label, tombol, input, dan semua angka (termasuk harga)     |
+| `--font-heading` | Bricolage Grotesque Variable | Judul: `h1`–`h3`, `CardTitle`, `DialogTitle`, `SheetTitle`, dll.   |
+
+Aturan:
+
+- Jangan menulis nama font langsung di komponen. Pakai `font-heading` atau biarkan elemen `h1`–`h3` mendapatkannya dari base layer.
+- Angka dan data numerik tetap di Geist. Jangan pasang `font-heading` pada nominal, persentase, atau statistik; pakai `tabular-nums` bila perlu perataan.
+- Judul yang bukan elemen heading (misalnya `CardTitle` dari shadcn/ui) sudah memakai `font-heading`; jangan menggantinya dengan `font-sans`.
+- Menambah font baru berarti menambah token di `globals.css` dan mendokumentasikan perannya di tabel ini.
+
+## Autentikasi
+
+`apps/admin` dan `apps/app` memakai fondasi auth yang sama di `src/feat/auth/`:
 
 - `services/auth.api.ts` — `GET /api/v1/auth/me` dan `POST /api/v1/auth/logout`.
-- `hooks/auth-provider.tsx` — satu sumber status sesi. Token dari `sessionStorage` (`lahlah.admin.token`) dipasang ke klien API melalui `setApiSessionToken`, lalu diverifikasi ke `/auth/me` saat halaman dimuat.
-- `components/require-admin.tsx` — mengalihkan sesi anonim ke `/login` dan menolak role selain `admin`.
+- `hooks/auth-provider.tsx` — satu sumber status sesi. Token dari `sessionStorage` (`lahlah.admin.token` / `lahlah.app.token`) dipasang ke klien API melalui `setApiSessionToken`, lalu diverifikasi ke `/auth/me` saat halaman dimuat.
+- `components/require-admin.tsx` / `components/require-auth.tsx` — mengalihkan sesi anonim ke `/login`; versi admin juga menolak role selain `admin`.
+- `pages/route.tsx` — root `AuthRoot` membungkus seluruh route, lalu route privat berada di bawah guard.
 - `shared/api/client.ts` — satu-satunya tempat `fetch` ke API: base URL dari `VITE_API_BASE_URL` (default `http://localhost:8787`), envelope `{ error: { code, message } }` dipetakan ke `ApiError`.
 
-Login saat ini memakai token sesi pengembangan:
+Login memakai PeridotID: `peridot.auth.loginPopup()` lalu `pid_code` dikirim ke `POST /api/v1/auth/peridot/exchange` (header `X-Session-Mode: bearer`). Halaman admin masih menerima token sesi pengembangan sebagai fallback:
 
 ```sh
 pnpm --filter api dev:session -- --admin
 ```
 
-Tempel nilai `token` dari output pada halaman `/login`. Setelah `PERIDOT_CLIENT_ID` asli tersedia, ganti formulir token dengan `peridot.auth.loginPopup()` lalu kirim `pid_code` ke `POST /api/v1/auth/peridot/exchange` (header `X-Session-Mode: bearer`). Provider, guard, dan halaman tidak perlu berubah: cukup tambah fungsi login baru yang memanggil `storeToken` dengan token hasil exchange.
+Sesi disimpan di `sessionStorage`, bukan `localStorage`, supaya token hilang ketika tab ditutup. Cookie `lahlah_session` tetap didukung karena setiap request memakai `credentials: "include"`. Salin `.env.example` aplikasi menjadi `.env` bila API tidak berjalan di port `8787`.
 
-Sesi disimpan di `sessionStorage`, bukan `localStorage`, supaya token hilang ketika tab ditutup. Cookie `lahlah_session` tetap didukung karena setiap request memakai `credentials: "include"`. Salin `apps/admin/.env.example` menjadi `apps/admin/.env` bila API tidak berjalan di port `8787`.
