@@ -9,6 +9,7 @@ import { buildConversationContext } from "./conversation-context.js";
 import { generateItinerary } from "./itinerary-generator.js";
 import { createToolExecutor, mergeDestinationRows } from "./tools.js";
 import { parseModification } from "./modification.js";
+import { DISLIKE } from "./vocab.js";
 import { applyModification, orderCandidates } from "./modification-ops.js";
 import { haversineMeters, isCoordinate, routeLineString } from "./route-geometry.js";
 import { activateVersion, appendVersion, type MessageVersion } from "./message-versioning.js";
@@ -178,11 +179,65 @@ export function extractCategories(text: string): string[] {
   if (t.includes("pantai")) categories.push("pantai");
   if (t.includes("budaya")) categories.push("budaya");
   if (t.includes("sejarah")) categories.push("sejarah");
-  if (t.includes("alam")) categories.push("alam");
+  // "alam" muncul di dalam "alamat"/"dalam"; scope kategori jangan dipicu kata biasa.
+  if (/(?:^|[^a-z])alam(?!at)/.test(t)) categories.push("alam");
   if (t.includes("kuliner") || t.includes("makan")) categories.push("kuliner");
   if (t.includes("santai")) categories.push("santai");
   if (t.includes("belanja") || t.includes("shopping")) categories.push("belanja");
   return [...new Set(categories)];
+}
+
+export const CATEGORY_LABELS: Record<string, string> = {
+  pantai: "pantai",
+  alam: "wisata alam",
+  budaya: "seni & budaya",
+  sejarah: "situs bersejarah",
+  kuliner: "kuliner",
+  belanja: "belanja",
+  santai: "santai",
+  keluarga: "ramah keluarga",
+};
+
+const REJECTION_CUE = new RegExp(
+  `\\b(?:jangan|hindari|anti|tidak\\s+mau|nggak\\s+mau|gak\\s+mau|ga\\s+mau)\\b|${DISLIKE.source}`,
+  "i",
+);
+// "museum" bukan slug kategori; semua museum di KB Padang berkategori sejarah + budaya.
+const REJECTED_ALIASES: Array<[RegExp, string[]]> = [[/\bmuseum\b/i, ["sejarah", "budaya"]]];
+const CLAUSE_SPLIT = /[.,;!?]|\b(?:tapi|tetapi|namun|malah|sebaliknya)\b/i;
+
+/** Kategori yang ditolak pengguna, dibaca per klausa agar "jangan pantai, mau kuliner" hanya menolak pantai. */
+// shortcut: nama destinasi ikut terbaca sebagai kategorinya ("tidak suka Pantai Air Manis" = tolak pantai); upgrade saat butuh penolakan per destinasi.
+export function detectRejectedCategories(text: string): string[] {
+  const found: string[] = [];
+  for (const clause of text.split(CLAUSE_SPLIT)) {
+    if (!REJECTION_CUE.test(clause)) continue;
+    found.push(...extractCategories(clause));
+    for (const [pattern, slugs] of REJECTED_ALIASES) if (pattern.test(clause)) found.push(...slugs);
+  }
+  return [...new Set(found)];
+}
+
+/** Pertanyaan balik: jangan pilihkan pengganti sepihak saat pengguna menolak sesuatu. */
+export function rejectionReply(text: string, rejected: string[]): string {
+  const target = /\bmuseum\b/i.test(text)
+    ? "museum"
+    : rejected.map((slug) => CATEGORY_LABELS[slug] ?? slug).join(" dan ");
+  const options = Object.entries(CATEGORY_LABELS)
+    .filter(([slug]) => !rejected.includes(slug))
+    .map(([, label]) => label);
+  return `Oke, ${target} kita lewati ya. Sebelum saya ganti, kamu lebih suka diganti dengan apa? Pilihannya: ${options.join(", ")}.`;
+}
+
+export type RejectionOutcome = { kind: "ask"; message: string } | { kind: "continue"; categories: string[] };
+
+/** null = tidak ada penolakan; "ask" = tanya dulu; "continue" = lanjut tanpa kategori yang ditolak. */
+export function handleRejection(text: string, categories: string[]): RejectionOutcome | null {
+  const rejected = detectRejectedCategories(text);
+  if (rejected.length === 0) return null;
+  const wanted = extractCategories(text).filter((c) => !rejected.includes(c));
+  if (wanted.length === 0) return { kind: "ask", message: rejectionReply(text, rejected) };
+  return { kind: "continue", categories: categories.filter((c) => !rejected.includes(c)) };
 }
 
 function parseTripDetails(text: string, now = new Date()): TripDetails | null {
@@ -699,6 +754,12 @@ export function createChatService(deps: ChatDeps) {
       : {};
 
     const merged = accumulateTripParams(input.history, input.content, new Date());
+    // Pengguna menolak sesuatu (kategori/destinasi): jangan pilihkan pengganti sepihak.
+    const rejection = handleRejection(input.content, merged.params.categories);
+    if (rejection?.kind === "ask") {
+      return { intent: "clarify_modification", message: rejection.message, version: null, usage };
+    }
+    if (rejection) merged.params.categories = rejection.categories;
     const outcome = resolveEffectiveRequest(merged.params);
     const contributes = messageContributesParams(input.content);
     const isGeneratorIntent = intent === "generate_itinerary" || intent === "modify_itinerary" || intent === "regenerate_itinerary";
