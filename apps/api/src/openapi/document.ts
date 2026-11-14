@@ -29,6 +29,13 @@ const list = (name: string): SchemaObject => ({
   },
 });
 
+/** Some lists (version history, batch snapshots) have no pagination meta. */
+const bareList = (name: string): SchemaObject => ({
+  type: "object",
+  required: ["data"],
+  properties: { data: { type: "array", items: ref(name) } },
+});
+
 const errorResponse = (description: string): OpenApiResponse => ({
   description,
   content: json(ref("Error")),
@@ -118,6 +125,16 @@ export const openApiDocument: OpenApiDocument = {
       "**Response envelope.** Successful responses are `{ \"data\": ... }`; lists add",
       "`meta: { page, limit, total }`. Failures are `{ \"error\": { code, message } }`.",
       "",
+      "**Who am I.** Chat and itinerary endpoints identify the user with an explicit `userId`",
+      "(query or body), not from the session: read it once from `GET /api/v1/auth/me`.",
+      "",
+      "**Chat paging.** `GET /chat/sessions/{id}/messages` returns either `ChatMessagePage`",
+      "(page/limit) or `ChatMessageKeyset` (when `after_position` is sent; follow",
+      "`meta.nextAfterPosition`, `null` means done).",
+      "",
+      "**Chat reply.** `intent` is one of the classifier labels listed on `ChatReply`;",
+      "`version` is the itinerary snapshot to render on the map, or `null` for plain chat.",
+      "",
       "**Admin-only.** Users, models, categories, destinations, and plan writes require",
       "the `admin` role. Plan reads are public for the pricing page.",
     ].join("\n"),
@@ -134,7 +151,7 @@ export const openApiDocument: OpenApiDocument = {
     { name: "Categories", description: "Admin destination categories (create a category before destinations use it)." },
     { name: "Destinations", description: "Destination catalog. Reads are public; writes are admin (delete is soft; create accepts `categoryIds[]`)." },
     { name: "Chat", description: "Conversational trip planning with RAG destinations and tool calls." },
-    { name: "Itineraries", description: "Trip itineraries with versions, stops, and publish/restore." },
+    { name: "Itineraries", description: "Trip itineraries with versioned `trip_destinations` batches, restore, and version reads." },
     { name: "Routes", description: "OSRM driving routes between waypoints." },
     { name: "Health", description: "Liveness and readiness probes." },
   ],
@@ -960,6 +977,57 @@ export const openApiDocument: OpenApiDocument = {
       },
     },
 
+    "/api/v1/destinations/{id}": {
+      get: {
+        tags: ["Destinations"],
+        summary: "Get a destination",
+        operationId: "getDestination",
+        description: "Public read, same catalog the chat and RAG use.",
+        parameters: [idPath("Destination id.")],
+        responses: {
+          "200": { description: "Destination detail.", content: json(single("Destination")) },
+          "400": validation,
+          "404": notFound("DESTINATION_NOT_FOUND"),
+          "500": internal,
+        },
+      },
+      patch: {
+        tags: ["Destinations"],
+        summary: "Update a destination",
+        operationId: "updateDestination",
+        description: "Partial update. `details` is merged, `categoryIds` replaces the tag list.",
+        security: sessionSecurity,
+        parameters: [idPath("Destination id.")],
+        requestBody: body("UpdateDestinationRequest"),
+        responses: {
+          "200": { description: "Updated destination.", content: json(single("Destination")) },
+          "400": validation,
+          "401": unauthorized,
+          "403": forbidden,
+          "404": notFound("DESTINATION_NOT_FOUND / CATEGORY_NOT_FOUND"),
+          "409": conflict("DESTINATION_ALREADY_EXISTS", "This destination already exists"),
+          "413": payloadTooLarge,
+          "500": internal,
+        },
+      },
+      delete: {
+        tags: ["Destinations"],
+        summary: "Delete a destination",
+        operationId: "deleteDestination",
+        description: "Soft delete: `isActive` becomes `false`, so chat search stops returning it.",
+        security: sessionSecurity,
+        parameters: [idPath("Destination id.")],
+        responses: {
+          "200": { description: "Destination soft-deleted.", content: json(single("Destination")) },
+          "400": validation,
+          "401": unauthorized,
+          "403": forbidden,
+          "404": notFound("DESTINATION_NOT_FOUND"),
+          "500": internal,
+        },
+      },
+    },
+
     "/api/v1/chat/sessions": {
       post: {
         tags: ["Chat"],
@@ -1087,7 +1155,20 @@ export const openApiDocument: OpenApiDocument = {
           },
         ],
         responses: {
-          "200": { description: "Messages with pagination.", content: json(list("ChatMessage")) },
+          "200": {
+            description:
+              "Page mode (no `after_position`) returns `ChatMessagePage`; keyset mode returns `ChatMessageKeyset`.",
+            content: {
+              "application/json": {
+                schema: {
+                  oneOf: [
+                    { $ref: "#/components/schemas/ChatMessagePage" },
+                    { $ref: "#/components/schemas/ChatMessageKeyset" },
+                  ],
+                },
+              },
+            },
+          },
           "400": validation,
           "401": unauthorized,
           "403": forbidden,
@@ -1231,7 +1312,7 @@ export const openApiDocument: OpenApiDocument = {
           },
         ],
         responses: {
-          "200": { description: "Version history, newest last.", content: json(list("ItineraryVersionSummary")) },
+          "200": { description: "Version history, newest last (no pagination meta).", content: json(bareList("ItineraryVersionSummary")) },
           "400": validation,
           "401": unauthorized,
           "404": notFound("ITINERARY_NOT_FOUND"),

@@ -6,8 +6,9 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { app } from "../../src/app.js";
 import { prisma } from "../../src/db/client.js";
-import { responseShapes } from "../../src/openapi.js";
+import { responseShapes } from "../fixtures/response-shapes.js";
 import { errorHandler } from "../../src/shared/http/errors.js";
+import { createSession } from "../../src/shared/auth/session.service.js";
 import { createChatApi, createChatService } from "../../src/modules/chat/index.js";
 import { createItineraryApi, createItineraryService } from "../../src/modules/itinerary/index.js";
 import { createRouteCache, createRoutingApi, createRoutingService } from "../../src/modules/routing/index.js";
@@ -48,7 +49,28 @@ async function cleanupUser(userId: string) {
   await prisma.trip.deleteMany({ where: { members: { some: { userId } } } });
   await prisma.chatMessage.deleteMany({ where: { session: { userId } } });
   await prisma.chatSession.deleteMany({ where: { userId } });
+  await prisma.session.deleteMany({ where: { userId } });
+  await prisma.userSubscription.deleteMany({ where: { userId } });
   await prisma.user.delete({ where: { id: userId } }).catch(() => undefined);
+}
+
+/** Admin endpoints need a real session; mint one directly so the shape tests can run. */
+async function adminAuth() {
+  const suffix = randomUUID();
+  const user = await prisma.user.create({
+    data: {
+      name: "OpenAPI Admin",
+      username: `openapi_admin_${suffix.replace(/-/g, "").slice(0, 12)}`,
+      email: `openapi-admin-${suffix}@example.test`,
+      role: "admin",
+    },
+    select: { id: true },
+  });
+  const session = await createSession(user.id, { userAgent: "openapi-contract-test" });
+  return {
+    userId: user.id,
+    headers: { "content-type": "application/json", authorization: `Bearer ${session.token}` },
+  };
 }
 
 type ShapeRow = { id: string; name: string; latitude: unknown; longitude: unknown };
@@ -206,59 +228,72 @@ test("health and openapi docs return their documented shapes", async () => {
 });
 
 test("users API response shapes match the OpenAPI contract", async () => {
+  const admin = await adminAuth();
   const email = `openapi-${randomUUID()}@example.test`;
   let userId: string | undefined;
 
   try {
     const created = await app.request("/api/v1/users", {
       method: "POST",
-      headers: json,
-      body: JSON.stringify({ name: "OpenAPI Shape", email }),
+      headers: admin.headers,
+      body: JSON.stringify({
+        name: "OpenAPI Shape",
+        username: `openapi_user_${randomUUID().replace(/-/g, "").slice(0, 12)}`,
+        email,
+      }),
     });
     assert.equal(created.status, 201);
     const createdBody = expectShape(responseShapes.user, await created.json(), "users create");
     userId = createdBody.data.id;
     assert.equal(createdBody.data.email, email);
 
-    const list = await app.request("/api/v1/users?limit=100");
+    const list = await app.request("/api/v1/users?limit=100", { headers: admin.headers });
     assert.equal(list.status, 200);
     const listBody = expectShape(responseShapes.userList, await list.json(), "users list");
     assert.ok(listBody.data.some((user) => user.id === userId));
 
-    const detail = await app.request(`/api/v1/users/${userId}`);
+    const detail = await app.request(`/api/v1/users/${userId}`, { headers: admin.headers });
     assert.equal(detail.status, 200);
     const detailBody = expectShape(responseShapes.user, await detail.json(), "users detail");
     assert.equal(detailBody.data.id, userId);
 
     const updated = await app.request(`/api/v1/users/${userId}`, {
       method: "PATCH",
-      headers: json,
+      headers: admin.headers,
       body: JSON.stringify({ name: "OpenAPI Shape Updated" }),
     });
     assert.equal(updated.status, 200);
     expectShape(responseShapes.user, await updated.json(), "users update");
 
-    const removed = await app.request(`/api/v1/users/${userId}`, { method: "DELETE" });
+    const removed = await app.request(`/api/v1/users/${userId}`, { method: "DELETE", headers: admin.headers });
     assert.equal(removed.status, 200);
     const removedBody = expectShape(responseShapes.user, await removed.json(), "users delete");
     assert.equal(removedBody.data.isActive, false);
   } finally {
     if (userId) await cleanupUser(userId);
+    await cleanupUser(admin.userId);
   }
 });
 
 test("users API error shapes match the OpenAPI contract", async () => {
-  const invalid = await app.request("/api/v1/users", {
-    method: "POST",
-    headers: json,
-    body: JSON.stringify({ name: "", email: "invalid" }),
-  });
-  assert.equal(invalid.status, 400);
-  expectShape(responseShapes.error, await invalid.json(), "validation error");
+  const admin = await adminAuth();
+  try {
+    const invalid = await app.request("/api/v1/users", {
+      method: "POST",
+      headers: admin.headers,
+      body: JSON.stringify({ name: "", email: "invalid" }),
+    });
+    assert.equal(invalid.status, 400);
+    expectShape(responseShapes.error, await invalid.json(), "validation error");
 
-  const missing = await app.request("/api/v1/users/00000000-0000-4000-8000-000000000099");
-  assert.equal(missing.status, 404);
-  expectShape(responseShapes.error, await missing.json(), "not found error");
+    const missing = await app.request("/api/v1/users/00000000-0000-4000-8000-000000000099", {
+      headers: admin.headers,
+    });
+    assert.equal(missing.status, 404);
+    expectShape(responseShapes.error, await missing.json(), "not found error");
+  } finally {
+    await cleanupUser(admin.userId);
+  }
 });
 
 test("destinations API response shapes match the OpenAPI contract", async () => {

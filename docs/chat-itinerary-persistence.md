@@ -92,6 +92,6 @@ Dokumen ini menjelaskan arsitektur penyimpanan, versioning, dan kontrak backend 
 - API routes: `apps/api/src/modules/chat/api/chat.ts`, `apps/api/src/modules/itinerary/api/itinerary.api.ts`
 - Services: `apps/api/src/modules/chat/services/chat.service.ts`, `apps/api/src/modules/itinerary/services/itinerary.service.ts`
 - Repositories: `apps/api/src/modules/chat/repositories/chat.repository.ts`, `apps/api/src/modules/itinerary/repositories/itinerary.repository.ts`
-- OpenAPI: `apps/api/src/openapi.ts`
+- OpenAPI: `apps/api/src/openapi/document.ts` (disajikan di `GET /openapi.json`)
 - Panduan FE: `docs/chat-api-untuk-fe.md`
 - Contoh integrasi: `apps/app/public/chat-test.html`

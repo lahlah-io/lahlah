@@ -7,6 +7,12 @@ type Document = {
   paths: Record<string, Record<string, unknown>>;
 };
 
+type Operation = {
+  operationId?: string;
+  summary?: string;
+  responses?: Record<string, unknown>;
+};
+
 async function readDocument(): Promise<Document> {
   const response = await app.request("/openapi.json");
   assert.equal(response.status, 200);
@@ -39,4 +45,28 @@ test("every API route is documented", async () => {
 
   const missing = [...registered].filter((path) => !documented.has(path));
   assert.deepEqual(missing, []);
+});
+
+test("every operation is readable by a client generator and no schema is a placeholder", async () => {
+  const document = (await readDocument()) as Document & {
+    components: { schemas: Record<string, Record<string, unknown>> };
+  };
+
+  for (const [path, operations] of Object.entries(document.paths)) {
+    for (const [method, operation] of Object.entries(operations as Record<string, Operation>)) {
+      const label = `${method.toUpperCase()} ${path}`;
+      assert.ok(operation.operationId, `${label} has no operationId`);
+      assert.ok(operation.summary, `${label} has no summary`);
+      assert.ok(
+        Object.keys(operation.responses ?? {}).some((status) => status.startsWith("2")),
+        `${label} has no 2xx response`,
+      );
+    }
+  }
+
+  for (const [name, schema] of Object.entries(document.components.schemas)) {
+    const freeform =
+      schema.type === "object" && !schema.properties && !schema.oneOf && !schema.allOf && !schema.$ref;
+    assert.ok(!freeform, `schema ${name} is a free-form placeholder`);
+  }
 });

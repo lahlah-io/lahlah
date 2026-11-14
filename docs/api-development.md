@@ -201,7 +201,9 @@ Mencoba endpoint yang butuh sesi:
 2. Buka `http://localhost:8787/docs`, klik **Authorize**, lalu isi `bearerAuth` dengan token dari langkah 1.
 3. Endpoint yang memakai cookie `lahlah_session` juga berfungsi otomatis bila browser sudah login pada origin yang sama.
 
-Saat menambah atau mengubah route, perbarui juga `src/openapi/document.ts`. Tes `tests/unit/features/openapi/document.test.ts` akan gagal bila ada route terdaftar yang belum didokumentasikan, atau bila ada `$ref` yang menunjuk komponen tidak ada.
+Saat menambah atau mengubah route, perbarui juga `src/openapi/document.ts` (dan `schemas.ts` untuk payload). `tests/unit/openapi.test.ts` gagal bila ada route terdaftar yang belum didokumentasikan, operasi tanpa `operationId`/`summary`/2xx, atau schema komponen yang masih berupa placeholder `{ type: "object", additionalProperties: true }`. `tests/unit/features/openapi/document.test.ts` menjaga `$ref` yang menunjuk komponen tidak ada. Bentuk respons nyata divalidasi `tests/integration/openapi.contract.test.ts` memakai `tests/fixtures/response-shapes.ts`.
+
+Untuk integrasi FE dan agen AI, dokumen sengaja memuat: `operationId` stabil, `required` eksplisit, enum (`intent`, `role`, `source`), dua bentuk respons pesan chat (`ChatMessagePage`/`ChatMessageKeyset`), serta catatan bahwa `userId` diambil dari `GET /api/v1/auth/me`. Tipe TypeScript FE bisa di-generate langsung dari `/openapi.json` (mis. `openapi-typescript http://localhost:8787/openapi.json -o src/api-types.ts`).
 
 ## Menguji auth, admin, dan kuota
 

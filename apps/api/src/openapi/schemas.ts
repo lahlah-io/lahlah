@@ -1,3 +1,4 @@
+import { intentLabels } from "../modules/chat/services/classifier.js";
 import type { SchemaObject } from "./types.js";
 
 const uuid: SchemaObject = { type: "string", format: "uuid" };
@@ -5,6 +6,26 @@ const timestamp: SchemaObject = { type: "string", format: "date-time" };
 const nullableString: SchemaObject = { type: ["string", "null"] };
 const nullableTimestamp: SchemaObject = { type: ["string", "null"], format: "date-time" };
 const nullableUuid: SchemaObject = { type: ["string", "null"], format: "uuid" };
+const integer: SchemaObject = { type: "integer", minimum: 0 };
+const nullableInteger: SchemaObject = { type: ["integer", "null"], minimum: 0 };
+const jsonObject: SchemaObject = { type: "object", additionalProperties: true };
+const nullableJson: SchemaObject = { type: ["object", "array", "null"] };
+const ymd: SchemaObject = { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$", example: "2026-12-01" };
+const hhmm: SchemaObject = { type: "string", pattern: "^\\d{2}:\\d{2}$", example: "08:00" };
+const coordinatePair: SchemaObject = {
+  type: "array",
+  items: { type: "number" },
+  minItems: 2,
+  maxItems: 2,
+};
+const geoLineString: SchemaObject = {
+  type: "object",
+  required: ["type", "coordinates"],
+  properties: {
+    type: { const: "LineString" },
+    coordinates: { type: "array", items: coordinatePair },
+  },
+};
 
 const username: SchemaObject = {
   type: "string",
@@ -111,8 +132,8 @@ export const schemas: Record<string, SchemaObject> = {
     properties: {
       id: uuid,
       pid: {
-        ...uuid,
-        description: "PeridotID identity linked to this account.",
+        type: "string",
+        description: "PeridotID identity linked to this account. Legacy rows are not uuid-shaped.",
       },
       name: { type: "string", maxLength: 255 },
       username,
@@ -192,7 +213,7 @@ export const schemas: Record<string, SchemaObject> = {
     ],
     properties: {
       id: uuid,
-      pid: uuid,
+      pid: { type: "string", description: "PeridotID identity; legacy rows are not uuid-shaped." },
       name: { type: "string", maxLength: 255 },
       username,
       email: { ...nullableString, format: "email" },
@@ -672,9 +693,29 @@ export const schemas: Record<string, SchemaObject> = {
 
   ChatSession: {
     type: "object",
-    description: "Chat session backed by the backend chat module.",
-    additionalProperties: true,
-    properties: { id: uuid },
+    description: "Chat session owned by `userId`, with token counters and soft-delete state.",
+    required: [
+      "id", "userId", "modelId", "title", "status", "summary", "contextJson", "metadata",
+      "promptTokens", "completionTokens", "totalTokens", "lastMessageAt", "schemaVersion",
+      "createdAt", "updatedAt",
+    ],
+    properties: {
+      id: uuid,
+      userId: uuid,
+      modelId: uuid,
+      title: { type: "string", example: "Trip Padang" },
+      status: { type: "string", example: "active", description: "Free-form lifecycle string; new sessions start as `active`." },
+      summary: nullableString,
+      contextJson: jsonObject,
+      metadata: jsonObject,
+      promptTokens: integer,
+      completionTokens: integer,
+      totalTokens: integer,
+      lastMessageAt: nullableTimestamp,
+      schemaVersion: { type: "integer", minimum: 1, example: 1 },
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
   },
 
   CreateChatSessionRequest: {
@@ -705,9 +746,104 @@ export const schemas: Record<string, SchemaObject> = {
 
   ChatMessage: {
     type: "object",
-    description: "Chat message, including assistant tool calls and versions.",
-    additionalProperties: true,
-    properties: { id: uuid },
+    description: "Chat message row (page mode). `userId` is not echoed: it belongs to the session.",
+    required: ["id", "sessionId", "modelId", "role", "content", "position", "inputTokens", "outputTokens", "metadata", "createdAt"],
+    properties: {
+      id: uuid,
+      sessionId: uuid,
+      modelId: nullableUuid,
+      role: { type: "string", enum: ["system", "user", "assistant", "tool"] },
+      content: { type: "string" },
+      position: { type: "integer", minimum: 1, description: "Monotonic order inside the session." },
+      inputTokens: integer,
+      outputTokens: integer,
+      metadata: jsonObject,
+      createdAt: timestamp,
+    },
+  },
+
+  MessageVersion: {
+    type: "object",
+    description: "One stored version of an assistant message.",
+    required: ["version", "content", "status", "createdAt"],
+    properties: {
+      version: { type: "integer", minimum: 1 },
+      content: { type: "string" },
+      status: { type: "string", enum: ["pending", "completed", "failed"] },
+      createdAt: timestamp,
+      model: { type: "string" },
+      latencyMs: { type: "integer", minimum: 0 },
+      toolCalls: { type: "array", items: jsonObject },
+      usage: {
+        type: "object",
+        required: ["promptTokens", "completionTokens", "totalTokens"],
+        properties: { promptTokens: integer, completionTokens: integer, totalTokens: integer },
+      },
+      editInstruction: { type: "string" },
+      errorJson: nullableJson,
+      inputTokens: integer,
+      outputTokens: integer,
+      metadata: jsonObject,
+    },
+  },
+
+  ChatMessageDetailed: {
+    type: "object",
+    description: "Chat message with tool calls, versions, and run state (keyset mode).",
+    required: [
+      "id", "sessionId", "modelId", "role", "content", "position", "inputTokens", "outputTokens",
+      "metadata", "toolCallsJson", "toolCallId", "mode", "model", "latencyMs", "status", "errorJson",
+      "versionsJson", "activeVersion", "schemaVersion", "createdAt",
+    ],
+    properties: {
+      id: uuid,
+      sessionId: uuid,
+      modelId: nullableUuid,
+      role: { type: "string", enum: ["system", "user", "assistant", "tool"] },
+      content: { type: "string" },
+      position: { type: "integer", minimum: 1 },
+      inputTokens: integer,
+      outputTokens: integer,
+      metadata: jsonObject,
+      toolCallsJson: nullableJson,
+      toolCallId: nullableString,
+      mode: nullableString,
+      model: nullableString,
+      latencyMs: nullableInteger,
+      status: { type: "string", example: "completed" },
+      errorJson: nullableJson,
+      versionsJson: { type: "array", items: { $ref: "#/components/schemas/MessageVersion" } },
+      activeVersion: { type: "integer", minimum: 1 },
+      schemaVersion: { type: "integer", minimum: 1 },
+      createdAt: timestamp,
+    },
+  },
+
+  ChatMessagePage: {
+    type: "object",
+    description: "Page-mode messages (`page`/`limit`, no `after_position`).",
+    required: ["data", "meta"],
+    properties: {
+      data: { type: "array", items: { $ref: "#/components/schemas/ChatMessage" } },
+      meta: { $ref: "#/components/schemas/PaginationMeta" },
+    },
+  },
+
+  ChatMessageKeyset: {
+    type: "object",
+    description: "Keyset-mode messages (`after_position` given). Pass `meta.nextAfterPosition` back as `after_position`; `null` means the end.",
+    required: ["data", "meta"],
+    properties: {
+      data: { type: "array", items: { $ref: "#/components/schemas/ChatMessageDetailed" } },
+      meta: {
+        type: "object",
+        required: ["limit", "nextAfterPosition"],
+        properties: {
+          limit: { type: "integer", minimum: 1, maximum: 100 },
+          nextAfterPosition: nullableInteger,
+        },
+      },
+    },
   },
 
   SendChatMessageRequest: {
@@ -733,70 +869,293 @@ export const schemas: Record<string, SchemaObject> = {
 
   ChatReply: {
     type: "object",
-    description: "Assistant reply with detected intent and optional itinerary version.",
-    additionalProperties: true,
+    description:
+      "Assistant reply with the detected intent, the rendered text, and the itinerary version it produced. " +
+      "`intent` is the classifier label; `version` is `null` for plain chat.",
+    required: ["message", "intent", "version", "map", "assistantMessageId", "sessionId"],
     properties: {
+      message: { type: "string", description: "Assistant text, already stripped of tool-call markup." },
+      intent: { type: "string", enum: [...intentLabels] },
+      version: {
+        oneOf: [{ $ref: "#/components/schemas/ItineraryVersionView" }, { type: "null" }],
+      },
+      map: {
+        oneOf: [
+          {
+            type: "object",
+            required: ["versionId", "points"],
+            properties: {
+              versionId: { type: "string" },
+              points: {
+                type: "array",
+                items: {
+                  type: "object",
+                  required: ["position", "destinationId", "name", "latitude", "longitude"],
+                  properties: {
+                    position: { type: "integer", minimum: 1 },
+                    destinationId: uuid,
+                    name: { type: "string" },
+                    latitude: { type: "number" },
+                    longitude: { type: "number" },
+                  },
+                },
+              },
+            },
+          },
+          { type: "null" },
+        ],
+      },
       assistantMessageId: uuid,
       sessionId: uuid,
+      usage: {
+        type: "object",
+        required: ["inputTokens", "outputTokens"],
+        properties: { inputTokens: integer, outputTokens: integer },
+      },
     },
   },
 
   ChatRegenerateResult: {
     type: "object",
-    description: "New assistant message version with usage counters.",
-    additionalProperties: true,
+    description: "New assistant message version with its text, intent, version snapshot, and usage counters.",
+    required: ["assistantMessageId", "sessionId", "message", "intent", "version", "activeVersion", "usage"],
     properties: {
       assistantMessageId: uuid,
       sessionId: uuid,
+      message: { type: "string" },
+      intent: { type: "string", enum: [...intentLabels] },
+      version: {
+        oneOf: [{ $ref: "#/components/schemas/ItineraryVersionView" }, { type: "null" }],
+      },
       activeVersion: { type: "integer", minimum: 1 },
+      usage: {
+        type: "object",
+        required: ["inputTokens", "outputTokens"],
+        properties: { inputTokens: integer, outputTokens: integer },
+      },
     },
   },
 
   ChatMessageVersions: {
     type: "object",
-    description: "Message version history with the active version number.",
-    additionalProperties: true,
+    description: "Every stored version of one assistant message plus the active version number.",
+    required: ["messageId", "sessionId", "activeVersion", "versions"],
     properties: {
       messageId: uuid,
+      sessionId: uuid,
       activeVersion: { type: "integer", minimum: 1 },
+      versions: { type: "array", items: { $ref: "#/components/schemas/MessageVersion" } },
+      versionsJson: {
+        type: "array",
+        items: { $ref: "#/components/schemas/MessageVersion" },
+        description: "Deprecated alias of `versions`, kept for older clients.",
+      },
     },
   },
 
   ChatVersionActivation: {
     type: "object",
     description: "Result of activating one message version.",
-    additionalProperties: true,
+    required: ["messageId", "sessionId", "activeVersion", "content", "status"],
     properties: {
       messageId: uuid,
+      sessionId: uuid,
       activeVersion: { type: "integer", minimum: 1 },
+      content: { type: "string" },
+      status: { type: "string" },
+    },
+  },
+
+  ItineraryDestination: {
+    type: "object",
+    description: "Legacy join row between a trip and a destination (current batch only).",
+    required: ["id", "itineraryId", "destinationId", "visitAt", "estimatedCost", "notes", "createdAt"],
+    properties: {
+      id: uuid,
+      itineraryId: uuid,
+      destinationId: uuid,
+      visitAt: nullableTimestamp,
+      estimatedCost: { type: ["number", "null"] },
+      distance: { type: ["number", "null"] },
+      notes: nullableString,
+      createdAt: timestamp,
     },
   },
 
   Itinerary: {
     type: "object",
-    description: "Trip itinerary with versions, stops, and routes.",
-    additionalProperties: true,
-    properties: { id: uuid },
+    description:
+      "Trip with the active version snapshot. `currentVersion` equals the number of `trip_destinations` batches, " +
+      "so the newest version is always `currentVersion`.",
+    required: [
+      "id", "userId", "sessionId", "currentVersion", "tripDate", "durationDays", "city",
+      "transportMode", "title", "content", "status", "isPublic", "shareSlug", "metadata",
+      "createdAt", "updatedAt", "destinations", "version",
+    ],
+    properties: {
+      id: uuid,
+      userId: uuid,
+      sessionId: nullableUuid,
+      currentVersion: { type: "integer", minimum: 0 },
+      tripDate: nullableTimestamp,
+      durationDays: { type: "integer", minimum: 1 },
+      city: { type: "string", example: "Padang" },
+      transportMode: nullableString,
+      title: { type: "string" },
+      content: { type: "string" },
+      status: { type: "string", enum: ["draft", "final"] },
+      isPublic: { type: "boolean" },
+      shareSlug: nullableString,
+      metadata: jsonObject,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      destinations: { type: "array", items: { $ref: "#/components/schemas/ItineraryDestination" } },
+      version: {
+        oneOf: [{ $ref: "#/components/schemas/ItineraryVersion" }, { type: "null" }],
+        description: "Active version snapshot, or `null` when the trip has no batch yet.",
+      },
+    },
   },
 
-  ItineraryVersionSummary: {
+  ItineraryStop: {
     type: "object",
-    description: "One row of the itinerary version history.",
-    additionalProperties: true,
+    description: "One stop inside a version snapshot. `arrivalTime` is local Padang time (`HH:mm`).",
+    required: [
+      "id", "itineraryVersionId", "destinationId", "position", "name", "latitude", "longitude",
+      "arrivalTime", "departureTime", "visitDurationMin", "travelDurationMin", "notes", "category", "snapshotJson",
+    ],
     properties: {
-      version: { type: "integer", minimum: 1 },
-      isSaved: { type: "boolean" },
-      isSelected: { type: "boolean" },
+      id: uuid,
+      itineraryVersionId: uuid,
+      destinationId: nullableUuid,
+      position: { type: "integer", minimum: 1 },
+      name: { type: "string" },
+      latitude: { type: "number" },
+      longitude: { type: "number" },
+      arrivalTime: nullableString,
+      departureTime: nullableString,
+      visitDurationMin: nullableInteger,
+      travelDurationMin: nullableInteger,
+      notes: nullableString,
+      category: nullableString,
+      snapshotJson: nullableJson,
+    },
+  },
+
+  ItineraryRouteLeg: {
+    type: "object",
+    description: "Leg between two consecutive stops. `fallback` means straight-line geometry.",
+    required: ["fromPosition", "toPosition", "transportMode", "distanceM", "durationSec", "geometry", "provider", "profile", "fallback"],
+    properties: {
+      fromPosition: { type: "integer", minimum: 1 },
+      toPosition: { type: "integer", minimum: 1 },
+      transportMode: { type: "string", example: "walk" },
+      distanceM: nullableInteger,
+      durationSec: nullableInteger,
+      geometry: { oneOf: [{ $ref: "#/components/schemas/GeoLineString" }, { type: "null" }] },
+      provider: nullableString,
+      profile: nullableString,
+      fallback: { type: "boolean" },
+    },
+  },
+
+  ItineraryRouteJson: {
+    type: "object",
+    description: "Display-ready route: one GeoJSON LineString plus per-leg metadata.",
+    required: ["type", "coordinates", "legs"],
+    properties: {
+      type: { const: "LineString" },
+      coordinates: { type: "array", items: coordinatePair },
+      legs: { type: "array", items: { $ref: "#/components/schemas/ItineraryRouteLeg" } },
     },
   },
 
   ItineraryVersion: {
     type: "object",
-    description: "Immutable itinerary version snapshot (stops and route legs).",
-    additionalProperties: true,
+    description: "Immutable version snapshot stored as one `trip_destinations` batch.",
+    required: [
+      "id", "itineraryId", "version", "basedOnVersion", "changeInstruction", "changeType",
+      "totalDistanceM", "totalDurationMin", "totalEstimatedMin", "status", "sourceMessageId",
+      "routeJson", "expiresAt", "createdAt", "stops", "travelDate", "startTime", "endTime",
+    ],
     properties: {
       id: uuid,
+      itineraryId: uuid,
       version: { type: "integer", minimum: 1 },
+      basedOnVersion: nullableInteger,
+      changeInstruction: nullableString,
+      changeType: { type: "string", example: "snapshot" },
+      totalDistanceM: nullableInteger,
+      totalDurationMin: nullableInteger,
+      totalEstimatedMin: nullableInteger,
+      status: { type: "string", example: "confirmed" },
+      sourceMessageId: nullableUuid,
+      routeJson: { oneOf: [{ $ref: "#/components/schemas/ItineraryRouteJson" }, { type: "null" }] },
+      expiresAt: nullableTimestamp,
+      createdAt: timestamp,
+      stops: { type: "array", items: { $ref: "#/components/schemas/ItineraryStop" } },
+      travelDate: ymd,
+      startTime: hhmm,
+      endTime: hhmm,
+    },
+  },
+
+  ItineraryVersionSummary: {
+    type: "object",
+    description: "One row of the version history. The active version is the one with `isSelected: true`.",
+    required: [
+      "version", "basedOnVersion", "changeType", "changeInstruction", "status", "totalDistanceM",
+      "totalDurationMin", "totalEstimatedMin", "createdAt", "stopCount", "routeCount", "isSaved", "isSelected",
+    ],
+    properties: {
+      version: { type: "integer", minimum: 1 },
+      basedOnVersion: nullableInteger,
+      changeType: { type: "string" },
+      changeInstruction: nullableString,
+      status: { type: "string" },
+      totalDistanceM: nullableInteger,
+      totalDurationMin: nullableInteger,
+      totalEstimatedMin: nullableInteger,
+      createdAt: timestamp,
+      stopCount: integer,
+      routeCount: integer,
+      isSaved: { type: "boolean" },
+      isSelected: { type: "boolean" },
+    },
+  },
+
+  ItineraryVersionView: {
+    type: "object",
+    description: "Version payload returned by the chat reply. Rendered on the map as `stops`.",
+    required: ["versionId", "versionNumber", "itineraryId", "travelDate", "startTime", "endTime", "stops", "routeJson"],
+    properties: {
+      versionId: { type: "string", description: "First stop id, or an ISO timestamp for an empty batch." },
+      versionNumber: { type: "integer", minimum: 1 },
+      itineraryId: { type: "string" },
+      travelDate: ymd,
+      startTime: hhmm,
+      endTime: hhmm,
+      stops: {
+        type: "array",
+        items: {
+          type: "object",
+          required: ["position", "destinationId", "name", "latitude", "longitude", "arrivalTime", "visitDurationMin", "category"],
+          properties: {
+            id: uuid,
+            position: { type: "integer", minimum: 1 },
+            destinationId: nullableUuid,
+            name: { type: "string" },
+            latitude: { type: "number" },
+            longitude: { type: "number" },
+            arrivalTime: nullableString,
+            departureTime: nullableString,
+            visitDurationMin: nullableInteger,
+            category: nullableString,
+          },
+        },
+      },
+      routes: { type: "array", items: jsonObject, description: "Optional per-leg geometry; currently empty." },
+      routeJson: { oneOf: [{ $ref: "#/components/schemas/ItineraryRouteJson" }, { type: "null" }] },
     },
   },
 
@@ -815,10 +1174,22 @@ export const schemas: Record<string, SchemaObject> = {
     },
   },
 
+  GeoLineString: geoLineString,
+
   RouteResult: {
     type: "object",
-    description: "OSRM driving route between waypoints.",
-    additionalProperties: true,
+    description:
+      "Route between waypoints. `source: \"cache\"` is a cached OSRM hit, `\"fallback\"` is a straight line " +
+      "(`durationMin: null`, render dashed).",
+    required: ["source", "distanceKm", "durationMin", "estimated", "geometry"],
+    properties: {
+      source: { type: "string", enum: ["osrm", "cache", "fallback"] },
+      distanceKm: { type: ["number", "null"], minimum: 0, example: 12.4 },
+      durationMin: nullableInteger,
+      estimated: { type: "boolean", description: "True when `motorcycle` duration was derived from driving." },
+      error: { type: "string", description: "Only present on fallback." },
+      geometry: { $ref: "#/components/schemas/GeoLineString" },
+    },
   },
 
   CalculateRouteRequest: {
