@@ -104,6 +104,7 @@ export async function fetchFirecrawl(): Promise<RawPlace[]> {
       });
       for (const url of extractSearchUrls(search)) urls.add(url);
     } catch {
+      // Lanjut ke query berikutnya saat pencarian gagal.
     }
   }
   const urlList = [...urls].slice(0, MAX_SCRAPES);
@@ -124,6 +125,7 @@ export async function fetchFirecrawl(): Promise<RawPlace[]> {
       });
       places.push(...parseFirecrawlPlaces(scraped));
     } catch {
+      // Lewati halaman yang gagal di-scrape.
     }
   }
 

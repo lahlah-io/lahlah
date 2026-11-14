@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { exchangePidCodeSchema } from "../../../../src/modules/auth/schemas/auth.schema.js";
 
 test("exchange menerima kode dan codeVerifier opsional", () => {

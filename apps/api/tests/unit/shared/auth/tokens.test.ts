@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { hashToken, randomToken } from "../../../../src/shared/auth/tokens.js";
 
 test("token sesi acak, panjang, dan unik", () => {

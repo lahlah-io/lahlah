@@ -106,7 +106,7 @@ function addDaysYmd(ymd: string, days: number): string {
 export function parseFlexibleDate(text: string, now = new Date()): string | null {
   const iso = text.match(/\b(20\d{2}-\d{2}-\d{2})\b/)?.[1];
   if (iso) return iso;
-  const dmy = text.match(/\b(\d{1,2})[\/\-](\d{1,2})[\/\-](20\d{2})\b/);
+  const dmy = text.match(/\b(\d{1,2})[/-](\d{1,2})[/-](20\d{2})\b/);
   if (dmy) return `${dmy[3]}-${dmy[2]!.padStart(2, "0")}-${dmy[1]!.padStart(2, "0")}`;
   const named = text.toLowerCase().match(/\b(\d{1,2})\s+(jan(?:uari)?|feb(?:ruari)?|mar(?:et)?|apr(?:il)?|mei|may|jun(?:i)?|jul(?:i)?|agu(?:stus)?|ags|aug|sep(?:t(?:ember)?)?|okt(?:ober)?|oct|nov(?:ember)?|des(?:ember)?|dec)\s+(20\d{2})\b/);
   if (named) {

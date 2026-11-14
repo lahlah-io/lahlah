@@ -12,7 +12,7 @@ import { routes } from "./routes.js";
 
 const app = new Hono<{ Variables: RequestIdVariables }>();
 app.use("*", requestId());
-app.use("*", logger((message) => console.log(JSON.stringify({ level: "info", message: message.replace(/\u001b\[[0-9;]*m/g, "") }))));
+app.use("*", logger((message) => console.log(JSON.stringify({ level: "info", message: message.replace(/\u001b\[[0-9;]*m/g, "") })))); // eslint-disable-line no-control-regex -- sengaja menghapus kode warna ANSI
 app.use("*", secureHeaders());
 app.use("/api/*", bodyLimit({
   maxSize: 1024 * 1024,

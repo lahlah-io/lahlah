@@ -72,7 +72,7 @@ export function createRoutingService(deps: RoutingServiceDeps): RoutingService {
     try {
       res = await fetchWithTimeout(fetchFn, url, deps.timeoutMs, userAgent);
     } catch (err) {
-      throw new Error(err instanceof Error && err.name === "AbortError" ? `OSRM timeout ${deps.timeoutMs / 1000} dtk` : "OSRM tidak terjangkau");
+      throw new Error(err instanceof Error && err.name === "AbortError" ? `OSRM timeout ${deps.timeoutMs / 1000} dtk` : "OSRM tidak terjangkau", { cause: err });
     }
     if (res.status === 429 || res.status >= 500) {
       // Single retry for rate-limit/transient failures.
@@ -80,7 +80,7 @@ export function createRoutingService(deps: RoutingServiceDeps): RoutingService {
       try {
         res = await fetchWithTimeout(fetchFn, url, deps.timeoutMs, userAgent);
       } catch (err) {
-        throw new Error(err instanceof Error && err.name === "AbortError" ? `OSRM timeout ${deps.timeoutMs / 1000} dtk` : "OSRM tidak terjangkau");
+        throw new Error(err instanceof Error && err.name === "AbortError" ? `OSRM timeout ${deps.timeoutMs / 1000} dtk` : "OSRM tidak terjangkau", { cause: err });
       }
     }
     if (!res.ok) throw new Error(`OSRM HTTP ${res.status}`);
