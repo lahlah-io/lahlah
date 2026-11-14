@@ -259,6 +259,7 @@ async function handleApi(route: Route, state: ApiState) {
           },
           assistantMessageId: `m-assistant-${state.messagePosts}`,
           sessionId,
+          usage: { inputTokens: 100, outputTokens: 20 },
         },
       });
     }
@@ -450,6 +451,8 @@ describe("chat test HTML client matrix", () => {
     expect(await page.locator("#messages .msg").first().getAttribute("class")).toMatch(/user/);
     expect(await page.locator("#messages .msg").nth(1).getAttribute("class")).toMatch(/assistant/);
     expect(await textOf(page, "#chatStatus")).toContain("Versi 1 dibuat");
+    expect(await textOf(page, ".msg-tokens")).toContain("total 120");
+    expect(await textOf(page, "#sessionTokens")).toContain("total 120");
   });
 
   test("HTML-005: empty messages are rejected before any API call", async () => {
@@ -480,7 +483,7 @@ describe("chat test HTML client matrix", () => {
     expect(await textOf(page, "#stops li:first-child")).toContain("Kunjungan 12:00");
     expect(await textOf(page, "#stops li:first-child")).toContain("60 menit");
     expect(await textOf(page, "#versionMeta")).toContain("aktif v1");
-    expect(await textOf(page, "#draftStatus")).toContain("Itinerary tersimpan");
+    expect(await textOf(page, "#draftStatus")).toContain("Trip tersimpan");
   });
 
   test("HTML-008: restore creates a new version, then preview leaves the active version unchanged", async () => {

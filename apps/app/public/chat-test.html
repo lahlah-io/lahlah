@@ -414,7 +414,7 @@
           <section class="test-group">
             <h3>10. Confirmation</h3>
             <button class="run-case" data-msg="Saya setuju dengan itinerary ini" title="CON setuju itinerary">CON-001</button>
-            <p class="test-note">Pilih/aktifkan versi lewat daftar Versi itinerary di panel kanan (Lihat/Pulihkan).</p>
+            <p class="test-note">Pilih/aktifkan versi lewat daftar Versi trip di panel kanan (Lihat/Pulihkan).</p>
           </section>
 
           <section class="test-group">
@@ -442,27 +442,28 @@
         <section class="chat" aria-label="Chat">
           <div id="messages" class="messages" aria-live="polite"></div>
           <div class="quick">
-            <button type="button" class="secondary quick-msg" data-msg="Buat itinerary 2026-11-20 jam 08:00-16:00 untuk kategori pantai dan budaya di Padang">Itinerary pantai + budaya</button>
-            <button type="button" class="secondary quick-msg" data-msg="Buat itinerary 2026-11-21 jam 09:00-15:00 untuk kategori kuliner dan alam di Padang">Itinerary kuliner + alam</button>
+            <button type="button" class="secondary quick-msg" data-msg="Buat trip 2026-11-20 jam 08:00-16:00 untuk kategori pantai dan budaya di Padang">Trip pantai + budaya</button>
+            <button type="button" class="secondary quick-msg" data-msg="Buat trip 2026-11-21 jam 09:00-15:00 untuk kategori kuliner dan alam di Padang">Trip kuliner + alam</button>
             <button type="button" class="secondary quick-msg" data-msg="Halo">Halo</button>
-            <button type="button" class="secondary quick-msg" data-msg="Buat itinerary untuk kategori pantai di Padang">Itinerary tanpa tanggal/jam</button>
-            <button type="button" class="secondary quick-msg" data-msg="ubah menjadi 3 itinerary">Ubah jadi 3 destinasi</button>
+            <button type="button" class="secondary quick-msg" data-msg="Saya ingin trip di Padang pada pagi hari">Trip pagi hari</button>
+            <button type="button" class="secondary quick-msg" data-msg="ubah menjadi 3 destinasi">Ubah jadi 3 destinasi</button>
             <button type="button" class="secondary quick-msg" data-msg="hapus destinasi ke-99">Hapus destinasi tak ada</button>
           </div>
           <form id="composer" class="composer">
             <label class="sr-only" for="message">Pesan</label>
-            <textarea id="message" rows="2" maxlength="4000" placeholder="Contoh: Buat itinerary 2026-11-20 jam 08:00-16:00 untuk kategori pantai dan budaya di Padang"></textarea>
+            <textarea id="message" rows="2" maxlength="4000" placeholder="Contoh: Saya ingin trip di Padang pada pagi hari, atau Buat trip 2026-11-20 jam 08:00-16:00 untuk kategori pantai dan budaya di Padang"></textarea>
             <button id="sendBtn" type="submit">Kirim</button>
           </form>
           <p id="chatStatus" class="status" aria-live="polite"></p>
+          <p id="sessionTokens" class="status muted small"></p>
         </section>
 
-        <aside class="itinerary" aria-label="Itinerary">
-          <h2>Itinerary</h2>
-          <p id="draftMeta" class="status">Belum ada versi. Minta itinerary lewat chat.</p>
+        <aside class="itinerary" aria-label="Trip">
+          <h2>Trip</h2>
+          <p id="draftMeta" class="status">Belum ada versi. Minta trip lewat chat.</p>
           <div id="mapWrap" class="map-wrap hidden">
-            <div id="map" class="map" role="img" aria-label="Peta rute itinerary"></div>
-            <select id="mapVersionSelect" class="map-version-select hidden" aria-label="Lihat versi itinerary di peta"></select>
+            <div id="map" class="map" role="img" aria-label="Peta rute trip"></div>
+            <select id="mapVersionSelect" class="map-version-select hidden" aria-label="Lihat versi trip di peta"></select>
             <div id="mapSrc" class="map-src">Peta © OpenStreetMap · CARTO · Rute OSRM</div>
             <div id="mapLegend" class="map-legend" aria-hidden="true">
               <div class="legend-row"><span class="legend-swatch"></span><span>Rute jalan</span></div>
@@ -482,7 +483,7 @@
           <ol id="stops" class="stops"></ol>
           <p id="draftStatus" class="status" aria-live="polite"></p>
           <div class="versions-block">
-            <h3>Versi itinerary</h3>
+            <h3>Versi trip</h3>
             <p id="versionMeta" class="status"></p>
             <ul id="versionList" class="version-list"></ul>
             <button id="previewExitBtn" type="button" class="secondary hidden">Tampilkan versi aktif</button>
@@ -518,6 +519,7 @@
         message: document.getElementById("message"),
         sendBtn: document.getElementById("sendBtn"),
         chatStatus: document.getElementById("chatStatus"),
+        sessionTokens: document.getElementById("sessionTokens"),
         draftMeta: document.getElementById("draftMeta"),
         mapWrap: document.getElementById("mapWrap"),
         map: document.getElementById("map"),
@@ -651,7 +653,27 @@
           status: message.status,
           activeVersion: message.activeVersion || 1,
           versions: Array.isArray(message.versionsJson) ? message.versionsJson : [],
+          inputTokens: message.inputTokens || 0,
+          outputTokens: message.outputTokens || 0,
         };
+      }
+
+      function tokenText(input, output) {
+        return "input " + input + " · output " + output + " · total " + (input + output);
+      }
+      // Session totals come from the session list; sends/regenerates add their usage locally (same increments as the server).
+      function addSessionTokens(sessionId, usage) {
+        const session = state.sessions.find(function (s) { return s.id === sessionId; });
+        if (!session || !usage) return;
+        session.promptTokens = (session.promptTokens || 0) + (usage.inputTokens || 0);
+        session.completionTokens = (session.completionTokens || 0) + (usage.outputTokens || 0);
+        session.totalTokens = (session.totalTokens || 0) + (usage.inputTokens || 0) + (usage.outputTokens || 0);
+      }
+      function renderSessionTokens() {
+        const session = state.sessions.find(function (s) { return s.id === state.activeId; });
+        els.sessionTokens.textContent = session
+          ? "Token session: " + tokenText(session.promptTokens || 0, session.completionTokens || 0)
+          : "";
       }
 
       async function loadMessages(sessionId) {
@@ -802,7 +824,7 @@
           return;
         }
         const sessionId = state.activeId;
-        if (!confirm("Hapus session ini beserta pesan dan itinerary-nya?")) return;
+        if (!confirm("Hapus session ini beserta pesan dan trip-nya?")) return;
         try {
           await request("/api/v1/chat/sessions/" + enc(sessionId) + "?userId=" + enc(state.userId), {
             method: "DELETE",
@@ -839,6 +861,7 @@
 
       function renderChat() {
         els.messages.textContent = "";
+        renderSessionTokens();
         if (!state.userId) {
           emptyState("Isi User ID dev di Pengaturan, lalu klik + New Chat.");
           return;
@@ -853,7 +876,7 @@
           return;
         }
         if (!chat.messages.length) {
-          emptyState("Belum ada pesan. Minta itinerary, misalnya: Buat itinerary 2026-11-20 jam 08:00-16:00 untuk pantai dan budaya di Padang.");
+          emptyState("Belum ada pesan. Minta trip, misalnya: Saya ingin trip di Padang pada pagi hari. 1 chat = 1 trip, berisi banyak destinasi.");
           return;
         }
         chat.messages.forEach(function (message) {
@@ -864,6 +887,12 @@
           bubble.className = "msg " + (message.role === "user" ? "user" : "assistant") + (message.failed ? " failed" : "");
           bubble.textContent = message.content;
           row.append(bubble);
+          if (message.role === "assistant" && !message.failed) {
+            const tokens = document.createElement("span");
+            tokens.className = "msg-tokens muted small";
+            tokens.textContent = "Token: " + tokenText(message.inputTokens || 0, message.outputTokens || 0);
+            row.append(tokens);
+          }
 
           if (message.role === "assistant" && isUuid(message.id)) {
             const actions = document.createElement("div");
@@ -877,7 +906,7 @@
             const versionBtn = document.createElement("button");
             versionBtn.type = "button";
             versionBtn.className = "secondary tiny";
-            versionBtn.title = "Versi balasan AI (regenerasi), bukan versi itinerary";
+            versionBtn.title = "Versi balasan AI (regenerasi), bukan versi trip";
             versionBtn.textContent = "Balasan (" + (message.activeVersion || message.versions.length || 1) + ")";
             versionBtn.addEventListener("click", function () { toggleMessageVersions(message); });
             actions.append(regenBtn, versionBtn);
@@ -978,6 +1007,11 @@
           message.content = data.message || message.content;
           message.activeVersion = data.activeVersion;
           message.status = "completed";
+          if (data.usage) {
+            message.inputTokens = data.usage.inputTokens;
+            message.outputTokens = data.usage.outputTokens;
+            addSessionTokens(message.sessionId || state.activeId, data.usage);
+          }
           state.messageVersions.delete(message.id);
           if (data.version) loadItinerary(message.sessionId || state.activeId).catch(function () {});
           setStatus(els.chatStatus, "Versi " + data.activeVersion + " dibuat.");
@@ -1055,9 +1089,12 @@
             status: "completed",
             activeVersion: 1,
             versions: [],
+            inputTokens: data.usage ? data.usage.inputTokens : 0,
+            outputTokens: data.usage ? data.usage.outputTokens : 0,
           });
+          addSessionTokens(sessionId, data.usage);
           if (data.version) loadItinerary(sessionId).catch(function () {});
-          setStatus(els.chatStatus, data.version ? "Versi " + (data.version.versionNumber || 1) + " dibuat. Periksa panel itinerary." : "Balasan diterima.");
+          setStatus(els.chatStatus, data.version ? "Versi " + (data.version.versionNumber || 1) + " dibuat. Periksa panel trip." : "Balasan diterima.");
         } catch (err) {
           local.failed = true;
           els.message.value = content;
@@ -1317,13 +1354,13 @@
         els.previewExitBtn.classList.add("hidden");
         const detail = entry && entry.itinerary ? entry.itinerary : null;
         if (!detail) {
-          setStatus(els.versionMeta, "Belum ada itinerary tersimpan.");
+          setStatus(els.versionMeta, "Belum ada trip tersimpan.");
           return;
         }
         const preview = entry.previewVersion ? entry.previewVersion.version : null;
         setStatus(
           els.versionMeta,
-          "Itinerary " + String(detail.id).slice(0, 8) + " · aktif v" + detail.currentVersion +
+          "Trip " + String(detail.id).slice(0, 8) + " · aktif v" + detail.currentVersion +
             (preview ? " · pratinjau v" + preview : ""),
         );
         if (preview) els.previewExitBtn.classList.remove("hidden");
@@ -1415,13 +1452,13 @@
         els.stops.textContent = "";
         const sessionId = state.activeId;
         if (!sessionId) {
-          clearItineraryPanel("Belum ada versi. Minta itinerary lewat chat.");
+          clearItineraryPanel("Belum ada versi. Minta trip lewat chat.");
           return;
         }
         restoreDraftState(sessionId);
         const entry = state.drafts.get(sessionId);
         if (!entry || !entry.draft) {
-          clearItineraryPanel("Belum ada versi. Minta itinerary lewat chat.");
+          clearItineraryPanel("Belum ada versi. Minta trip lewat chat.");
           return;
         }
 
@@ -1448,7 +1485,7 @@
         });
 
         if (entry.confirmedId) {
-          setStatus(els.draftStatus, "Itinerary tersimpan · " + String(entry.confirmedId).slice(0, 8));
+          setStatus(els.draftStatus, "Trip tersimpan · " + String(entry.confirmedId).slice(0, 8));
         } else {
           setStatus(els.draftStatus, "Versi aktif belum disimpan.");
         }
