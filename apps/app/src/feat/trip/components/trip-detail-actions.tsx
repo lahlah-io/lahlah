@@ -4,12 +4,12 @@ import { useNavigate } from "react-router";
 import { Button } from "@/shared/components/ui/button";
 import type { Trip } from "@/shared/types/itinerary";
 
-/** Aksi mengambang arsip trip, gayanya mengikuti aksi panel Trip di chat. */
-export function PastTripActions({ trip }: { trip: Trip }) {
+/** Aksi mengambang detail trip, gayanya mengikuti aksi panel Trip di chat. */
+export function TripDetailActions({ trip }: { trip: Trip }) {
   const navigate = useNavigate();
 
   async function handleShare() {
-    const url = `${window.location.origin}/trips/${trip.id}`;
+    const url = `${window.location.origin}/detail/${trip.id}`;
 
     try {
       if (navigator.share) {
@@ -24,15 +24,15 @@ export function PastTripActions({ trip }: { trip: Trip }) {
 
   return (
     <div
-      className="absolute right-6 bottom-6 z-10 flex flex-col gap-3"
-      aria-label="Aksi arsip trip"
+      className="absolute right-6 bottom-[calc(4.5rem+env(safe-area-inset-bottom)+1.5rem)] z-10 flex flex-col gap-3 md:bottom-6"
+      aria-label="Aksi detail trip"
     >
       <Button
         type="button"
-        variant="outline"
+        variant="secondary"
         size="icon"
         aria-label="Kembali"
-        className="size-14 rounded-lg shadow-lg [&_svg:not([class*='size-'])]:size-6"
+        className="size-14 rounded-lg border border-border shadow-lg [&_svg:not([class*='size-'])]:size-6"
         onClick={() => navigate(-1)}
       >
         <ArrowLeft aria-hidden="true" />

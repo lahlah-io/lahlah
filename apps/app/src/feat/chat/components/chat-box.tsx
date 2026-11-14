@@ -1,5 +1,6 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Map, MessagesSquare, PanelLeft, Sparkles } from "lucide-react";
+import { useLocation, useNavigate, useParams } from "react-router";
 
 import { Button } from "@/shared/components/ui/button";
 import {
@@ -63,8 +64,29 @@ function ChatWorkspace() {
   } = useChatThreadsContext();
   const { cancel, start, turn } = useSimulatedReply();
   const [draft, setDraft] = useState("");
-  const [view, setView] = useState<ChatView>("chat");
   const { openMobile, setOpenMobile } = useSidebar();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { threadId } = useParams<{ threadId?: string }>();
+  const showTrip = location.pathname.endsWith("/trip");
+  const view: ChatView = showTrip ? "itinerary" : "chat";
+
+  // URL adalah sumber kebenaran: `/chat/:id` memilih thread, `/chat` draft,
+  // `.../trip` membuka tab trip. State store disinkronkan ke URL, bukan
+  // sebaliknya, supaya tautan bisa dibagikan dan reload tetap di tempat sama.
+  useEffect(() => {
+    if (threadId) {
+      if (!threads.some((thread) => thread.id === threadId)) {
+        navigate("/chat", { replace: true });
+        return;
+      }
+      if (threadId !== activeId) selectThread(threadId);
+      return;
+    }
+    if (!showTrip && activeId) {
+      navigate(`/chat/${activeId}`, { replace: true });
+    }
+  }, [activeId, navigate, selectThread, showTrip, threadId, threads]);
 
   const openMobileHistory = useCallback(() => setOpenMobile(true), [
     setOpenMobile,
@@ -77,15 +99,24 @@ function ChatWorkspace() {
     cancel();
     setDraft("");
     startDraft();
-  }, [cancel, startDraft]);
+    navigate("/chat");
+  }, [cancel, navigate, startDraft]);
 
   const handleSelectThread = useCallback(
     (id: string) => {
       cancel();
       setDraft("");
-      selectThread(id);
+      navigate(`/chat/${id}`);
     },
-    [cancel, selectThread],
+    [cancel, navigate],
+  );
+
+  const handleViewChange = useCallback(
+    (next: ChatView) => {
+      const base = threadId ? `/chat/${threadId}` : "/chat";
+      navigate(next === "itinerary" ? `${base}/trip` : base);
+    },
+    [navigate, threadId],
   );
 
   const handleRename = useCallback(
@@ -156,7 +187,9 @@ function ChatWorkspace() {
             spacing={0}
             value={view}
             onValueChange={(value) => {
-              if (value === "chat" || value === "itinerary") setView(value);
+              if (value === "chat" || value === "itinerary") {
+                handleViewChange(value);
+              }
             }}
             aria-label="Pilih tampilan"
             className="rounded-xl"

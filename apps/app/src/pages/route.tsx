@@ -1,4 +1,4 @@
-import { createBrowserRouter } from "react-router";
+import { Navigate, createBrowserRouter } from "react-router";
 
 import { AppLayout } from "./app-layout";
 import { AccountPage } from "./account";
@@ -11,20 +11,25 @@ import { ProfilePage } from "./profile";
 import { SearchPage } from "./search";
 import { SettingsUpgradePage } from "./settings-upgrade";
 import { SettingsPage } from "./settings";
-import { TripDetailPage } from "./trip-detail";
+import { LegacyTripRedirect, TripDetailPage } from "./trip-detail";
 
 export const router = createBrowserRouter([
   {
     path: "/",
     Component: AppLayout,
     children: [
-      { index: true, Component: ChatPage },
+      { index: true, element: <Navigate to="/chat" replace /> },
+      { path: "chat", Component: ChatPage },
+      { path: "chat/trip", Component: ChatPage },
+      { path: "chat/:threadId", Component: ChatPage },
+      { path: "chat/:threadId/trip", Component: ChatPage },
       { path: "home", Component: HomePage },
       { path: "search", Component: SearchPage },
       { path: "profile", Component: ProfilePage },
       { path: "profile/edit", Component: ProfileEditPage },
       { path: "profile/:tripId", Component: ProfileDetailPage },
-      { path: "trips/:tripId", Component: TripDetailPage },
+      { path: "detail/:tripId", Component: TripDetailPage },
+      { path: "trips/:tripId", Component: LegacyTripRedirect },
       { path: "live/:tripId", Component: LiveTripDetailPage },
       { path: "accounts/:accountId", Component: AccountPage },
       { path: "settings", Component: SettingsPage },

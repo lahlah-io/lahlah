@@ -14,7 +14,7 @@ export function LiveTripDetailPage() {
   const trip = TRIPS.find((item) => item.id === tripId);
 
   if (!trip) return <Navigate to="/home" replace />;
-  if (!trip.isLive) return <Navigate to={`/trips/${trip.id}`} replace />;
+  if (!trip.isLive) return <Navigate to={`/detail/${trip.id}`} replace />;
 
   return <LiveTripDetail key={trip.id} trip={trip} />;
 }

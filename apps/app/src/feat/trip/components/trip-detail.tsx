@@ -6,13 +6,13 @@ import { TripStepper } from "@/shared/components/trip/trip-stepper";
 import { useCheckpoints } from "@/shared/hooks/use-checkpoints";
 import type { Trip } from "@/shared/types/itinerary";
 
-import { PastTripActions } from "./past-trip-actions";
+import { TripDetailActions } from "./trip-detail-actions";
 
 /**
- * Arsip trip: susunan yang sama dengan panel Trip di chat, tanpa aksi
+ * Detail trip: susunan yang sama dengan panel Trip di chat, tanpa aksi
  * checkpoint. Peta penuh layar tetap milik halaman live.
  */
-export function PastTripDetail({ trip }: { trip: Trip }) {
+export function TripDetail({ trip }: { trip: Trip }) {
   const { checkpoints } = useCheckpoints(trip.id);
 
   const checkpointIds = useMemo(
@@ -22,7 +22,7 @@ export function PastTripDetail({ trip }: { trip: Trip }) {
 
   return (
     <div className="relative flex h-full min-h-0 flex-col pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-0">
-      <h2 className="sr-only">Arsip trip</h2>
+      <h2 className="sr-only">Detail trip</h2>
       <div className="min-h-0 flex-1 overflow-x-clip overflow-y-auto">
         <div className="flex flex-col gap-6 pt-6 pb-8">
           <TripHero trip={trip} status="Selesai" />
@@ -30,7 +30,7 @@ export function PastTripDetail({ trip }: { trip: Trip }) {
           <TripStepper days={trip.days} checkpointIds={checkpointIds} />
         </div>
       </div>
-      <PastTripActions trip={trip} />
+      <TripDetailActions trip={trip} />
     </div>
   );
 }

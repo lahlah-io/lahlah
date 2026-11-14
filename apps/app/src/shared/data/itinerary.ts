@@ -425,7 +425,7 @@ export const LIVE_TRIPS: Trip[] = TRIPS.filter((trip) => trip.isLive);
  * Live trip dipakai dari carousel Beranda; trip selesai jadi arsip tetap.
  */
 export function getTripPath(trip: Trip): string {
-  return trip.isLive ? `/live/${trip.id}` : `/trips/${trip.id}`;
+  return trip.isLive ? `/live/${trip.id}` : `/detail/${trip.id}`;
 }
 
 /** Semua koordinat destinasi dalam trip, urut sesuai hari. */

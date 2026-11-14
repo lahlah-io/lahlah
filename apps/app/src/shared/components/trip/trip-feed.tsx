@@ -24,8 +24,7 @@ import {
   DropdownMenuTrigger,
 } from "@/shared/components/ui/dropdown-menu";
 import { ACCOUNT } from "@/shared/data/accounts";
-import { getTripPath, getTripWaypoints } from "@/shared/data/itinerary";
-import { useCheckpoints } from "@/shared/hooks/use-checkpoints";
+import { getTripWaypoints } from "@/shared/data/itinerary";import { useCheckpoints } from "@/shared/hooks/use-checkpoints";
 import type { Trip } from "@/shared/types/itinerary";
 import { getUserInitials } from "@/shared/types/user";
 
@@ -41,7 +40,7 @@ function TripPostCard({
   const { summary } = trip;
   const { checkpoints } = useCheckpoints(trip.id);
   const navigate = useNavigate();
-  const tripPath = getTripPath(trip);
+  const tripPath = `/detail/${trip.id}`;
   const accountPath = `/accounts/${ACCOUNT.id}`;
   const [liked, setLiked] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -64,8 +63,8 @@ function TripPostCard({
   }
 
   return (
-    <article ref={scrollRef} className="pb-5">
-      <header className="flex items-center gap-3 px-4 py-3">
+    <article ref={scrollRef} className="relative pb-5">
+      <header className="relative z-10 flex items-center gap-3 px-4 py-3">
         <Link
           to={accountPath}
           aria-label={`Buka profil ${ACCOUNT.name}`}
@@ -125,7 +124,7 @@ function TripPostCard({
       <Link
         to={tripPath}
         aria-label={`Buka detail trip ${summary.title}`}
-        className="block px-4 outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+        className="block px-4 outline-none after:absolute after:inset-0 after:content-[''] focus-visible:ring-2 focus-visible:ring-sidebar-ring"
       >
         <p className="text-sm leading-6">{summary.description}</p>
 
@@ -138,7 +137,7 @@ function TripPostCard({
         </div>
       </Link>
 
-      <div className="mt-3 flex items-center gap-1 px-4">
+      <div className="relative z-10 mt-3 flex items-center gap-1 px-4">
         <Button
           type="button"
           variant="ghost"

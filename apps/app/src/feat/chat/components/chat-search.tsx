@@ -17,7 +17,7 @@ import { groupThreads } from "../utils/thread-groups";
 import { searchThreads } from "../utils/thread-search";
 
 export function ChatSearch() {
-  const { selectThread, threads } = useChatThreadsContext();
+  const { threads } = useChatThreadsContext();
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
 
@@ -28,8 +28,7 @@ export function ChatSearch() {
   const isSearching = query.trim().length > 0;
 
   function handleSelect(id: string) {
-    selectThread(id);
-    navigate("/");
+    navigate(`/chat/${id}`);
   }
 
   return (

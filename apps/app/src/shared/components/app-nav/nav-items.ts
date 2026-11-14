@@ -19,7 +19,7 @@ export interface NavItem {
 /** Main destinations shown in the middle of the rail and in the mobile tab bar. */
 export const PRIMARY_NAV_ITEMS: NavItem[] = [
   { to: "/home", label: "Beranda", icon: House, end: true },
-  { to: "/", label: "Chat", icon: MessagesSquare, end: true },
+  { to: "/chat", label: "Chat", icon: MessagesSquare },
   { to: "/search", label: "Cari", icon: Search },
   { to: "/profile", label: "Profil", icon: User },
 ];
