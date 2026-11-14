@@ -13,7 +13,7 @@ function candidate(id: string, lat: number | null, lng: number | null, minutes =
   return { id, name: `Dest ${id}`, latitude: lat, longitude: lng, details: { estimated_duration_minutes: minutes } };
 }
 
-function request(startTime: string, endTime: string, categories = ["seed-pantai"]) {
+function request(startTime: string, endTime: string, categories = ["pantai"]) {
   return { city: "Padang", travelDate: "2026-11-20", startTime, endTime, categories, transportMode: "walk" };
 }
 
@@ -110,8 +110,8 @@ describe("itinerary generation matrix", () => {
 
   test("ITI-005: requested categories are carried in the request and order is deterministic", () => {
     const candidates = [candidate("c", -0.93, 100.35), candidate("a", -0.95, 100.35), candidate("b", -0.94, 100.35)];
-    const first = generateItinerary({ ...request("09:00", "15:00", ["seed-pantai", "seed-kuliner"]) }, candidates);
-    const second = generateItinerary({ ...request("09:00", "15:00", ["seed-pantai", "seed-kuliner"]) }, candidates);
+    const first = generateItinerary({ ...request("09:00", "15:00", ["pantai", "kuliner"]) }, candidates);
+    const second = generateItinerary({ ...request("09:00", "15:00", ["pantai", "kuliner"]) }, candidates);
     expect(first.destinations.map((d) => d.id)).toEqual(second.destinations.map((d) => d.id));
     expect(first.destinations.map((d) => d.id)).toEqual(["a", "b", "c"]);
   });
