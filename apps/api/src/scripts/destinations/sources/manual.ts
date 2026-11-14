@@ -39,12 +39,6 @@ const ENTRIES: ManualEntry[] = [
     categories: ["sejarah", "budaya"],
   },
   {
-    slug: "masjid-raya-sumatera-barat",
-    name: "Masjid Raya Sumatera Barat",
-    description: "Masjid besar beratap gonjong di Padang.",
-    categories: ["budaya", "sejarah"],
-  },
-  {
     slug: "pasar-raya-padang",
     name: "Pasar Raya Padang",
     description: "Pasar pusat untuk belanja dan kuliner khas Padang.",

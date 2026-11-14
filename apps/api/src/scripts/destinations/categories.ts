@@ -45,5 +45,6 @@ export function resolveCategories(rawCategories: string[]): string[] {
     for (const slug of mapped ?? []) found.add(slug);
   }
 
-  return found.size > 0 ? [...found] : ["alam"];
+  // Tanpa fallback: tag tak dikenal (RS, sekolah, masjid, kantor) tidak boleh masuk kategori wisata.
+  return [...found];
 }

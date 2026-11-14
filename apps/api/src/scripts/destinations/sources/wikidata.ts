@@ -16,8 +16,7 @@ const TYPE_KEYWORDS: Array<[string, string]> = [
   ["pantai", "natural=beach"],
   ["beach", "natural=beach"],
   ["museum", "tourism=museum"],
-  ["masjid", "tourism=attraction"],
-  ["mosque", "tourism=attraction"],
+
   ["pasar", "shop=mall"],
   ["market", "shop=mall"],
   ["taman", "leisure=park"],
