@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { authApi } from "./modules/auth/index.js";
 import { prisma } from "./db/client.js";
-import { createChatApi, createChatService } from "./modules/chat/index.js";
+import { createChatApi, createChatService, detectRejectedCategories, extractCategories } from "./modules/chat/index.js";
 import { makeRagContextProvider } from "./modules/chat/services/rag.js";
 import {
   categoriesApi,
@@ -73,7 +73,7 @@ const knowledgeBaseRows = async () => listKnowledgeBaseDestinations();
 const chatService = createChatService({
   itinerary: itineraryService,
   findUserById: (id) => usersRepository.findUserById(id).then((u) => (u ? { id: u.id, isActive: u.isActive } : null)),
-  retrieveRagContext: makeRagContextProvider(knowledgeBaseRows),
+  retrieveRagContext: makeRagContextProvider(knowledgeBaseRows, extractCategories, detectRejectedCategories),
   searchDestinations: async (input) => {
     const rows = await prisma.destination.findMany({ where: searchDestinationsWhere(input), take: 10, select: toolSelect });
     return rows.map(toToolRow);
