@@ -30,12 +30,22 @@ function filterTarget(items: CanonicalPlace[]): CanonicalPlace[] {
   });
 }
 
+async function fetchWithRetry(name: string, fetcher: () => Promise<RawPlace[]>): Promise<RawPlace[]> {
+  try {
+    return await fetcher();
+  } catch (error) {
+    console.warn(`repo:${name}: gagal, coba ulang (${(error as Error).message})`);
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+    return await fetcher();
+  }
+}
+
 async function runRepoScrape(): Promise<CanonicalPlace[]> {
   const places: RawPlace[] = [];
   const succeeded: PlaceSource[] = [];
   for (const [name, fetcher] of Object.entries(REPO_SOURCES)) {
     try {
-      const found = await fetcher();
+      const found = await fetchWithRetry(name, fetcher);
       places.push(...found);
       succeeded.push(name as PlaceSource);
       console.log(`repo:${name}: ${found.length}`);

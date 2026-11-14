@@ -62,6 +62,13 @@ test("nama kosong dibuang", () => {
   assert.equal(mergePlaces([place({ name: "   " })]).length, 0);
 });
 
+test("mergePlaces membuang ibadah, RS, toko, institusi, dan kelurahan", () => {
+  const names = ["Mesjid Raya", "Mushala Pemuda", "RS Yos Sudarso", "Rumah Sakit M Djamil", "minimarket sawahan", "Kelurahan Purus", "Kecamatan Koto Tangah", "Nagari Pauh", "Posyandu Melati", "Optik Sejahtera", "Dokter Gigi Senyum", "komplek gubernuran"];
+  assert.equal(mergePlaces(names.map((name) => place({ name }))).length, 0);
+  assert.equal(mergePlaces([place({ name: "Purus", description: "kelurahan di Kota Padang" })]).length, 0);
+  assert.equal(mergePlaces([place({ name: "Pantai Air Manis" }), place({ name: "Rumah Makan Sederhana" })]).length, 2);
+});
+
 test("isTokenSubset mendeteksi nama yang merupakan bagian nama lain", () => {
   assert.equal(isTokenSubset("pantai padang", "pantai padang selatan"), true);
   assert.equal(isTokenSubset("pantai padang", "danau toba"), false);

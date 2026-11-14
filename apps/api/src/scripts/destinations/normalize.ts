@@ -53,13 +53,13 @@ function isInPadang(lat: number | null, lon: number | null): boolean {
 // Exclude schools/education and government institutions (destinations should be places to visit).
 // "MAS/MIN" only in clear school-name patterns (avoid dropping POIs like "Mas Pepen").
 const EXCLUDED_NAME =
-  /\b(sd(n| negeri| swasta)?\b|smp(n| negeri| swasta)?\b|sma(n| negeri| swasta)?\b|smk(n| negeri| swasta)?\b|slb\b|sekolah\b|madrasah\b|mas\s+(al\b|darul|ti\b|dr\b|h\b|nur|an\b|muhammadiyah|terpadu|plus|unggul|[a-z]{2,})|\bmin\s+\d|\bmi\s+(negeri|swasta|\d)|\bmts(n| negeri| swasta)?\b|\bmti\b|\bman\s+\d|\btk\b|paud\b|\bkb\b|taman kanak|\bra\b|raudhatul|pesantren|pondok pesantren|universitas\b|akademi\b|institut\b|politeknik\b|sekolah tinggi\b|stkip\b|stie\b|stikes\b|stmik\b|amik\b|kampus\b|fakultas\b|dinas\b|kantor\s+(camat|lurah|walikota|wali kota|gubernur|bupati|pemerintah|imigrasi|pajak|bea cukai|pertanahan|agraria|kesehatan|pendidikan|sosial|kepolisian|polisi|polsek|polres|polda|pemadam|damkar|kejaksaan|pengadilan|kemenag|kementerian|kpu|bawaslu|bpbd|bappeda|bpkad|bps|dukcapil|pos\b|perwakilan|kedutaan|statistik|arsip|perhubungan|perdagangan|pu\b|pupr|lingkungan|pariwisata)|balai\s+kota\b|pemerintah\s+(kota|provinsi|daerah|kabupaten)\b|pemko\b|pemprov\b|dprd\b|dpd\b|komisi\s+[ivx]+\b|kodim\b|koramil\b|korem\b|markas\b|lanud\b|polres\b|polsek\b|kejaksaan\b|pengadilan\b|rumah\s+tahanan\b|rutan\b|lapas\b)\b/i;
+  /\b(sd(n| negeri| swasta)?\b|smp(n| negeri| swasta)?\b|sma(n| negeri| swasta)?\b|smk(n| negeri| swasta)?\b|slb\b|sekolah\b|madrasah\b|mas\s+(al\b|darul|ti\b|dr\b|h\b|nur|an\b|muhammadiyah|terpadu|plus|unggul|[a-z]{2,})|\bmin\s+\d|\bmi\s+(negeri|swasta|\d)|\bmts(n| negeri| swasta)?\b|\bmti\b|\bman\s+\d|\btk\b|paud\b|\bkb\b|taman kanak|\bra\b|raudhatul|pesantren|pondok pesantren|universitas\b|akademi\b|institut\b|politeknik\b|sekolah tinggi\b|stkip\b|stie\b|stikes\b|stmik\b|amik\b|kampus\b|fakultas\b|dinas\b|kantor\s+(camat|lurah|walikota|wali kota|gubernur|bupati|pemerintah|imigrasi|pajak|bea cukai|pertanahan|agraria|kesehatan|pendidikan|sosial|kepolisian|polisi|polsek|polres|polda|pemadam|damkar|kejaksaan|pengadilan|kemenag|kementerian|kpu|bawaslu|bpbd|bappeda|bpkad|bps|dukcapil|pos\b|perwakilan|kedutaan|statistik|arsip|perhubungan|perdagangan|pu\b|pupr|lingkungan|pariwisata)|balai\s+kota\b|pemerintah\s+(kota|provinsi|daerah|kabupaten)\b|pemko\b|pemprov\b|dprd\b|dpd\b|komisi\s+[ivx]+\b|kodim\b|koramil\b|korem\b|markas\b|lanud\b|polres\b|polsek\b|kejaksaan\b|pengadilan\b|rumah\s+tahanan\b|rutan\b|lapas\b|rs\b|rsu\b|rsud\b|rsia\b|rumah sakit\b|hospital\b|klinik\b|puskesmas\b|apotek\b|minimarket\b|indomaret\b|alfamart\b|kelurahan\b|kecamatan\b|nagari\b|jorong\b|komplek\b|posyandu\b|pustu\b|poskesdes\b|posbindu\b|optik\b|laboratorium\b|praktik\b|praktek\b|dokter\b|bidan\b|bersalin\b|kesehatan\b)\b/i;
 const EXCLUDED_DESC =
-  /\b(perguruan tinggi|higher education institution|sekolah (dasar|menengah|tinggi|kejuruan)|government (office|agency|institution|building)|instansi pemerintah|kantor pemerintahan|lembaga pemerintahan)\b/i;
+  /\b(perguruan tinggi|higher education institution|sekolah (dasar|menengah|tinggi|kejuruan)|government (office|agency|institution|building)|instansi pemerintah|kantor pemerintahan|lembaga pemerintahan|(kelurahan|kecamatan|nagari|village) (di|in))\b/i;
 
 // Places of worship and monuments are not trip destinations for this app.
 const EXCLUDED_NAME_WORSHIP =
-  /\b(masjid|mushalla|mushollah|mushola|musholah|musala|musalla|surau|langgar|gereja|vihara|wihara|pura|klenteng|kelenteng|gurdwara|kuil|tugu|monumen)\b/i;
+  /\b(masjid|mesjid|mushala|musholla|mushalla|mushollah|mushola|musholah|musala|musalla|surau|langgar|gereja|vihara|wihara|pura|klenteng|kelenteng|gurdwara|kuil|tugu|monumen)\b/i;
 
 function isExcludedInstitution(item: RawPlace): boolean {
   const name = (item.name ?? "").toLowerCase();
@@ -114,6 +114,7 @@ export function mergePlaces(places: RawPlace[]): CanonicalPlace[] {
       categorySlugs: [...new Set(ordered.flatMap((p) => resolveCategories(p.rawCategories)))],
       details: {
         primarySource: winner.source,
+        provider: (winner.details as Record<string, unknown> | undefined)?.provider ?? winner.source,
         mergedSources: ordered.map((p) => ({ source: p.source, sourcePlaceId: p.sourcePlaceId })),
       },
     };
