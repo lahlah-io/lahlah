@@ -8,6 +8,7 @@ export type AuthContextValue = {
   /** Pesan ketika sesi tidak bisa diperiksa, misalnya API sedang mati. */
   error: string | null;
   loginWithToken: (token: string) => Promise<AdminUser>;
+  loginWithPeridot: () => Promise<AdminUser>;
   logout: () => Promise<void>;
   refresh: () => Promise<AdminUser | null>;
 };

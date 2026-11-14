@@ -2,6 +2,29 @@ import { apiRequest } from "@/shared/api/client";
 import type { DataEnvelope } from "@/shared/api/types";
 import type { AdminUser } from "../types/auth";
 
+export type ExchangeResult = {
+  user: AdminUser;
+  token?: string;
+  expiresAt?: string;
+};
+
+/**
+ * Tukar `pid_code` sekali pakai dari popup PeridotID menjadi sesi Lahlah.
+ * Header `X-Session-Mode: bearer` meminta token sesi di body untuk klien SPA.
+ */
+export async function exchangePidCode(code: string): Promise<ExchangeResult> {
+  const response = await apiRequest<DataEnvelope<ExchangeResult>>(
+    "/api/v1/auth/peridot/exchange",
+    {
+      method: "POST",
+      token: null,
+      headers: { "X-Session-Mode": "bearer" },
+      body: { code },
+    },
+  );
+  return response.data;
+}
+
 /**
  * `token` eksplisit: `null` berarti hanya mengandalkan cookie `lahlah_session`
  * yang dikirim browser pada origin API yang sama.

@@ -7,6 +7,7 @@ import {
 } from "react";
 import { ApiError, setApiSessionToken } from "@/shared/api/client";
 import * as authApi from "../services/auth.api";
+import { getPeridotClient } from "../services/peridot";
 import {
   clearStoredToken,
   readStoredToken,
@@ -101,12 +102,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const loginWithPeridot = useCallback(async (): Promise<AdminUser> => {
+    const { pidCode } = await getPeridotClient().auth.loginPopup();
+    if (!pidCode) throw new Error("Login dibatalkan.");
+
+    const exchanged = await authApi.exchangePidCode(pidCode);
+    if (!exchanged.token) throw new Error("Sesi tidak diterbitkan API.");
+
+    setApiSessionToken(exchanged.token);
+    try {
+      const currentUser = await authApi.fetchCurrentUser(exchanged.token);
+      storeToken(exchanged.token);
+      setUser(currentUser);
+      setStatus("authenticated");
+      setError(null);
+      return currentUser;
+    } catch (cause) {
+      setApiSessionToken(readStoredToken());
+      throw cause;
+    }
+  }, []);
+
   const logout = useCallback(async (): Promise<void> => {
     const token = readStoredToken();
     try {
       await authApi.logoutSession(token);
     } catch {
       // Token bisa saja sudah kedaluwarsa; sesi lokal tetap harus dibersihkan.
+    }
+    try {
+      await getPeridotClient().auth.logout();
+    } catch {
+      // Sesi PeridotID opsional; sesi Lahlah sudah dicabut di atas.
     }
     clearStoredToken();
     setApiSessionToken(null);
@@ -122,10 +149,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAdmin: user?.role === "admin",
       error,
       loginWithToken,
+      loginWithPeridot,
       logout,
       refresh,
     }),
-    [status, user, error, loginWithToken, logout, refresh],
+    [status, user, error, loginWithToken, loginWithPeridot, logout, refresh],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
