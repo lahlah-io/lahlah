@@ -438,8 +438,12 @@ test("chat and itinerary response shapes match the OpenAPI contract", async () =
       changeType: "generate",
     });
 
+    const itineraryAuth = await createSession(userId, {
+      userAgent: "openapi-contract-test",
+    });
     const detailRes = await itineraryApp.request(
-      `/api/v1/itineraries/${saved.itineraryId}?userId=${userId}`,
+      `/api/v1/itineraries/${saved.itineraryId}`,
+      { headers: { authorization: `Bearer ${itineraryAuth.token}` } },
     );
     assert.equal(detailRes.status, 200);
     expectShape(responseShapes.itineraryDetail, await detailRes.json(), "itinerary detail");
@@ -449,6 +453,12 @@ test("chat and itinerary response shapes match the OpenAPI contract", async () =
     );
     assert.equal(bySessionRes.status, 200);
     expectShape(responseShapes.itineraryDetail, await bySessionRes.json(), "itinerary by session");
+
+    const mineRes = await itineraryApp.request("/api/v1/itineraries/mine", {
+      headers: { authorization: `Bearer ${itineraryAuth.token}` },
+    });
+    assert.equal(mineRes.status, 200);
+    expectShape(responseShapes.myTripsPage, await mineRes.json(), "itineraries mine");
 
     const versionsRes2 = await itineraryApp.request(
       `/api/v1/itineraries/${saved.itineraryId}/versions?userId=${userId}`,

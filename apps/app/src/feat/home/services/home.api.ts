@@ -1,6 +1,5 @@
 import { ApiError, apiRequest } from "@/shared/api/client";
 import type { DataEnvelope } from "@/shared/api/types";
-import type { ItineraryDetailDto } from "@/shared/types/itinerary-api";
 
 /** Kartu feed dari `GET /api/v1/itineraries/feed` (satu trip publik). */
 export interface FeedCardDto {
@@ -14,6 +13,8 @@ export interface FeedCardDto {
   title: string;
   updatedAt: string;
   viewCount: number;
+  /** Koordinat stop versi terakhir `[longitude, latitude]` untuk cover peta rute. */
+  waypoints: [number, number][];
 }
 
 export interface FeedResponse {
@@ -40,13 +41,6 @@ export function listFeed(input: { page: number; limit: number }) {
     limit: String(input.limit),
   });
   return apiRequest<FeedResponse>(`${ITINERARIES}/feed?${params}`);
-}
-
-export function getItinerary(userId: string, itineraryId: string) {
-  const owner = `userId=${encodeURIComponent(userId)}`;
-  return apiRequest<DataEnvelope<ItineraryDetailDto>>(
-    `${ITINERARIES}/${itineraryId}?${owner}`,
-  );
 }
 
 export function likeItinerary(tripId: string) {

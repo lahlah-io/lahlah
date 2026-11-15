@@ -126,8 +126,9 @@ export const openApiDocument: OpenApiDocument = {
       "**Response envelope.** Successful responses are `{ \"data\": ... }`; lists add",
       "`meta: { page, limit, total }`. Failures are `{ \"error\": { code, message } }`.",
       "",
-      "**Who am I.** Chat and itinerary endpoints identify the user with an explicit `userId`",
-      "(query or body), not from the session: read it once from `GET /api/v1/auth/me`.",
+      "**Who am I.** Most endpoints identify the user from the session. " +
+      "The remaining chat and itinerary version endpoints still take an explicit `userId` " +
+      "(query or body): read it once from `GET /api/v1/auth/me`.",
       "",
       "**Chat paging.** `GET /chat/sessions/{id}/messages` returns either `ChatMessagePage`",
       "(page/limit) or `ChatMessageKeyset` (when `after_position` is sent; follow",
@@ -1486,6 +1487,27 @@ export const openApiDocument: OpenApiDocument = {
       },
     },
 
+    "/api/v1/itineraries/mine": {
+      get: {
+        tags: ["Itineraries"],
+        summary: "List the signed-in user's trips for the profile grid",
+        operationId: "listMyTrips",
+        description:
+          "Requires a session. Returns every trip the user is a member of, published or not, newest activity " +
+          "first (max 50 rows, no paging). Each card uses the same fields as the home feed plus `waypoints` " +
+          "(newest-version stop coordinates for the route cover) and `distanceM` (stored road distance of the " +
+          "newest version). `meta.totalLikes` and `meta.totalDistanceM` are the profile header stats.\n\n" +
+          "`distanceM` is `SUM(distance)` in meters, not a straight line and not `0` when `null`. Trips created " +
+          "before distances were backfilled return `null`; run `pnpm --filter api db:backfill-distances` to fill them.",
+        security: sessionSecurity,
+        responses: {
+          "200": { description: "Profile grid cards plus header stats.", content: json(ref("MyTripsPage")) },
+          "401": unauthorized,
+          "500": internal,
+        },
+      },
+    },
+
     "/api/v1/itineraries/trending": {
       get: {
         tags: ["Itineraries"],
@@ -1611,19 +1633,13 @@ export const openApiDocument: OpenApiDocument = {
     "/api/v1/itineraries/{id}": {
       get: {
         tags: ["Itineraries"],
-        summary: "Get my itinerary",
+        summary: "Get one itinerary",
         operationId: "getItinerary",
-        description: "Returns the itinerary with its active version snapshot (stops and route legs).",
-        parameters: [
-          idPath("Itinerary id."),
-          {
-            name: "userId",
-            in: "query",
-            required: true,
-            schema: { type: "string", format: "uuid" },
-            description: "Owner of the itinerary.",
-          },
-        ],
+        description:
+          "Requires a session. Members can read their own trips, and any signed-in user can read a published " +
+          "trip; everything else is 404 so ids cannot be enumerated.",
+        security: sessionSecurity,
+        parameters: [idPath("Itinerary id.")],
         responses: {
           "200": {
             description:

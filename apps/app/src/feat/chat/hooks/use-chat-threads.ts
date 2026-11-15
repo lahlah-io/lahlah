@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router";
 
 import { ApiError } from "@/shared/api/client";
 import type { Trip } from "@/shared/types/itinerary";
@@ -132,6 +133,7 @@ export function useChatThreads(userId: string | null) {
   const [error, setError] = useState<ChatError | null>(null);
   /** Menandai permintaan terbaru supaya respons lambat tidak menimpa sesi baru. */
   const requestRef = useRef(0);
+  const navigate = useNavigate();
 
   const fail = useCallback((cause: unknown, kind: ChatError["kind"] = "load") => {
     setError({
@@ -156,8 +158,6 @@ export function useChatThreads(userId: string | null) {
         if (cancelled) return;
         const next = page.data.map(toThread);
         setThreads(next);
-        // Buka percakapan terakhir agar pengguna kembali ke tempat terakhirnya.
-        setActiveId((current) => current ?? next[0]?.id ?? null);
       })
       .catch((cause: unknown) => {
         if (cancelled) return;
@@ -277,6 +277,9 @@ export function useChatThreads(userId: string | null) {
           sessionId = created.id;
           setThreads((current) => [toThread(created), ...(current ?? [])]);
           setActiveId(created.id);
+          // Pindahkan URL ke sesi baru supaya rute `/chat` (draft) tidak
+          // menganggapnya sebagai percakapan lama dan mengosongkannya lagi.
+          navigate(`/chat/${created.id}`, { replace: true });
         }
 
         const optimistic: ChatMessage = {
@@ -330,7 +333,7 @@ export function useChatThreads(userId: string | null) {
         setSending(false);
       }
     },
-    [activeId, fail, itinerary, loadSession, sending, userId],
+    [activeId, fail, itinerary, loadSession, navigate, sending, userId],
   );
 
   const renameThread = useCallback(

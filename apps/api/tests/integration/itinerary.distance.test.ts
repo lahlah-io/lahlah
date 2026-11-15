@@ -5,6 +5,7 @@ import { afterAll, test } from "vitest";
 import { prisma } from "../../src/db/client.js";
 import { errorHandler } from "../../src/shared/http/errors.js";
 import { createItineraryApi, createItineraryService } from "../../src/modules/itinerary/index.js";
+import { createSession as createAuthSession } from "../../src/shared/auth/session.service.js";
 import type { TripRouteFn } from "../../src/shared/geo/trip-distance.js";
 import type { ItineraryVersionStop } from "../../src/shared/schemas/itinerary-version.js";
 import { backfillTripDistances } from "../../src/scripts/backfill-trip-distances.js";
@@ -108,7 +109,10 @@ test("saving a version stores road distance per leg and totals it per created_at
       changeType: "generate",
     });
 
-    const res = await app.request(`/api/v1/itineraries/${saved.itineraryId}?userId=${user.id}`);
+    const auth = await createAuthSession(user.id, { userAgent: "distance-test" });
+    const res = await app.request(`/api/v1/itineraries/${saved.itineraryId}`, {
+      headers: { authorization: `Bearer ${auth.token}` },
+    });
     assert.equal(res.status, 200);
     const body = (await res.json()) as DetailBody;
 
@@ -150,7 +154,10 @@ test("a straight-line routing fallback leaves distances empty instead of faking 
       changeType: "generate",
     });
 
-    const res = await app.request(`/api/v1/itineraries/${saved.itineraryId}?userId=${user.id}`);
+    const auth = await createAuthSession(user.id, { userAgent: "distance-test" });
+    const res = await app.request(`/api/v1/itineraries/${saved.itineraryId}`, {
+      headers: { authorization: `Bearer ${auth.token}` },
+    });
     const body = (await res.json()) as DetailBody;
     assert.deepEqual(body.data.destinations.map((d) => d.distance), [null, null]);
     assert.equal(body.data.version.totalDistanceM, null);

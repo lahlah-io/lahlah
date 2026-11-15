@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toTrip } from "@/shared/utils/itinerary-trip";
 import type { Trip } from "@/shared/types/itinerary";
 
+import { getItinerary } from "@/shared/api/itineraries";
 import * as homeApi from "../services/home.api";
 
 /** Trip berjalan: `Trip` siap render + progres check-in dari API. */
@@ -40,9 +41,9 @@ export function useLiveTrip(userId: string | null) {
 
     async function load(): Promise<Omit<LiveTripState, "error">> {
       const active = await homeApi.getActiveTrip();
-      if (!active) return { data: null, status: "empty" };
-      const detail = (await homeApi.getItinerary(userId!, active.tripId)).data;
-      const trip = toTrip(detail);
+      if (!active || !userId) return { data: null, status: "empty" };
+      const detail = await getItinerary(active.tripId);
+      const trip = detail ? toTrip(detail) : null;
       if (!trip) return { data: null, status: "empty" };
       return {
         data: {

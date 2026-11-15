@@ -347,6 +347,30 @@ const routeResult = z.object({
   geometry: lineString,
 });
 
+const myTripCard = z.object({
+  id: z.uuid(),
+  title: z.string(),
+  author: z.object({ name: z.string(), username: z.string().nullable() }).nullable(),
+  stopCount: z.number().int(),
+  destinationNames: z.array(z.string()),
+  coverImageUrl: z.string().nullable(),
+  likeCount: z.number().int(),
+  viewCount: z.number().int(),
+  likedByMe: z.boolean(),
+  updatedAt: z.iso.datetime(),
+  waypoints: z.array(z.tuple([z.number(), z.number()])),
+  distanceM: z.number().int().nullable(),
+});
+
+const myTripsPage = z.object({
+  data: z.array(myTripCard),
+  meta: z.object({
+    totalTrips: z.number().int(),
+    totalLikes: z.number().int(),
+    totalDistanceM: z.number().int().nullable(),
+  }),
+});
+
 const health = z.object({ status: z.literal("ok"), requestId: z.string() });
 
 const asEnvelope = <T extends z.ZodType>(schema: T) => z.object({ data: schema });
@@ -374,5 +398,6 @@ export const responseShapes = {
   itineraryVersion: asEnvelope(itineraryVersion),
   itineraryVersionList: z.object({ data: z.array(itineraryVersionSummary) }),
   trendingItineraryList: z.object({ data: z.array(trendingItinerary) }),
+  myTripsPage: myTripsPage,
   routeResult: asEnvelope(routeResult),
 };

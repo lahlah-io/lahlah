@@ -70,14 +70,14 @@ test("like is idempotent and is counted on the itinerary detail", async () => {
     assert.deepEqual((await second.json()).data, { liked: true, likeCount: 1 });
 
     // Viewer is not a member, so the owner sees the count with likedByMe false.
-    const ownerDetail = await app.request(`/api/v1/itineraries/${tripId}?userId=${owner.userId}`);
+    const ownerDetail = await app.request(`/api/v1/itineraries/${tripId}`, { headers: owner.headers });
     assert.equal(ownerDetail.status, 200);
     const ownerBody = (await ownerDetail.json()).data;
     assert.equal(ownerBody.likeCount, 1);
     assert.equal(ownerBody.likedByMe, false);
 
     await app.request(`/api/v1/itineraries/${tripId}/like`, { method: "POST", headers: owner.headers });
-    const likedByMe = await app.request(`/api/v1/itineraries/${tripId}?userId=${owner.userId}`);
+    const likedByMe = await app.request(`/api/v1/itineraries/${tripId}`, { headers: owner.headers });
     assert.equal((await likedByMe.json()).data.likedByMe, true);
 
     const unlike = await app.request(`/api/v1/itineraries/${tripId}/like`, {
@@ -124,7 +124,7 @@ test("view is one per user per trip", async () => {
     });
     assert.deepEqual((await second.json()).data, { counted: false, viewCount: 1 });
 
-    const detail = await app.request(`/api/v1/itineraries/${tripId}?userId=${owner.userId}`);
+    const detail = await app.request(`/api/v1/itineraries/${tripId}`, { headers: owner.headers });
     assert.equal((await detail.json()).data.viewCount, 1);
 
     const missing = await app.request(`/api/v1/itineraries/${randomUUID()}/view`, {
@@ -174,7 +174,7 @@ test("publish only flips isPublic and keeps every version", async () => {  const
     assert.equal(published.status, 200);
     assert.deepEqual((await published.json()).data, { id: tripId, isPublic: true });
 
-    const detail = await app.request(`/api/v1/itineraries/${tripId}?userId=${owner.userId}`);
+    const detail = await app.request(`/api/v1/itineraries/${tripId}`, { headers: owner.headers });
     const detailBody = (await detail.json()).data;
     assert.equal(detailBody.isPublic, true);
     assert.equal(detailBody.currentVersion, 2);

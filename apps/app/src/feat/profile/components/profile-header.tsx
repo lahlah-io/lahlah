@@ -3,28 +3,27 @@ import { useNavigate } from "react-router";
 import { UserAvatar } from "@/shared/components/user-avatar";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
-import { TRIPS, TRIP_SUMMARY } from "@/shared/data/itinerary";
 import { type CurrentUser } from "@/shared/types/user";
+
+import type { ProfileStats } from "../types/index";
 
 export function ProfileHeader({
   user,
+  stats,
   editable = true,
 }: {
   user: CurrentUser;
+  /** `null` selama trip belum termuat: statistik tampil sebagai `—`. */
+  stats: ProfileStats | null;
   editable?: boolean;
 }) {
   const navigate = useNavigate();
   const { name, plan, username, avatarUrl } = user;
 
-  const stats = [
-    { label: "Trip", value: TRIPS.length.toLocaleString("id-ID") },
-    {
-      label: "Likes",
-      value: TRIPS.reduce((total, trip) => total + (trip.likes ?? 0), 0).toLocaleString(
-        "id-ID",
-      ),
-    },
-    { label: "Jarak", value: TRIP_SUMMARY.distance.replace("±", "") },
+  const rows = [
+    { label: "Trip", value: stats?.trips ?? "—" },
+    { label: "Likes", value: stats?.likes ?? "—" },
+    { label: "Jarak", value: stats?.distance ?? "—" },
   ];
 
   return (
@@ -38,7 +37,7 @@ export function ProfileHeader({
         />
 
         <ul className="flex min-w-0 flex-1 items-center justify-around">
-          {stats.map((stat) => (
+          {rows.map((stat) => (
             <li
               key={stat.label}
               className="flex min-w-0 flex-col items-center gap-0.5 text-center"

@@ -36,6 +36,14 @@ export function createItineraryApi(service: ItineraryService) {
       ),
   );
 
+  // Registered before `/:id` like `/trending`.
+  api.get(
+    "/mine",
+    requireAuth,
+    async (c) =>
+      c.json(await service.listMine({ userId: c.get("auth").user.id })),
+  );
+
   api.get(
     "/by-session/:sessionId",
     zValidator("param", itinerarySessionParamSchema),
@@ -131,8 +139,17 @@ export function createItineraryApi(service: ItineraryService) {
       c.json(await service.view({ id: c.req.valid("param").id, userId: c.get("auth").user.id })),
   );
 
-  api.get("/:id", zValidator("param", itineraryIdParamSchema), zValidator("query", itineraryOwnerQuerySchema), async (c) =>
-    c.json(await service.getById({ id: c.req.valid("param").id, userId: c.req.valid("query").userId })),
+  api.get(
+    "/:id",
+    requireAuth,
+    zValidator("param", itineraryIdParamSchema),
+    async (c) =>
+      c.json(
+        await service.getById({
+          id: c.req.valid("param").id,
+          userId: c.get("auth").user.id,
+        }),
+      ),
   );
 
   return api;

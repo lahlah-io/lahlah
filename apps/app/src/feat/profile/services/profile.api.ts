@@ -23,3 +23,34 @@ export async function updateMyProfile(input: UpdateProfileInput): Promise<Profil
   });
   return response.data;
 }
+
+/** Kartu profil dari `GET /api/v1/itineraries/mine`: trip milik user, publik atau belum. */
+export interface MyTripCard {
+  author: { name: string; username: string | null } | null;
+  coverImageUrl: string | null;
+  destinationNames: string[];
+  /** Jarak jalan versi terbaru (meter); `null` bila belum ada leg berjarak. */
+  distanceM: number | null;
+  id: string;
+  likeCount: number;
+  likedByMe: boolean;
+  stopCount: number;
+  title: string;
+  updatedAt: string;
+  viewCount: number;
+  /** Koordinat `[longitude, latitude]` versi terbaru untuk cover peta. */
+  waypoints: [number, number][];
+}
+
+export interface MyTripsResponse {
+  data: MyTripCard[];
+  meta: {
+    totalDistanceM: number | null;
+    totalLikes: number;
+    totalTrips: number;
+  };
+}
+
+export function fetchMyTrips() {
+  return apiRequest<MyTripsResponse>("/api/v1/itineraries/mine");
+}

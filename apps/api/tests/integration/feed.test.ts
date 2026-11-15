@@ -56,6 +56,7 @@ type FeedBody = {
     stopCount: number;
     destinationNames: string[];
     coverImageUrl: string | null;
+    waypoints: [number, number][];
     likeCount: number;
     viewCount: number;
     likedByMe: boolean;
@@ -110,6 +111,8 @@ test("feed lists only published trips, newest activity first", async () => {
   assert.equal(card.stopCount, 2);
   assert.deepEqual(card.destinationNames, ["Pantai Air Manis", "Jembatan Sitti Nurbaya"]);
   assert.equal(card.coverImageUrl, null);
+  // Every seeded stop is geocoded, so the card carries a route cover.
+  assert.equal(card.waypoints.length, 2);
   assert.equal(card.likedByMe, false);
   assert.equal(typeof card.author?.username, "string");
   assert.equal(body.meta.page, 1);

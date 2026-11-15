@@ -2,30 +2,30 @@ import { Eye } from "lucide-react";
 import { Link } from "react-router";
 
 import { TripRouteMap } from "@/shared/components/trip/trip-route-map";
-import { getTripWaypoints } from "@/shared/data/itinerary";
 import { useCheckpoints } from "@/shared/hooks/use-checkpoints";
-import type { Trip } from "@/shared/types/itinerary";
 
-function TripGridItem({ trip }: { trip: Trip }) {
+import type { ProfileTripCard } from "../types/index";
+
+function TripGridItem({ trip }: { trip: ProfileTripCard }) {
   const { checkpoints } = useCheckpoints(trip.id);
-  const views = trip.views ?? 0;
+  const views = trip.viewCount;
 
   return (
     <li className="relative aspect-[4/5]">
       <Link
         to={`/profile/${trip.id}`}
-        aria-label={`Buka trip ${trip.summary.title}, ${views.toLocaleString("id-ID")} tayangan`}
+        aria-label={`Buka trip ${trip.title}, ${views.toLocaleString("id-ID")} tayangan`}
         className="group absolute inset-0 block overflow-hidden rounded-2xl border border-border bg-muted outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-inset"
       >
         <TripRouteMap
-          waypoints={getTripWaypoints(trip)}
-          label={`Peta rute ${trip.summary.title}`}
+          waypoints={trip.waypoints}
+          label={`Peta rute ${trip.title}`}
           checkpoints={checkpoints}
         />
 
         <div className="pointer-events-none absolute inset-x-0 top-0 bg-gradient-to-b from-background/85 via-background/40 to-transparent px-2.5 pt-2 pb-10">
           <p className="line-clamp-2 font-sans text-sm leading-snug font-semibold text-balance text-white">
-            {trip.summary.title}
+            {trip.title}
           </p>
         </div>
 
@@ -38,8 +38,8 @@ function TripGridItem({ trip }: { trip: Trip }) {
   );
 }
 
-/** Grid trip profil: satu tile = satu trip, covernya peta rute. */
-export function TripGrid({ trips }: { trips: Trip[] }) {
+/** Grid trip profil: satu tile = satu trip milik user, covernya peta rute. */
+export function TripGrid({ trips }: { trips: ProfileTripCard[] }) {
   return (
     <ul
       aria-label="Grid trip"

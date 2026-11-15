@@ -24,6 +24,7 @@ import AIConversation from "./smoothui/ai-conversation";
 import AIPromptInput from "./smoothui/ai-prompt-input";
 import { TripTask } from "./trip-task";
 import { useChatThreadsContext } from "../context/chat-threads-context";
+import { resolveChatRoute } from "../utils/chat-route";
 
 const SUGGESTIONS = [
   "Buat itinerary pantai besok pagi",
@@ -76,26 +77,29 @@ function ChatWorkspace() {
 
   // URL adalah sumber kebenaran: `/chat/:id` memilih thread, `/chat` draft,
   // `.../trip` membuka tab trip. Daftar thread belum diketahui sebelum API
-  // menjawab, jadi redirect ditunda sampai `listLoading` selesai.
+  // menjawab, jadi sinkronisasi ditunda sampai `listLoading` selesai.
   useEffect(() => {
-    if (listLoading) return;
-    if (threadId) {
-      if (!threads.some((thread) => thread.id === threadId)) {
-        navigate("/chat", { replace: true });
-        return;
-      }
-      if (threadId !== activeId) selectThread(threadId);
-      return;
-    }
-    if (!showTrip && activeId) {
-      navigate(`/chat/${activeId}`, { replace: true });
+    const action = resolveChatRoute({
+      threadId,
+      activeId,
+      listLoading,
+      threadExists: threadId
+        ? threads.some((thread) => thread.id === threadId)
+        : false,
+    });
+    if (action.type === "fallback") {
+      navigate("/chat", { replace: true });
+    } else if (action.type === "select") {
+      selectThread(action.id);
+    } else if (action.type === "reset") {
+      startDraft();
     }
   }, [
     activeId,
     listLoading,
     navigate,
     selectThread,
-    showTrip,
+    startDraft,
     threadId,
     threads,
   ]);

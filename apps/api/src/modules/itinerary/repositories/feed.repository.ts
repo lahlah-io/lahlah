@@ -14,7 +14,10 @@ const feedSelect = {
     select: {
       destinationId: true,
       createdAt: true,
-      destination: { select: { name: true, imageUrl: true } },
+      distance: true,
+      destination: {
+        select: { name: true, imageUrl: true, latitude: true, longitude: true },
+      },
     },
   },
   _count: { select: { likes: true, views: true } },
@@ -36,6 +39,16 @@ export async function listFeed(input: { page: number; limit: number }) {
     prisma.trip.count({ where: feedWhere }),
   ]);
   return { rows, total };
+}
+
+/** Trips the user belongs to, published or not: `GET /itineraries/mine`. */
+export async function listByMember(input: { userId: string; limit: number }) {
+  return prisma.trip.findMany({
+    where: { deletedAt: null, members: { some: { userId: input.userId } } },
+    orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+    take: input.limit,
+    select: feedSelect,
+  });
 }
 
 export async function likedTripIds(userId: string, tripIds: string[]): Promise<Set<string>> {

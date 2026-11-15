@@ -5,6 +5,7 @@ import { Hono } from "hono";
 import { prisma } from "../../src/db/client.js";
 import { errorHandler } from "../../src/shared/http/errors.js";
 import { createItineraryApi, createItineraryService } from "../../src/modules/itinerary/index.js";
+import { createSession as createAuthSession } from "../../src/shared/auth/session.service.js";
 import type { ItineraryVersionStop } from "../../src/shared/schemas/itinerary-version.js";
 
 const json = { "content-type": "application/json" };
@@ -105,7 +106,10 @@ test("itinerary detail reconstructs the latest trip_destinations batch", async (
   const rows = await padangDestinations(2);
   try {
     const { app, id } = await seededItinerary(user.id, session.id, rows);
-    const res = await app.request(`/api/v1/itineraries/${id}?userId=${user.id}`);
+    const auth = await createAuthSession(user.id, { userAgent: "versions-test" });
+    const res = await app.request(`/api/v1/itineraries/${id}`, {
+      headers: { authorization: `Bearer ${auth.token}` },
+    });
     assert.equal(res.status, 200);
     const body = (await res.json()) as {
       data: {
@@ -211,8 +215,12 @@ test("itinerary version endpoints enforce ownership", async () => {
   const rows = await padangDestinations(2);
   try {
     const { app, id } = await seededItinerary(user.id, session.id, rows);
+    const otherAuth = await createAuthSession(other.id, { userAgent: "versions-other" });
 
-    assert.equal((await app.request(`/api/v1/itineraries/${id}?userId=${other.id}`)).status, 404);
+    const foreignDetail = await app.request(`/api/v1/itineraries/${id}`, {
+      headers: { authorization: `Bearer ${otherAuth.token}` },
+    });
+    assert.equal(foreignDetail.status, 404);
     assert.equal((await app.request(`/api/v1/itineraries/${id}/versions?userId=${other.id}`)).status, 404);
     assert.equal((await app.request(`/api/v1/itineraries/by-session/${session.id}?userId=${other.id}`)).status, 404);
 

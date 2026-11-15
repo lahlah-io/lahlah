@@ -1,33 +1,65 @@
 import { Heart, MapPin, Share2 } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 
 import { Button } from "@/shared/components/ui/button";
 import { Skeleton } from "@/shared/components/ui/skeleton";
+import { TripRouteMap } from "@/shared/components/trip/trip-route-map";
 import { UserAvatar } from "@/shared/components/user-avatar";
 import { formatRelativeTime } from "@/shared/utils/time";
 
 import { recordItineraryView, type FeedCardDto } from "../services/home.api";
 
+function FeedCoverPlaceholder() {
+  return (
+    <div className="flex size-full items-center justify-center bg-muted">
+      <MapPin aria-hidden="true" className="size-8 text-muted-foreground" />
+    </div>
+  );
+}
+
+/**
+ * Cover kartu: peta rute trip.
+ *
+ * Peta MapLibre mahal (satu konteks WebGL per kartu), jadi baru dipasang saat
+ * kartu mendekati viewport dan dilepas lagi saat jauh — feed bisa panjang.
+ * Trip tanpa koordinat jatuh ke foto destinasi, lalu ke placeholder.
+ */
 function FeedCardCover({ card }: { card: FeedCardDto }) {
-  if (!card.coverImageUrl) {
-    return (
-      <div
-        aria-hidden="true"
-        className="flex size-full items-center justify-center bg-muted"
-      >
-        <MapPin aria-hidden="true" className="size-8 text-muted-foreground" />
-      </div>
+  const ref = useRef<HTMLDivElement>(null);
+  const [nearViewport, setNearViewport] = useState(false);
+  const hasRoute = card.waypoints.length > 0;
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => setNearViewport(entries[0]?.isIntersecting ?? false),
+      { rootMargin: "400px" },
     );
-  }
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
   return (
-    <img
-      src={card.coverImageUrl}
-      alt=""
-      loading="lazy"
-      className="size-full object-cover"
-    />
+    <div ref={ref} className="size-full">
+      {hasRoute && nearViewport ? (
+        <TripRouteMap
+          waypoints={card.waypoints}
+          label={`Peta rute ${card.title}`}
+        />
+      ) : card.coverImageUrl && !hasRoute ? (
+        <img
+          src={card.coverImageUrl}
+          alt=""
+          loading="lazy"
+          className="size-full object-cover"
+        />
+      ) : (
+        <FeedCoverPlaceholder />
+      )}
+    </div>
   );
 }
 
@@ -59,6 +91,17 @@ function FeedPostCard({
     }
   }
 
+  const body = (
+    <>
+      <p className="text-sm font-semibold">{card.title}</p>
+      <p className="mt-0.5 text-sm leading-6 text-muted-foreground">{stops}</p>
+
+      <div className="relative mt-3 aspect-[4/3] w-full overflow-hidden rounded-xl bg-muted">
+        <FeedCardCover card={card} />
+      </div>
+    </>
+  );
+
   return (
     <article className="relative pb-5">
       <header className="relative z-10 flex items-center gap-3 px-4 py-3">
@@ -84,12 +127,7 @@ function FeedPostCard({
         }}
         className="block px-4 outline-none after:absolute after:inset-0 after:content-[''] focus-visible:ring-2 focus-visible:ring-sidebar-ring"
       >
-        <p className="text-sm font-semibold">{card.title}</p>
-        <p className="mt-0.5 text-sm leading-6 text-muted-foreground">{stops}</p>
-
-        <div className="relative mt-3 aspect-[4/3] w-full overflow-hidden rounded-xl bg-muted">
-          <FeedCardCover card={card} />
-        </div>
+        {body}
       </Link>
 
       <div className="relative z-10 mt-3 flex items-center gap-1 px-4">
@@ -218,7 +256,11 @@ export function HomeFeed({
         </p>
       ) : null}
       {(items ?? []).map((card) => (
-        <FeedPostCard key={card.id} card={card} onToggleLike={onToggleLike} />
+        <FeedPostCard
+          key={card.id}
+          card={card}
+          onToggleLike={onToggleLike}
+        />
       ))}
       {loadingMore ? <FeedSkeleton /> : null}
       {hasMore ? <div ref={sentinelRef} aria-hidden="true" className="h-1" /> : null}

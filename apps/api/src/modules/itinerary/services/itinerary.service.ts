@@ -66,6 +66,46 @@ function feedStops(row: feedRepository.FeedRow) {
   });
 }
 
+/** One card per trip, shared by the home feed and the profile grid. */
+function feedCard(row: feedRepository.FeedRow, liked: boolean) {
+  const stops = feedStops(row);
+  return {
+    id: row.id,
+    title: row.title,
+    author: row.members[0]?.user ?? null,
+    stopCount: stops.length,
+    destinationNames: stops.map((stop) => stop.destination.name),
+    coverImageUrl: feedCoverUrl(
+      stops.find((stop) => stop.destination.imageUrl)?.destination.imageUrl ?? null,
+    ),
+    // Route cover for the card: newest-version stops that have coordinates.
+    waypoints: feedWaypoints(row),
+    likeCount: row._count.likes,
+    viewCount: row._count.views,
+    likedByMe: liked,
+    updatedAt: row.updatedAt,
+  };
+}
+
+/** Stops of the newest version that carry coordinates, as `[lon, lat]`. */
+function feedWaypoints(row: feedRepository.FeedRow): Array<[number, number]> {
+  return feedStops(row).flatMap((stop) => {
+    const { latitude, longitude } = stop.destination;
+    return latitude == null || longitude == null
+      ? []
+      : [[Number(longitude), Number(latitude)] as [number, number]];
+  });
+}
+
+/** Stored road distance of the newest version, in meters; null when no leg has one. */
+function feedDistanceM(row: feedRepository.FeedRow): number | null {
+  const meters = feedStops(row).reduce((total, stop) => total + (stop.distance ?? 0), 0);
+  return meters > 0 ? Math.round(meters) : null;
+}
+
+/** ponytail: one page only, plan limits keep trips few. Add paging when a grid needs scroll. */
+const MY_TRIPS_LIMIT = 50;
+
 function visitAtDate(travelDate: string, hhmm: string): Date | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(travelDate) || !/^\d{2}:\d{2}$/.test(hhmm)) return null;
   // shortcut: interpret local wall time as UTC for MVP (no TZ in draft).
@@ -333,11 +373,14 @@ export function createItineraryService(deps: ItineraryDeps) {
     async getById(input: { id: string; userId: string }) {
       productionGate();
       await requireActiveUser(deps, input.userId);
-      if (!(await checkUserTripAccess(input.userId, input.id))) {
+      const row = await tripRepository.findById(input.id);
+      // Trip publik boleh dibaca user login mana pun; trip privat hanya anggota.
+      if (
+        !row ||
+        (!row.isPublic && !(await checkUserTripAccess(input.userId, input.id)))
+      ) {
         throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
       }
-      const row = await tripRepository.findById(input.id);
-      if (!row) throw new HttpError(404, "ITINERARY_NOT_FOUND", "Itinerary not found");
       return { data: await withCurrentVersion(row, input.userId) };
     },
 
@@ -473,24 +516,35 @@ export function createItineraryService(deps: ItineraryDeps) {
       );
 
       return {
-        data: rows.map((row) => {
-          const stops = feedStops(row);
-          return {
-            id: row.id,
-            title: row.title,
-            author: row.members[0]?.user ?? null,
-            stopCount: stops.length,
-            destinationNames: stops.map((stop) => stop.destination.name),
-            coverImageUrl: feedCoverUrl(
-              stops.find((stop) => stop.destination.imageUrl)?.destination.imageUrl ?? null,
-            ),
-            likeCount: row._count.likes,
-            viewCount: row._count.views,
-            likedByMe: liked.has(row.id),
-            updatedAt: row.updatedAt,
-          };
-        }),
+        data: rows.map((row) => feedCard(row, liked.has(row.id))),
         meta: { page, limit, total, hasMore: page * limit < total },
+      };
+    },
+
+    /** Profile grid: newest-version card per trip of the session owner. */
+    async listMine(input: { userId: string }) {
+      const rows = await feedRepository.listByMember({ userId: input.userId, limit: MY_TRIPS_LIMIT });
+
+      const liked = await feedRepository.likedTripIds(
+        input.userId,
+        rows.map((row) => row.id),
+      );
+
+      const cards = rows.map((row) => ({
+        ...feedCard(row, liked.has(row.id)),
+        distanceM: feedDistanceM(row),
+      }));
+
+      const totalLikes = cards.reduce((total, card) => total + card.likeCount, 0);
+      const totalDistanceM = cards.reduce((total, card) => total + (card.distanceM ?? 0), 0);
+
+      return {
+        data: cards,
+        meta: {
+          totalTrips: cards.length,
+          totalLikes,
+          totalDistanceM: totalDistanceM > 0 ? totalDistanceM : null,
+        },
       };
     },
   };

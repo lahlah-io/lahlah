@@ -10,7 +10,7 @@ import {
 } from "@/shared/components/ui/empty";
 import { cn } from "@/shared/utils/cn";
 
-import type { Trip } from "@/shared/types/itinerary";
+import type { ProfileTripCard } from "../types/index";
 
 import { TripGrid } from "./trip-grid";
 
@@ -27,7 +27,16 @@ const EMPTY_STATES: Record<Exclude<TabId, "trip">, string> = {
   tagged: "Trip yang menandai kamu akan muncul di sini.",
 };
 
-export function ProfileTabs({ trips }: { trips: Trip[] }) {
+export function ProfileTabs({
+  trips,
+  loading,
+  error,
+}: {
+  trips: ProfileTripCard[];
+  /** `true` selama `GET /itineraries/mine` halaman pertama belum selesai. */
+  loading: boolean;
+  error: string | null;
+}) {
   const [tab, setTab] = useState<TabId>("trip");
 
   return (
@@ -65,7 +74,28 @@ export function ProfileTabs({ trips }: { trips: Trip[] }) {
 
       <div role="tabpanel" className="mt-0">
         {tab === "trip" ? (
-          <TripGrid trips={trips} />
+          loading ? (
+            <p
+              role="status"
+              className="px-4 py-10 text-center text-sm text-muted-foreground"
+            >
+              Memuat trip…
+            </p>
+          ) : trips.length > 0 ? (
+            <TripGrid trips={trips} />
+          ) : (
+            <Empty className="border-0 py-16">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <LayoutGrid aria-hidden="true" />
+                </EmptyMedia>
+                <EmptyTitle>Belum ada trip</EmptyTitle>
+                <EmptyDescription>
+                  {error ?? "Buat itinerary dari chat untuk mengisi profil ini."}
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          )
         ) : (
           <Empty className="border-0 py-16">
             <EmptyHeader>

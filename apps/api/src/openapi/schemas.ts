@@ -145,6 +145,45 @@ const durationMetadata = {
   updatedAt: timestamp,
 };
 
+/** Fields shared by feed cards and profile-grid cards. */
+const feedItineraryFields: Record<string, SchemaObject> = {
+  id: uuid,
+  title: { type: "string" },
+  author: {
+    type: ["object", "null"],
+    description: "Earliest member (owner) of the trip, or `null` for legacy rows.",
+    required: ["name", "username"],
+    properties: {
+      name: { type: "string" },
+      username: { type: ["string", "null"] },
+    },
+  },
+  stopCount: { type: "integer", minimum: 0 },
+  destinationNames: { type: "array", items: { type: "string" } },
+  coverImageUrl: {
+    ...nullableString,
+    description:
+      "Proxy URL (`/api/v1/images?src=...&w=800`) when the photo host is allowlisted, the raw URL " +
+      "otherwise, or `null` when no stop in the newest version has a photo.",
+  },
+  waypoints: {
+    type: "array",
+    description:
+      "Newest-version stop coordinates as `[longitude, latitude]` for the route cover; stops without " +
+      "coordinates are skipped. Empty array when the trip has no geocoded stop.",
+    items: coordinatePair,
+  },
+  likeCount: integer,
+  viewCount: integer,
+  likedByMe: { type: "boolean" },
+  updatedAt: timestamp,
+};
+
+const feedItineraryRequired = [
+  "id", "title", "author", "stopCount", "destinationNames", "coverImageUrl",
+  "waypoints", "likeCount", "viewCount", "likedByMe", "updatedAt",
+];
+
 export const schemas: Record<string, SchemaObject> = {
   Error: {
     type: "object",
@@ -1374,34 +1413,47 @@ export const schemas: Record<string, SchemaObject> = {
   FeedItinerary: {
     type: "object",
     description: "One home-feed card. Stop fields describe the newest itinerary version.",
-    required: [
-      "id", "title", "author", "stopCount", "destinationNames", "coverImageUrl",
-      "likeCount", "viewCount", "likedByMe", "updatedAt",
-    ],
+    required: feedItineraryRequired,
+    properties: feedItineraryFields,
+  },
+
+  MyTripCard: {
+    type: "object",
+    description:
+      "One profile-grid card: a trip the signed-in user belongs to, published or not. Same fields as " +
+      "`FeedItinerary`, plus the stored road distance of its newest version.",
+    required: [...feedItineraryRequired, "distanceM"],
     properties: {
-      id: uuid,
-      title: { type: "string" },
-      author: {
-        type: ["object", "null"],
-        description: "Earliest member (owner) of the trip, or `null` for legacy rows.",
-        required: ["name", "username"],
-        properties: {
-          name: { type: "string" },
-          username: { type: ["string", "null"] },
-        },
-      },
-      stopCount: { type: "integer", minimum: 0 },
-      destinationNames: { type: "array", items: { type: "string" } },
-      coverImageUrl: {
-        ...nullableString,
+      ...feedItineraryFields,
+      distanceM: {
+        ...totalDistanceM,
         description:
-          "Proxy URL (`/api/v1/images?src=...&w=800`) when the photo host is allowlisted, the raw URL " +
-          "otherwise, or `null` when no stop in the newest version has a photo.",
+          "Road distance of the newest version in meters (`SUM(distance)` over its stops), or `null` when no " +
+          "stop has one. Never read `null` as `0`.",
       },
-      likeCount: integer,
-      viewCount: integer,
-      likedByMe: { type: "boolean" },
-      updatedAt: timestamp,
+    },
+  },
+
+  MyTripsMeta: {
+    type: "object",
+    required: ["totalTrips", "totalLikes", "totalDistanceM"],
+    properties: {
+      totalTrips: { type: "integer", minimum: 0, description: "Trips returned for the profile grid." },
+      totalLikes: { type: "integer", minimum: 0, description: "Sum of `likeCount` over those trips." },
+      totalDistanceM: {
+        ...totalDistanceM,
+        description:
+          "Sum of `distanceM` over those trips, in meters. `null` when no trip has a stored road distance.",
+      },
+    },
+  },
+
+  MyTripsPage: {
+    type: "object",
+    required: ["data", "meta"],
+    properties: {
+      data: { type: "array", items: { $ref: "#/components/schemas/MyTripCard" } },
+      meta: { $ref: "#/components/schemas/MyTripsMeta" },
     },
   },
 
